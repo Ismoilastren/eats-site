@@ -1,0 +1,644 @@
+'use client';
+import React, { useState, useEffect } from 'react';
+import { useRouter, useParams } from 'next/navigation';
+import { db, doc, getDoc, updateDoc, collection, query, where, getDocs, addDoc, deleteDoc } from '@repo/firebase-config';
+import { COLLECTIONS, Restaurant, MenuItem } from '@repo/shared-types';
+import toast from 'react-hot-toast';
+import { initializeApp, getApp, getApps, deleteApp } from 'firebase/app';
+import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+import { setDoc } from 'firebase/firestore';
+
+export default function EditRestaurantPage() {
+  const router = useRouter();
+  const params = useParams();
+  const id = params?.id as string;
+  
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  
+  const [formData, setFormData] = useState({
+    name: '',
+    cuisine: '',
+    location: '',
+    description: '',
+    imageUrl: '',
+  });
+
+  const [ownerId, setOwnerId] = useState<string | null>(null);
+  const [currentManagerEmail, setCurrentManagerEmail] = useState('');
+  const [managerEmail, setManagerEmail] = useState('');
+  const [managerPassword, setManagerPassword] = useState('');
+  const [isCreatingManager, setIsCreatingManager] = useState(false);
+
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  const [isMenuModalOpen, setIsMenuModalOpen] = useState(false);
+  const [deleteMenuId, setDeleteMenuId] = useState<string | null>(null);
+  const [editingMenuId, setEditingMenuId] = useState<string | null>(null);
+  const [newMenuImageFile, setNewMenuImageFile] = useState<File | null>(null);
+  const [newMenuItem, setNewMenuItem] = useState({
+    name: '',
+    description: '',
+    price: '',
+    category: '',
+    imageUrl: ''
+  });
+
+  useEffect(() => {
+    if (!id) return;
+    
+    const fetchRestaurant = async () => {
+      try {
+        const docRef = doc(db, COLLECTIONS.RESTAURANTS, id);
+        const docSnap = await getDoc(docRef);
+        
+        if (docSnap.exists()) {
+          const data = docSnap.data() as Restaurant;
+          setFormData({
+            name: data.name || '',
+            cuisine: data.cuisine || '',
+            location: data.address || (typeof (data as any).location === 'string' ? (data as any).location : ''),
+            description: data.description || '',
+            imageUrl: data.imageUrl || '',
+          });
+          
+          if (data.ownerId) {
+            setOwnerId(data.ownerId);
+            // Fetch the user's email
+            const userRef = doc(db, COLLECTIONS.USERS, data.ownerId);
+            const userSnap = await getDoc(userRef);
+            if (userSnap.exists()) {
+              setCurrentManagerEmail(userSnap.data().email || '');
+            }
+          }
+
+          // Fetch Menu Items
+          const menuQuery = query(
+            collection(db, COLLECTIONS.MENU_ITEMS),
+            where('restaurantId', '==', id)
+          );
+          const menuSnap = await getDocs(menuQuery);
+          const menuData: MenuItem[] = [];
+          menuSnap.forEach((d) => {
+            menuData.push({ id: d.id, ...d.data() } as MenuItem);
+          });
+          setMenuItems(menuData.sort((a, b) => a.sortOrder - b.sortOrder));
+        } else {
+          toast.error("Restaurant not found");
+          router.push('/restaurants');
+        }
+      } catch (error) {
+        console.error("Error fetching restaurant:", error);
+        toast.error("Failed to load restaurant details");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    fetchRestaurant();
+  }, [id, router]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.name || !formData.cuisine || !formData.location) {
+      toast.error('Name, cuisine, and location are required.');
+      return;
+    }
+
+    setIsSaving(true);
+    toast.loading('Saving changes...', { id: 'edit-restaurant' });
+
+    try {
+      let finalImageUrl = formData.imageUrl;
+      if (imageFile) {
+        finalImageUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.readAsDataURL(imageFile);
+          reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target?.result as string;
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const MAX_WIDTH = 800;
+              const scaleSize = MAX_WIDTH / img.width;
+              canvas.width = MAX_WIDTH;
+              canvas.height = img.height * scaleSize;
+              const ctx = canvas.getContext('2d');
+              ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+              resolve(canvas.toDataURL('image/webp', 0.7));
+            };
+            img.onerror = (error) => reject(error);
+          };
+          reader.onerror = (error) => reject(error);
+        });
+      }
+
+      const updates: Partial<Restaurant> = {
+        name: formData.name,
+        cuisine: formData.cuisine,
+        address: formData.location,
+        description: formData.description,
+        imageUrl: finalImageUrl,
+      };
+
+      const docRef = doc(db, COLLECTIONS.RESTAURANTS, id);
+      await updateDoc(docRef, updates);
+
+      toast.success('Restaurant updated successfully!', { id: 'edit-restaurant' });
+    } catch (error: any) {
+      console.error(error);
+      toast.error('Failed to update restaurant: ' + error.message, { id: 'edit-restaurant' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCreateManager = async () => {
+    if (!managerEmail || !managerPassword) {
+      toast.error('Email and password required');
+      return;
+    }
+
+    setIsCreatingManager(true);
+    const toastId = toast.loading('Creating manager account...');
+
+    try {
+      const firebaseConfig = {
+        apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+        authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+        projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+        storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+        messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+        appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+      };
+
+      const tempAppName = 'TempApp_' + Date.now();
+      const secondaryApp = initializeApp(firebaseConfig, tempAppName);
+      const secondaryAuth = getAuth(secondaryApp);
+
+      let uid = '';
+      try {
+        const userCred = await createUserWithEmailAndPassword(secondaryAuth, managerEmail, managerPassword);
+        uid = userCred.user.uid;
+      } catch (authError: any) {
+        if (authError.code === 'auth/email-already-in-use') {
+          // If already exists, just sign in to get the UID
+          const { signInWithEmailAndPassword } = await import('firebase/auth');
+          const existingCred = await signInWithEmailAndPassword(secondaryAuth, managerEmail, managerPassword);
+          uid = existingCred.user.uid;
+        } else {
+          throw authError; // Rethrow if it's a different error
+        }
+      }
+
+      await setDoc(doc(db, COLLECTIONS.USERS, uid), {
+        email: managerEmail,
+        name: `${formData.name} Manager`,
+        role: 'restaurant',
+        createdAt: new Date()
+      }, { merge: true });
+
+      await updateDoc(doc(db, COLLECTIONS.RESTAURANTS, id), {
+        ownerId: uid
+      });
+
+      await secondaryAuth.signOut();
+      await deleteApp(secondaryApp);
+
+      setOwnerId(uid);
+      setCurrentManagerEmail(managerEmail);
+
+      toast.success('Manager created and linked successfully!', { id: toastId });
+      setManagerEmail('');
+      setManagerPassword('');
+    } catch (error: any) {
+      console.error("Manager Creation Error:", error);
+      toast.error('Failed: ' + error.message, { id: toastId });
+    } finally {
+      setIsCreatingManager(false);
+    }
+  };
+
+  const handleUnlinkManager = async () => {
+    try {
+      await updateDoc(doc(db, COLLECTIONS.RESTAURANTS, id), {
+        ownerId: null
+      });
+      setOwnerId(null);
+      setCurrentManagerEmail('');
+      toast.success('Manager unlinked.');
+    } catch (error) {
+      toast.error('Failed to unlink manager');
+    }
+  };
+
+  const handleSaveMenuItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMenuItem.name || !newMenuItem.price || !newMenuItem.category) {
+      toast.error('Name, price, and category are required.');
+      return;
+    }
+    
+    setIsSaving(true);
+    try {
+      let finalImageUrl = newMenuItem.imageUrl;
+      if (newMenuImageFile) {
+        finalImageUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.readAsDataURL(newMenuImageFile);
+          reader.onload = (event) => {
+            const img = new Image();
+            img.src = event.target?.result as string;
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const MAX_WIDTH = 500;
+              const scaleSize = MAX_WIDTH / img.width;
+              canvas.width = MAX_WIDTH;
+              canvas.height = img.height * scaleSize;
+              const ctx = canvas.getContext('2d');
+              ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+              resolve(canvas.toDataURL('image/webp', 0.7));
+            };
+            img.onerror = (error) => reject(error);
+          };
+          reader.onerror = (error) => reject(error);
+        });
+      }
+
+      if (editingMenuId) {
+        const updates: Partial<MenuItem> = {
+          name: newMenuItem.name,
+          description: newMenuItem.description,
+          price: parseFloat(newMenuItem.price),
+          category: newMenuItem.category,
+          imageUrl: finalImageUrl,
+          updatedAt: new Date()
+        };
+        const docRef = doc(db, COLLECTIONS.MENU_ITEMS, editingMenuId);
+        await updateDoc(docRef, updates);
+        
+        setMenuItems(menuItems.map(item => item.id === editingMenuId ? { ...item, ...updates } : item));
+        toast.success('Menu item updated successfully!');
+      } else {
+        const menuItemData: Omit<MenuItem, 'id'> = {
+          restaurantId: id,
+          name: newMenuItem.name,
+          description: newMenuItem.description,
+          price: parseFloat(newMenuItem.price),
+          category: newMenuItem.category,
+          imageUrl: finalImageUrl,
+          isAvailable: true,
+          sortOrder: menuItems.length,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+
+        const docRef = await addDoc(collection(db, COLLECTIONS.MENU_ITEMS), menuItemData);
+        setMenuItems([...menuItems, { id: docRef.id, ...menuItemData } as MenuItem]);
+        toast.success('Menu item added successfully!');
+      }
+
+      setNewMenuItem({ name: '', description: '', price: '', category: '', imageUrl: '' });
+      setNewMenuImageFile(null);
+      setEditingMenuId(null);
+      setIsMenuModalOpen(false);
+    } catch (error) {
+      console.error(error);
+      toast.error('Failed to save menu item');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const executeDeleteMenuItem = async () => {
+    if (!deleteMenuId) return;
+    const itemId = deleteMenuId;
+    setDeleteMenuId(null);
+    try {
+      await deleteDoc(doc(db, COLLECTIONS.MENU_ITEMS, itemId));
+      setMenuItems(menuItems.filter(item => item.id !== itemId));
+      toast.success('Menu item deleted');
+    } catch (error) {
+      console.error(error);
+      toast.error('Failed to delete item');
+    }
+  };
+
+  if (isLoading) {
+    return <div className="p-12 text-center text-gray-500">Loading restaurant details...</div>;
+  }
+
+  return (
+    <div className="max-w-3xl space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Edit Restaurant</h1>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Update the details for this restaurant.</p>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-6 rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Restaurant Image</label>
+            {formData.imageUrl && !imageFile && (
+              <div className="mb-2">
+                <img src={formData.imageUrl} alt="Current" className="h-24 w-24 object-cover rounded-lg border border-gray-200" />
+              </div>
+            )}
+            <input 
+              type="file" 
+              accept="image/*"
+              onChange={(e) => {
+                if (e.target.files && e.target.files[0]) {
+                  setImageFile(e.target.files[0]);
+                }
+              }}
+              className="w-full rounded-lg border border-gray-300 p-2.5 outline-none focus:border-brand-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white" 
+            />
+            <p className="mt-1 text-xs text-gray-500">Select a new image to replace the current one.</p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Restaurant Name</label>
+            <input 
+              type="text" 
+              value={formData.name}
+              onChange={(e) => setFormData({...formData, name: e.target.value})}
+              placeholder="e.g. Express Eats"
+              className="w-full rounded-lg border border-gray-300 p-2.5 outline-none focus:border-brand-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white" 
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Cuisine Type</label>
+            <input 
+              type="text" 
+              value={formData.cuisine}
+              onChange={(e) => setFormData({...formData, cuisine: e.target.value})}
+              placeholder="e.g. Fast Food, Italian, Uzbek"
+              className="w-full rounded-lg border border-gray-300 p-2.5 outline-none focus:border-brand-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white" 
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Location Address</label>
+            <input 
+              type="text" 
+              value={formData.location}
+              onChange={(e) => setFormData({...formData, location: e.target.value})}
+              placeholder="e.g. Amir Temur 14, Tashkent"
+              className="w-full rounded-lg border border-gray-300 p-2.5 outline-none focus:border-brand-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white" 
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description (Optional)</label>
+            <textarea 
+              value={formData.description}
+              onChange={(e) => setFormData({...formData, description: e.target.value})}
+              placeholder="Short description of the restaurant"
+              rows={3}
+              className="w-full rounded-lg border border-gray-300 p-2.5 outline-none focus:border-brand-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white" 
+            />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-gray-700">
+          <button 
+            type="button" 
+            onClick={() => router.back()}
+            className="rounded-lg bg-gray-100 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+          >
+            Cancel
+          </button>
+          <button 
+            type="submit" 
+            disabled={isSaving}
+            className="rounded-lg bg-brand-500 px-5 py-2.5 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
+          >
+            {isSaving ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
+      </form>
+
+      {/* App Login / Manager Section */}
+      {ownerId ? (
+        <div className="mt-8 rounded-xl bg-emerald-50 p-6 shadow-sm dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/50">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+              Manager Account Linked
+            </h2>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+              This restaurant is already connected to a manager. They can log into the Mobile App with their email.
+            </p>
+          </div>
+          
+          <div className="mt-4 p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 flex justify-between items-center">
+             <div>
+                 <span className="block text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Linked Manager Email</span>
+                 <span className="font-bold text-gray-900 dark:text-white">{currentManagerEmail || "Loading..."}</span>
+             </div>
+             <button 
+               onClick={handleUnlinkManager} 
+               className="text-sm px-4 py-2 rounded-lg bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 font-semibold hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors"
+             >
+               Remove Link
+             </button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-8 rounded-xl bg-orange-50 p-6 shadow-sm dark:bg-gray-800/80 border border-orange-200 dark:border-gray-700">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white">Mobile App Login (Manager)</h2>
+            <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+              Create an email and password for the restaurant manager so they can log into the Kitchen Display App.
+            </p>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Manager Email</label>
+              <input 
+                type="email" 
+                value={managerEmail}
+                onChange={(e) => setManagerEmail(e.target.value)}
+                placeholder="manager@restaurant.com"
+                className="w-full rounded-lg border border-gray-300 p-2.5 outline-none focus:border-orange-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white" 
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Manager Password</label>
+              <input 
+                type="password" 
+                value={managerPassword}
+                onChange={(e) => setManagerPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full rounded-lg border border-gray-300 p-2.5 outline-none focus:border-orange-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white" 
+              />
+            </div>
+          </div>
+          
+          <div className="mt-4 flex justify-end">
+            <button 
+              onClick={handleCreateManager}
+              disabled={isCreatingManager}
+              className="rounded-lg bg-orange-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-orange-700 disabled:opacity-50"
+            >
+              {isCreatingManager ? 'Linking...' : 'Link Manager Account'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Menu Management Section */}
+      <div className="mt-8 rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white">Menu Items</h2>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Manage food items for this restaurant.</p>
+          </div>
+          <button 
+            onClick={() => {
+              setEditingMenuId(null);
+              setNewMenuItem({ name: '', description: '', price: '', category: '', imageUrl: '' });
+              setIsMenuModalOpen(true);
+            }}
+            className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 transition-colors shadow-sm"
+          >
+            + Add Food
+          </button>
+        </div>
+
+        {menuItems.length === 0 ? (
+          <div className="p-12 text-center border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
+            <p className="text-gray-500">No menu items found. Add some delicious food!</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {menuItems.map(item => (
+              <div key={item.id} className="flex flex-col border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden bg-gray-50 dark:bg-gray-900/50">
+                {item.imageUrl ? (
+                  <img src={item.imageUrl} alt={item.name} className="h-32 w-full object-cover" />
+                ) : (
+                  <div className="h-32 w-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center">
+                    <span className="text-gray-400 text-sm">No Image</span>
+                  </div>
+                )}
+                <div className="p-4 flex flex-col flex-1">
+                  <div className="flex justify-between items-start mb-1">
+                    <h3 className="font-bold text-gray-900 dark:text-white">{item.name}</h3>
+                    <span className="font-semibold text-brand-600">{item.price.toLocaleString()} UZS</span>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{item.category}</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 line-clamp-2 mb-4 flex-1">{item.description}</p>
+                  <div className="flex justify-end gap-4 mt-auto pt-3 border-t border-gray-200 dark:border-gray-700">
+                    <button 
+                      onClick={() => {
+                        setEditingMenuId(item.id);
+                        setNewMenuItem({
+                          name: item.name,
+                          description: item.description || '',
+                          price: item.price.toString(),
+                          category: item.category || '',
+                          imageUrl: item.imageUrl || ''
+                        });
+                        setIsMenuModalOpen(true);
+                      }}
+                      className="text-blue-500 hover:text-blue-700 text-sm font-medium"
+                    >
+                      Edit
+                    </button>
+                    <button 
+                      onClick={() => setDeleteMenuId(item.id)}
+                      className="text-red-500 hover:text-red-700 text-sm font-medium"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Add/Edit Menu Modal */}
+      {isMenuModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800 max-h-[90vh] overflow-y-auto">
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
+              {editingMenuId ? 'Edit Menu Item' : 'Add Menu Item'}
+            </h2>
+            <form onSubmit={handleSaveMenuItem} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Food Image</label>
+                {newMenuItem.imageUrl && !newMenuImageFile && (
+                  <div className="mb-2">
+                    <img src={newMenuItem.imageUrl} alt="Current" className="h-20 w-20 object-cover rounded-lg border border-gray-200" />
+                  </div>
+                )}
+                <input 
+                  type="file" 
+                  accept="image/*"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files[0]) {
+                      setNewMenuImageFile(e.target.files[0]);
+                    }
+                  }}
+                  className="w-full rounded-lg border border-gray-300 p-2 text-sm dark:border-gray-600 dark:bg-gray-700" 
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
+                <input required value={newMenuItem.name} onChange={e => setNewMenuItem({...newMenuItem, name: e.target.value})} type="text" className="w-full rounded-lg border border-gray-300 p-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="e.g. Pepperoni Pizza" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Category</label>
+                  <input required value={newMenuItem.category} onChange={e => setNewMenuItem({...newMenuItem, category: e.target.value})} type="text" className="w-full rounded-lg border border-gray-300 p-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="e.g. Pizza" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Price (UZS)</label>
+                  <input required value={newMenuItem.price} onChange={e => setNewMenuItem({...newMenuItem, price: e.target.value})} type="number" min="0" max="100000000" maxLength={9} className="w-full rounded-lg border border-gray-300 p-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="e.g. 55000" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description (Optional)</label>
+                <textarea value={newMenuItem.description} onChange={e => setNewMenuItem({...newMenuItem, description: e.target.value})} className="w-full rounded-lg border border-gray-300 p-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="Ingredients, etc." rows={3} />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-gray-700 mt-6">
+                <button type="button" onClick={() => { setIsMenuModalOpen(false); setEditingMenuId(null); }} className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">Cancel</button>
+                <button type="submit" disabled={isSaving} className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50">
+                  {editingMenuId ? 'Save Changes' : 'Add Item'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {deleteMenuId && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Delete Menu Item?</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+              Are you sure you want to permanently delete this menu item?
+            </p>
+            <div className="flex justify-end gap-3">
+              <button 
+                onClick={() => setDeleteMenuId(null)}
+                className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={executeDeleteMenuItem}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}

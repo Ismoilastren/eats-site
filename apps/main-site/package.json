@@ -1,0 +1,34 @@
+{
+  "name": "main-site",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@repo/firebase-config": "workspace:*",
+    "@repo/shared-types": "workspace:*",
+    "@repo/ui": "workspace:*",
+    "@tailwindcss/postcss": "^4.0.0",
+    "leaflet": "^1.9.4",
+    "lucide-react": "^0.475.0",
+    "next": "15.3.3",
+    "react": "19",
+    "react-dom": "19",
+    "react-hot-toast": "^2.6.0",
+    "react-leaflet": "^5.0.0",
+    "tailwindcss": "^4.0.0"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
+    "@types/leaflet": "^1.9.21",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "postcss": "^8",
+    "typescript": "^5"
+  }
+}

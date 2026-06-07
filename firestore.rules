@@ -1,0 +1,247 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =============================================
+    // HELPER FUNCTIONS
+    // =============================================
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return request.auth.uid == uid;
+    }
+
+    function getUserRole() {
+      let docRef = /databases/$(database)/documents/users/$(request.auth.uid);
+      return exists(docRef) ? get(docRef).data.role : null;
+    }
+
+    function isAdmin() {
+      return isAuth() && getUserRole() in ['admin', 'superadmin'];
+    }
+
+    function isCourier() {
+      return isAuth() && getUserRole() == 'courier';
+    }
+
+    function isRestaurantOwner(restaurantId) {
+      return isAuth() &&
+        get(/databases/$(database)/documents/restaurants/$(restaurantId)).data.ownerId == request.auth.uid;
+    }
+
+    function hasAssignedCourierId(data) {
+      return data.assignedCourier is map &&
+        data.assignedCourier.id is string &&
+        data.assignedCourier.id.size() > 0;
+    }
+
+    function isAssignedCourier() {
+      return isAuth() && (
+        resource.data.courierId == request.auth.uid ||
+        (hasAssignedCourierId(resource.data) &&
+          resource.data.assignedCourier.id == request.auth.uid)
+      );
+    }
+
+    function isUnassignedRadarOrder() {
+      return resource.data.status in ['pending', 'preparing'] &&
+        resource.data.courierId == null &&
+        resource.data.assignedCourier == null;
+    }
+
+    function isClientCreatedOrder() {
+      return request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.courierId == null &&
+        request.resource.data.assignedCourier == null;
+    }
+
+    function isClientCancelOnly() {
+      return resource.data.userId == request.auth.uid &&
+        resource.data.status == 'pending' &&
+        request.resource.data.status == 'cancelled' &&
+        request.resource.data.courierId == resource.data.courierId &&
+        request.resource.data.assignedCourier == resource.data.assignedCourier &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'cancelledAt',
+          'cancelReason',
+          'updatedAt'
+        ]);
+    }
+
+    function isClientReviewOnly() {
+      return resource.data.userId == request.auth.uid &&
+        resource.data.status == 'delivered' &&
+        request.resource.data.status == resource.data.status &&
+        request.resource.data.courierId == resource.data.courierId &&
+        request.resource.data.assignedCourier == resource.data.assignedCourier &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'review',
+          'tipAmount',
+          'updatedAt'
+        ]);
+    }
+
+    function isCourierAcceptOnly() {
+      return isCourier() &&
+        isUnassignedRadarOrder() &&
+        request.resource.data.status == resource.data.status &&
+        request.resource.data.courierId == request.auth.uid &&
+        hasAssignedCourierId(request.resource.data) &&
+        request.resource.data.assignedCourier.id == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'courierId',
+          'courierName',
+          'courierPhone',
+          'assignedCourier',
+          'updatedAt'
+        ]);
+    }
+
+    function isAssignedCourierDeliveryUpdate() {
+      return isAssignedCourier() &&
+        !(resource.data.status in ['delivered', 'cancelled']) &&
+        request.resource.data.courierId == resource.data.courierId &&
+        request.resource.data.assignedCourier == resource.data.assignedCourier &&
+        request.resource.data.status in ['pending', 'preparing', 'courier_picked_up', 'delivered'] &&
+        (
+          request.resource.data.status == resource.data.status ||
+          (resource.data.status == 'courier_picked_up' &&
+            request.resource.data.status == 'delivered')
+        ) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'courierLocation',
+          'deliveredAt',
+          'updatedAt'
+        ]);
+    }
+
+    function isRestaurantStatusOnly() {
+      return isRestaurantOwner(resource.data.restaurantId) &&
+        request.resource.data.restaurantId == resource.data.restaurantId &&
+        request.resource.data.userId == resource.data.userId &&
+        request.resource.data.courierId == resource.data.courierId &&
+        request.resource.data.assignedCourier == resource.data.assignedCourier &&
+        request.resource.data.status in ['pending', 'preparing', 'courier_picked_up', 'cancelled'] &&
+        (request.resource.data.status != 'courier_picked_up' || hasAssignedCourierId(resource.data)) &&
+        (
+          request.resource.data.status == resource.data.status ||
+          (resource.data.status == 'pending' &&
+            request.resource.data.status in ['preparing', 'cancelled']) ||
+          (resource.data.status == 'preparing' &&
+            request.resource.data.status in ['courier_picked_up', 'cancelled'])
+        ) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'updatedAt'
+        ]);
+    }
+
+    // =============================================
+    // USERS COLLECTION
+    // =============================================
+    match /users/{userId} {
+      // Users can read their own profile; admins can read all
+      allow read: if isAuth() && (isOwner(userId) || isAdmin());
+      // Users can create their own profile
+      allow create: if isAuth() && isOwner(userId);
+      // Users can update their own profile; admins can update any
+      allow update: if isAuth() && (isOwner(userId) || isAdmin());
+      // Only admins can delete users
+      allow delete: if isAdmin();
+    }
+
+    // =============================================
+    // RESTAURANTS COLLECTION
+    // =============================================
+    match /restaurants/{restaurantId} {
+      // Public read — anyone can browse restaurants
+      allow read: if true;
+      // Only admins can create restaurants (temporarily relaxed for debugging)
+      allow create: if isAuth();
+      // Restaurant owners and admins can update
+      allow update: if isAuth() && (isRestaurantOwner(restaurantId) || isAdmin());
+      // Only admins can delete
+      allow delete: if isAdmin();
+
+      // Menu Items (subcollection)
+      match /menuItems/{itemId} {
+        // Public read
+        allow read: if true;
+        // Restaurant owners and admins can write
+        allow write: if isAuth() && (isRestaurantOwner(restaurantId) || isAdmin());
+      }
+    }
+
+    // =============================================
+    // ORDERS COLLECTION
+    // =============================================
+    match /orders/{orderId} {
+      // Read: order owner, assigned courier, restaurant owner, or admin
+      allow read: if isAuth() && (
+        isOwner(resource.data.userId) ||
+        isAssignedCourier() ||
+        (isCourier() && isUnassignedRadarOrder()) ||
+        isRestaurantOwner(resource.data.restaurantId) ||
+        isAdmin()
+      );
+      // Clients must create orders as pending and explicitly unassigned.
+      allow create: if isAuth() && isClientCreatedOrder();
+      // Update: restaurant owner (status changes), assigned courier, or admin
+      allow update: if isAuth() && (
+        isClientCancelOnly() ||
+        isClientReviewOnly() ||
+        isRestaurantStatusOnly() ||
+        isCourierAcceptOnly() ||
+        isAssignedCourierDeliveryUpdate() ||
+        isAdmin()
+      );
+      // Only admins can delete orders
+      allow delete: if isAdmin();
+    }
+
+    // =============================================
+    // COURIERS COLLECTION
+    // =============================================
+    match /couriers/{courierId} {
+      // Any authenticated user can read (needed for client tracking)
+      allow read: if isAuth();
+      // Couriers can create their own profile
+      allow create: if isAuth() && isOwner(courierId);
+      // Couriers can update their own data; admins can update any
+      allow update: if isAuth() && (isOwner(courierId) || isAdmin());
+      // Only admins can delete courier profiles
+      allow delete: if isAdmin();
+    }
+
+    // =============================================
+    // PAYMENTS COLLECTION
+    // =============================================
+    match /payments/{paymentId} {
+      // Read: payment owner or admin
+      allow read: if isAuth() && (
+        isOwner(resource.data.userId) || isAdmin()
+      );
+      // Any authenticated user can create a payment
+      allow create: if isAuth();
+      // Only admins can update payments (refunds, etc.)
+      allow update: if isAdmin();
+      // Payments should never be deleted
+      allow delete: if false;
+    }
+
+    // =============================================
+    // SYSTEM SETTINGS
+    // =============================================
+    match /system_settings/{document=**} {
+      // Any authenticated user can read settings (like delivery fees)
+      allow read: if isAuth();
+      // Only admins can modify settings
+      allow write: if isAdmin();
+    }
+  }
+}

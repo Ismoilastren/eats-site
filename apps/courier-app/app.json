@@ -1,0 +1,66 @@
+{
+  "expo": {
+    "name": "ExpressEats Courier",
+    "slug": "express-eats-courier",
+    "scheme": "expresseatscourier",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#10B981"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.asadbeats.courier",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "ExpressEats Courier needs your location to show you nearby deliveries and track your delivery progress.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "ExpressEats Courier uses your location in the background to provide real-time delivery tracking to customers.",
+        "NSLocationAlwaysUsageDescription": "ExpressEats Courier uses your location in the background to provide real-time delivery tracking to customers.",
+        "UIBackgroundModes": [
+          "location"
+        ]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#10B981"
+      },
+      "package": "com.asadbeats.courier",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "FOREGROUND_SERVICE_LOCATION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "ExpressEats Courier uses your location to track deliveries and show your position to customers.",
+          "locationAlwaysPermission": "ExpressEats Courier uses your location in the background for real-time delivery tracking.",
+          "locationWhenInUsePermission": "ExpressEats Courier needs your location to show nearby deliveries.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

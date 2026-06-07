@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #FF6B35;
+  --color-secondary: #1A1A2E;
+  --color-accent: #12b76a;
+}
+
+:root {
+  --background: #ffffff;
+  --foreground: #1A1A2E;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: 'Inter', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Animations */
+@layer utilities {
+  .hover-scale {
+    @apply transition-transform duration-300 hover:scale-[1.03];
+  }
+  .glass-header {
+    @apply bg-white/80 backdrop-blur-md border-b border-gray-100;
+  }
+}

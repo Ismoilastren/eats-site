@@ -1,0 +1,100 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  /* ============================
+     BRAND / PRIMARY
+     ============================ */
+  --color-brand-50: #eef1ff;
+  --color-brand-100: #d9dffe;
+  --color-brand-200: #b3bffd;
+  --color-brand-300: #8d9ffc;
+  --color-brand-400: #667ffb;
+  --color-brand-500: #465fff;
+  --color-brand-600: #3641f5;
+  --color-brand-700: #2a32d9;
+  --color-brand-800: #1e24bd;
+  --color-brand-900: #131aa1;
+
+  /* ============================
+     GRAY SCALE (TailAdmin tokens)
+     ============================ */
+  --color-gray-50: #f9fafb;
+  --color-gray-100: #f2f4f7;
+  --color-gray-200: #e4e7ec;
+  --color-gray-300: #d0d5dd;
+  --color-gray-400: #98a2b3;
+  --color-gray-500: #667085;
+  --color-gray-600: #475467;
+  --color-gray-700: #344054;
+  --color-gray-800: #1d2939;
+  --color-gray-900: #101828;
+  --color-gray-950: #0c111d;
+
+  /* ============================
+     SEMANTIC COLORS
+     ============================ */
+  --color-success-50: #ecfdf3;
+  --color-success-100: #d1fadf;
+  --color-success-500: #12b76a;
+  --color-success-600: #039855;
+  --color-success-700: #027a48;
+
+  --color-error-50: #fef3f2;
+  --color-error-100: #fee4e2;
+  --color-error-500: #f04438;
+  --color-error-600: #d92d20;
+  --color-error-700: #b42318;
+
+  --color-warning-50: #fffaeb;
+  --color-warning-100: #fef0c7;
+  --color-warning-500: #f79009;
+  --color-warning-600: #dc6803;
+  --color-warning-700: #b54708;
+
+  --color-info-50: #eff8ff;
+  --color-info-100: #d1e9ff;
+  --color-info-500: #2e90fa;
+  --color-info-600: #1570ef;
+  --color-info-700: #175cd3;
+
+  /* ============================
+     FONT FAMILY
+     ============================ */
+  --font-inter: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+
+/* ============================
+   BASE STYLES
+   ============================ */
+body {
+  font-family: var(--font-inter);
+  @apply bg-gray-50 text-gray-900 antialiased;
+}
+
+:is(.dark) body {
+  @apply bg-gray-950 text-gray-50;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-gray-100;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply rounded-full bg-gray-300;
+}
+
+:is(.dark) ::-webkit-scrollbar-track {
+  @apply bg-gray-800;
+}
+
+:is(.dark) ::-webkit-scrollbar-thumb {
+  @apply bg-gray-600;
+}

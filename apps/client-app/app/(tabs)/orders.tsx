@@ -29,41 +29,54 @@ function statusBadge(status: string) {
 
 export default function OrdersScreen() {
   const router = useRouter();
-  const { user, initializing } = useAuth();
+  const { user, profile, initializing } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
-  const uid = user?.uid;
+  const customerEmail = user?.email || profile?.email || '';
 
   useEffect(() => {
-    if (!uid) {
-      setOrders([]);
-      setLoading(initializing);
+    if (initializing) {
+      setLoading(true);
       return;
     }
 
-    const unsubscribe = onSnapshot(
-      query(collection(db, COLLECTIONS.ORDERS), where('userId', '==', uid)),
-      (snapshot) => {
-          const data: Order[] = [];
-        snapshot.forEach((orderDoc) => {
-          data.push({ id: orderDoc.id, ...orderDoc.data() } as Order);
-        });
-        data.sort((a: any, b: any) => {
-          const aTime = a.createdAt?.toMillis?.() ?? a.createdAt?.seconds ?? 0;
-          const bTime = b.createdAt?.toMillis?.() ?? b.createdAt?.seconds ?? 0;
-          return bTime - aTime;
-        });
-        setOrders(data);
-        setLoading(false);
-      },
-      (error) => {
-        console.error('Client orders listener failed:', error);
-        setLoading(false);
-      }
-    );
+    if (!customerEmail) {
+      setOrders([]);
+      setLoading(false);
+      return;
+    }
 
-    return () => unsubscribe();
-  }, [initializing, uid]);
+    setLoading(true);
+
+    try {
+      const unsubscribe = onSnapshot(
+        query(collection(db, COLLECTIONS.ORDERS), where('customerEmail', '==', customerEmail)),
+        (snapshot) => {
+          const data: Order[] = [];
+          snapshot.forEach((orderDoc) => {
+            data.push({ id: orderDoc.id, ...orderDoc.data() } as Order);
+          });
+          data.sort((a: any, b: any) => {
+            const aTime = a.createdAt?.toMillis?.() ?? a.createdAt?.seconds ?? 0;
+            const bTime = b.createdAt?.toMillis?.() ?? b.createdAt?.seconds ?? 0;
+            return bTime - aTime;
+          });
+          setOrders(data);
+          setLoading(false);
+        },
+        (error) => {
+          console.error('Client orders listener failed:', error);
+          setLoading(false);
+        }
+      );
+
+      return () => unsubscribe();
+    } catch (error) {
+      console.error('Client orders query setup failed:', error);
+      setOrders([]);
+      setLoading(false);
+    }
+  }, [customerEmail, initializing]);
 
   const activeOrders = useMemo(() => orders.filter((order) => !isTerminalOrderStatus(order.status)), [orders]);
   const pastOrders = useMemo(() => orders.filter((order) => isTerminalOrderStatus(order.status)), [orders]);
@@ -91,7 +104,8 @@ export default function OrdersScreen() {
       ) : listData.length === 0 ? (
         <View className="flex-1 items-center justify-center px-6">
           <Ionicons name="receipt-outline" size={64} color="#d1d5db" />
-          <Text className="mt-4 text-xl font-black text-gray-950">No orders yet</Text>
+          <Text className="mt-4 text-xl font-black text-gray-950">No active orders</Text>
+          <Text className="mt-2 text-center font-semibold text-gray-500">Your active and past orders will appear here.</Text>
           <TouchableOpacity onPress={() => router.push('/(tabs)')} className="mt-6 rounded-full bg-orange-500 px-8 py-4">
             <Text className="font-black text-white">Browse restaurants</Text>
           </TouchableOpacity>
@@ -109,11 +123,11 @@ export default function OrdersScreen() {
               <View className="flex-row items-start justify-between">
                 <View className="flex-1 pr-3">
                   <Text className="text-lg font-black text-gray-950" numberOfLines={1}>
-                    {item.restaurantName}
+                    {item.restaurantName || 'Restaurant'}
                   </Text>
                   <Text className="mt-1 text-sm font-semibold text-gray-500">
                     {(item.items || []).reduce((sum, orderItem) => sum + Number(orderItem.quantity || 0), 0)} items •{' '}
-                    {formatCurrencyUZS((item as any).totalAmount ?? (item as any).total)}
+                    {formatCurrencyUZS((item as any).totalAmount ?? (item as any).total ?? 0)}
                   </Text>
                   <Text className="mt-1 text-xs font-semibold text-gray-400">
                     {formatFirestoreDate((item as any).createdAt)}

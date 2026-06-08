@@ -29,6 +29,21 @@ import {
 import MenuItemCard from '../../components/MenuItemCard';
 import { useCartStore } from '../../stores/cartStore';
 
+type ClientRestaurant = Restaurant & {
+  image?: string;
+  coverImage?: string;
+  coverImageUrl?: string;
+  category?: string;
+};
+
+const text = (value: unknown) => String(value || '').trim();
+
+const getRestaurantImage = (restaurant: ClientRestaurant) =>
+  text(restaurant.imageUrl) ||
+  text(restaurant.image) ||
+  text(restaurant.coverImageUrl) ||
+  text(restaurant.coverImage);
+
 export default function RestaurantDetailScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -106,6 +121,7 @@ export default function RestaurantDetailScreen() {
   }
 
   const restaurantLocation = normalizeCoordinate(restaurant.location);
+  const restaurantImage = getRestaurantImage(restaurant as ClientRestaurant);
 
   return (
     <View className="flex-1 bg-gray-50">
@@ -118,15 +134,18 @@ export default function RestaurantDetailScreen() {
         ListHeaderComponent={
           <View>
             <View className="relative">
-              <Image
-                source={{
-                  uri:
-                    restaurant.imageUrl ||
-                    'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=900&h=600&fit=crop',
-                }}
-                className="h-72 w-full bg-gray-100"
-                resizeMode="cover"
-              />
+              {restaurantImage ? (
+                <Image
+                  source={{ uri: restaurantImage }}
+                  className="h-72 w-full bg-gray-100"
+                  resizeMode="cover"
+                />
+              ) : (
+                <View className="h-72 w-full items-center justify-center bg-gray-100">
+                  <Ionicons name="image-outline" size={44} color="#9ca3af" />
+                  <Text className="mt-2 text-sm font-bold text-gray-400">No restaurant image</Text>
+                </View>
+              )}
               <View className="absolute inset-0 bg-black/20" />
               <SafeAreaView edges={['top']} className="absolute left-0 right-0 top-0 px-4">
                 <TouchableOpacity
@@ -181,7 +200,7 @@ export default function RestaurantDetailScreen() {
               imageUrl={item.imageUrl}
               restaurantId={restaurant.id}
               restaurantName={restaurant.name}
-              restaurantImage={restaurant.imageUrl}
+              restaurantImage={restaurantImage}
               restaurantLocation={restaurantLocation}
               restaurantDeliveryFee={restaurant.deliveryFee || 0}
               isAvailable={item.isAvailable}

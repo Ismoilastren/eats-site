@@ -49,7 +49,10 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        <TouchableOpacity className="bg-white p-5 rounded-2xl flex-row items-center shadow-sm border border-gray-100 mb-3">
+        <TouchableOpacity
+          onPress={() => Alert.alert('Coming Soon', 'Saved addresses screen is not available yet.')}
+          className="bg-white p-5 rounded-2xl flex-row items-center shadow-sm border border-gray-100 mb-3"
+        >
           <Ionicons name="location-outline" size={24} color="#374151" />
           <Text className="ml-4 font-semibold text-gray-700 text-lg flex-1">Saved Addresses</Text>
           <Ionicons name="chevron-forward" size={20} color="#9CA3AF" />

@@ -36,7 +36,7 @@ export default function CartScreen() {
         <View className="flex-1 items-center justify-center p-6">
           <Ionicons name="cart-outline" size={64} color="#d1d5db" />
           <Text className="mt-6 text-xl font-black text-gray-950">Your cart is empty</Text>
-          <Text className="mt-2 text-center text-gray-500">Add meals from one restaurant to start checkout.</Text>
+          <Text className="mt-2 text-center text-gray-500">Your cart is empty. Let's order some food!</Text>
           <TouchableOpacity onPress={() => router.push('/(tabs)')} className="mt-6 rounded-full bg-orange-500 px-8 py-4">
             <Text className="font-black text-white">Browse restaurants</Text>
           </TouchableOpacity>
@@ -56,12 +56,16 @@ export default function CartScreen() {
         <View className="mt-5 rounded-3xl bg-white p-2 shadow-sm shadow-black/5">
           {items.map((item) => (
             <View key={item.id} className="flex-row items-center border-b border-gray-100 p-3 last:border-b-0">
-              <Image
-                source={{
-                  uri: item.imageUrl || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=300&h=300&fit=crop',
-                }}
-                className="h-16 w-16 rounded-2xl bg-gray-100"
-              />
+              {item.imageUrl ? (
+                <Image
+                  source={{ uri: item.imageUrl }}
+                  className="h-16 w-16 rounded-2xl bg-gray-100"
+                />
+              ) : (
+                <View className="h-16 w-16 items-center justify-center rounded-2xl bg-gray-100">
+                  <Ionicons name="fast-food-outline" size={24} color="#9ca3af" />
+                </View>
+              )}
               <View className="ml-3 flex-1">
                 <Text className="font-black text-gray-950" numberOfLines={1}>
                   {item.name || 'Item'}

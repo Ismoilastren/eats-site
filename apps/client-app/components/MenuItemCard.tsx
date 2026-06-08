@@ -109,13 +109,17 @@ export default function MenuItemCard({
         </View>
       </View>
 
-      <Image
-        source={{
-          uri: imageUrl || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&h=400&fit=crop',
-        }}
-        className="h-28 w-28 rounded-2xl bg-gray-100"
-        resizeMode="cover"
-      />
+      {imageUrl ? (
+        <Image
+          source={{ uri: imageUrl }}
+          className="h-28 w-28 rounded-2xl bg-gray-100"
+          resizeMode="cover"
+        />
+      ) : (
+        <View className="h-28 w-28 items-center justify-center rounded-2xl bg-gray-100">
+          <Ionicons name="fast-food-outline" size={28} color="#9ca3af" />
+        </View>
+      )}
     </View>
   );
 }

@@ -77,20 +77,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const hydratedProfile = await toClientProfile(firebaseUser);
-      setProfile(hydratedProfile);
+      const fallbackProfile: ClientProfile = {
+        uid: firebaseUser.uid,
+        displayName: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Customer',
+        email: firebaseUser.email || '',
+        phone: firebaseUser.phoneNumber || '',
+        photoURL: firebaseUser.photoURL || '',
+      };
+
+      setProfile(fallbackProfile);
       setStoreUser({
-        uid: hydratedProfile.uid,
-        displayName: hydratedProfile.displayName,
-        email: hydratedProfile.email,
-        phone: hydratedProfile.phone,
-        photoURL: hydratedProfile.photoURL,
+        uid: fallbackProfile.uid,
+        displayName: fallbackProfile.displayName,
+        email: fallbackProfile.email,
+        phone: fallbackProfile.phone,
+        photoURL: fallbackProfile.photoURL,
         role: 'client',
         savedAddresses: [],
         createdAt: new Date(),
         updatedAt: new Date(),
       });
       setInitializing(false);
+
+      toClientProfile(firebaseUser)
+        .then((hydratedProfile) => {
+          setProfile(hydratedProfile);
+          setStoreUser({
+            uid: hydratedProfile.uid,
+            displayName: hydratedProfile.displayName,
+            email: hydratedProfile.email,
+            phone: hydratedProfile.phone,
+            photoURL: hydratedProfile.photoURL,
+            role: 'client',
+            savedAddresses: [],
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+        })
+        .catch((error) => {
+          console.warn('Failed to finish client profile hydration:', error);
+        });
     });
 
     return () => unsubscribe();

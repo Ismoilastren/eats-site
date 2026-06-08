@@ -80,6 +80,17 @@ export default function UsersPage() {
             <div>
               <p className="font-medium text-gray-900 dark:text-white">{name}</p>
               <p className="text-xs text-gray-500">{(row as any).email || 'No email provided'}</p>
+              <div className="mt-1">
+                {(row as any).source === 'app' ? (
+                  <span className="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-bold text-green-700 dark:bg-green-500/10 dark:text-green-400">
+                    📱 App User
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-bold text-blue-700 dark:bg-blue-500/10 dark:text-blue-400">
+                    💻 Website User
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         );

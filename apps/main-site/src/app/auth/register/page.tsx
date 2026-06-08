@@ -73,6 +73,7 @@ export default function RegisterPage() {
         email: formData.email,
         phone: formData.phone,
         role: "client",
+        source: "website",
         createdAt: serverTimestamp()
       });
       console.log("SUCCESS: User profile written to Firestore");

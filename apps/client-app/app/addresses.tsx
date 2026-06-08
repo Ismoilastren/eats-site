@@ -13,12 +13,12 @@ import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import {
-  arrayUnion,
+  addDoc,
+  collection,
+  deleteDoc,
   doc,
   db,
   onSnapshot,
-  serverTimestamp,
-  setDoc,
 } from '@repo/firebase-config';
 import { COLLECTIONS } from '@repo/shared-types';
 import { useAuth } from '../context/AuthContext';
@@ -27,11 +27,10 @@ type SavedAddress = {
   id: string;
   label: string;
   address: string;
-  location: { lat: number; lng: number } | null;
-  createdAt: string;
+  latitude?: number;
+  longitude?: number;
+  createdAt?: string;
 };
-
-const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 export default function AddressesScreen() {
   const router = useRouter();
@@ -51,10 +50,13 @@ export default function AddressesScreen() {
     }
 
     const unsubscribe = onSnapshot(
-      doc(db, COLLECTIONS.USERS, uid),
+      collection(db, COLLECTIONS.USERS, uid, 'addresses'),
       (snapshot) => {
-        const data = snapshot.data();
-        setAddresses(Array.isArray(data?.savedAddresses) ? data.savedAddresses : []);
+        const data: SavedAddress[] = [];
+        snapshot.forEach((addressDoc) => {
+          data.push({ id: addressDoc.id, ...addressDoc.data() } as SavedAddress);
+        });
+        setAddresses(data);
         setLoading(false);
       },
       (error) => {
@@ -106,29 +108,21 @@ export default function AddressesScreen() {
 
     setSaving(true);
     try {
-      let location: SavedAddress['location'] = null;
+      let latitude: number | undefined;
+      let longitude: number | undefined;
       const permission = await Location.requestForegroundPermissionsAsync();
       if (permission.status === 'granted') {
         const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        location = { lat: current.coords.latitude, lng: current.coords.longitude };
+        latitude = current.coords.latitude;
+        longitude = current.coords.longitude;
       }
 
-      const nextAddress: SavedAddress = {
-        id: makeId(),
+      await addDoc(collection(db, COLLECTIONS.USERS, uid, 'addresses'), {
         label: label.trim() || 'Address',
         address: cleanAddress,
-        location,
+        ...(latitude && longitude ? { latitude, longitude } : {}),
         createdAt: new Date().toISOString(),
-      };
-
-      await setDoc(
-        doc(db, COLLECTIONS.USERS, uid),
-        {
-          savedAddresses: arrayUnion(nextAddress),
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
+      });
 
       setLabel('Home');
       setAddressText('');
@@ -139,6 +133,25 @@ export default function AddressesScreen() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const deleteAddress = (addressId: string) => {
+    if (!uid) return;
+    Alert.alert('Delete address', 'Remove this saved address?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteDoc(doc(db, COLLECTIONS.USERS, uid, 'addresses', addressId));
+          } catch (error: any) {
+            console.error('Failed to delete address:', error);
+            Alert.alert('Delete failed', error?.message || 'Could not delete address.');
+          }
+        },
+      },
+    ]);
   };
 
   return (
@@ -213,6 +226,12 @@ export default function AddressesScreen() {
                   <Text className="text-base font-black text-gray-950">{item.label}</Text>
                   <Text className="mt-1 text-sm font-semibold text-gray-500">{item.address}</Text>
                 </View>
+                <TouchableOpacity
+                  onPress={() => deleteAddress(item.id)}
+                  className="h-10 w-10 items-center justify-center rounded-full bg-red-50"
+                >
+                  <Ionicons name="trash-outline" size={18} color="#ef4444" />
+                </TouchableOpacity>
               </View>
             </View>
           )}

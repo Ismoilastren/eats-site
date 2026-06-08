@@ -12,12 +12,12 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import {
-  arrayUnion,
+  addDoc,
+  collection,
   db,
+  deleteDoc,
   doc,
   onSnapshot,
-  serverTimestamp,
-  setDoc,
 } from '@repo/firebase-config';
 import { COLLECTIONS } from '@repo/shared-types';
 import { useAuth } from '../context/AuthContext';
@@ -27,7 +27,8 @@ type PaymentCard = {
   brand: string;
   holderName: string;
   last4: string;
-  expiry: string;
+  expiry?: string;
+  token?: string;
   createdAt: string;
 };
 
@@ -55,6 +56,16 @@ const formatExpiry = (value: string) => {
   return `${digits.slice(0, 2)}/${digits.slice(2)}`;
 };
 
+const validateExpiry = (value: string) => {
+  if (!/^(0[1-9]|1[0-2])\/\d{2}$/.test(value)) return false;
+  const [monthText, yearText] = value.split('/');
+  const month = Number(monthText);
+  const year = Number(`20${yearText}`);
+  const now = new Date();
+  const expiresAt = new Date(year, month, 0, 23, 59, 59);
+  return expiresAt >= now;
+};
+
 export default function PaymentCardsScreen() {
   const router = useRouter();
   const { user, profile } = useAuth();
@@ -77,10 +88,13 @@ export default function PaymentCardsScreen() {
     }
 
     const unsubscribe = onSnapshot(
-      doc(db, COLLECTIONS.USERS, uid),
+      collection(db, COLLECTIONS.USERS, uid, 'paymentMethods'),
       (snapshot) => {
-        const data = snapshot.data();
-        setCards(Array.isArray(data?.paymentCards) ? data.paymentCards : []);
+        const data: PaymentCard[] = [];
+        snapshot.forEach((cardDoc) => {
+          data.push({ id: cardDoc.id, ...cardDoc.data() } as PaymentCard);
+        });
+        setCards(data);
         setLoading(false);
       },
       (error) => {
@@ -107,8 +121,8 @@ export default function PaymentCardsScreen() {
       Alert.alert('Invalid card', 'Enter a valid card number.');
       return;
     }
-    if (!/^\d{2}\/\d{2}$/.test(cleanExpiry)) {
-      Alert.alert('Invalid expiry', 'Use MM/YY format.');
+    if (!validateExpiry(cleanExpiry)) {
+      Alert.alert('Invalid expiry', 'Card expiry must be a future date in MM/YY format.');
       return;
     }
     if (!cleanHolder) {
@@ -122,23 +136,16 @@ export default function PaymentCardsScreen() {
 
     setSaving(true);
     try {
-      const nextCard: PaymentCard = {
-        id: makeId(),
+      const nextCard = {
         brand: cardBrand(cardNumber),
         holderName: cleanHolder,
         last4: digits.slice(-4),
         expiry: cleanExpiry,
+        token: `tok_${makeId()}`,
         createdAt: new Date().toISOString(),
       };
 
-      await setDoc(
-        doc(db, COLLECTIONS.USERS, uid),
-        {
-          paymentCards: arrayUnion(nextCard),
-          updatedAt: serverTimestamp(),
-        },
-        { merge: true }
-      );
+      await addDoc(collection(db, COLLECTIONS.USERS, uid, 'paymentMethods'), nextCard);
 
       setCardNumber('');
       setExpiry('');
@@ -150,6 +157,25 @@ export default function PaymentCardsScreen() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const deleteCard = (cardId: string) => {
+    if (!uid) return;
+    Alert.alert('Remove card', 'Remove this payment method?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteDoc(doc(db, COLLECTIONS.USERS, uid, 'paymentMethods', cardId));
+          } catch (error: any) {
+            console.error('Failed to remove payment card:', error);
+            Alert.alert('Remove failed', error?.message || 'Could not remove card.');
+          }
+        },
+      },
+    ]);
   };
 
   return (
@@ -237,9 +263,15 @@ export default function PaymentCardsScreen() {
                   {item.brand} •••• {item.last4}
                 </Text>
                 <Text className="mt-1 text-sm font-semibold text-gray-500">
-                  {item.holderName} • {item.expiry}
+                  {item.holderName}{item.expiry ? ` • ${item.expiry}` : ''}
                 </Text>
               </View>
+              <TouchableOpacity
+                onPress={() => deleteCard(item.id)}
+                className="h-10 w-10 items-center justify-center rounded-full bg-red-50"
+              >
+                <Ionicons name="trash-outline" size={18} color="#ef4444" />
+              </TouchableOpacity>
             </View>
           )}
         />

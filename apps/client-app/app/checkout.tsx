@@ -19,6 +19,8 @@ import {
   db,
   doc,
   getDoc,
+  getDocs,
+  query,
   serverTimestamp,
 } from '@repo/firebase-config';
 import {
@@ -37,6 +39,21 @@ const feeFromSettings = (data: any): number | null => {
   return Number.isFinite(amount) && amount >= 0 ? amount : null;
 };
 
+type SavedAddress = {
+  id: string;
+  label?: string;
+  address: string;
+  latitude?: number;
+  longitude?: number;
+};
+
+type PaymentMethod = {
+  id: string;
+  brand: string;
+  last4: string;
+  holderName?: string;
+};
+
 export default function CheckoutScreen() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
@@ -48,6 +65,11 @@ export default function CheckoutScreen() {
   const [deliveryFee, setDeliveryFee] = useState(0);
   const [addressText, setAddressText] = useState('Current location');
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
+  const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+  const [paymentType, setPaymentType] = useState<'cash' | 'card'>('cash');
+  const [selectedCardId, setSelectedCardId] = useState('');
+  const [deliveryInstructions, setDeliveryInstructions] = useState('');
   const [loadingLocation, setLoadingLocation] = useState(true);
   const [placing, setPlacing] = useState(false);
 
@@ -99,6 +121,63 @@ export default function CheckoutScreen() {
   }, []);
 
   useEffect(() => {
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser) return;
+
+    let cancelled = false;
+    const loadCheckoutData = async () => {
+      try {
+        const [addressSnap, paymentSnap] = await Promise.all([
+          getDocs(query(collection(db, COLLECTIONS.USERS, firebaseUser.uid, 'addresses'))),
+          getDocs(query(collection(db, COLLECTIONS.USERS, firebaseUser.uid, 'paymentMethods'))),
+        ]);
+
+        if (cancelled) return;
+
+        const nextAddresses: SavedAddress[] = [];
+        addressSnap.forEach((addressDoc) => {
+          nextAddresses.push({ id: addressDoc.id, ...addressDoc.data() } as SavedAddress);
+        });
+        setSavedAddresses(nextAddresses);
+        if (nextAddresses[0]?.address) {
+          setAddressText(nextAddresses[0].address);
+          if (nextAddresses[0].latitude && nextAddresses[0].longitude) {
+            setLocation({
+              coords: {
+                latitude: nextAddresses[0].latitude,
+                longitude: nextAddresses[0].longitude,
+                altitude: null,
+                accuracy: null,
+                altitudeAccuracy: null,
+                heading: null,
+                speed: null,
+              },
+              timestamp: Date.now(),
+            });
+          }
+        }
+
+        const nextPaymentMethods: PaymentMethod[] = [];
+        paymentSnap.forEach((paymentDoc) => {
+          nextPaymentMethods.push({ id: paymentDoc.id, ...paymentDoc.data() } as PaymentMethod);
+        });
+        setPaymentMethods(nextPaymentMethods);
+        if (nextPaymentMethods[0]) {
+          setPaymentType('card');
+          setSelectedCardId(nextPaymentMethods[0].id);
+        }
+      } catch (error) {
+        console.error('Failed to load checkout saved data:', error);
+      }
+    };
+
+    loadCheckoutData();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
 
     const loadFee = async () => {
@@ -133,9 +212,14 @@ export default function CheckoutScreen() {
       Alert.alert('Location required', 'GPS location is required for courier tracking.');
       return;
     }
+    if (paymentType === 'card' && !selectedCardId) {
+      Alert.alert('Payment required', 'Select a saved card or use cash.');
+      return;
+    }
 
     setPlacing(true);
     try {
+      const selectedCard = paymentMethods.find((paymentMethod) => paymentMethod.id === selectedCardId);
       const latestFee = await fetchCurrentDeliveryFee();
       const customerLatitude = location.coords.latitude;
       const customerLongitude = location.coords.longitude;
@@ -182,8 +266,16 @@ export default function CheckoutScreen() {
           phone: customerPhone,
           email: firebaseUser.email || user?.email || '',
         },
-        paymentMethod: 'cash',
-        deliveryInstructions: '',
+        paymentMethod: paymentType === 'card'
+          ? {
+              type: 'CARD',
+              brand: selectedCard?.brand || 'Card',
+              last4: selectedCard?.last4 || '0000',
+            }
+          : {
+              type: 'CASH',
+            },
+        deliveryInstructions,
         estimatedDelivery: null,
         deliveredAt: null,
         cancelledAt: null,
@@ -237,6 +329,102 @@ export default function CheckoutScreen() {
             <Ionicons name="navigate" size={18} color="#fff" />
             <Text className="ml-2 font-black text-white">Refresh GPS</Text>
           </TouchableOpacity>
+
+          {savedAddresses.length > 0 && (
+            <View className="mt-5">
+              <Text className="mb-2 text-sm font-black uppercase tracking-widest text-gray-400">Saved addresses</Text>
+              {savedAddresses.map((savedAddress) => (
+                <TouchableOpacity
+                  key={savedAddress.id}
+                  onPress={() => {
+                    setAddressText(savedAddress.address);
+                    if (savedAddress.latitude && savedAddress.longitude) {
+                      setLocation({
+                        coords: {
+                          latitude: savedAddress.latitude,
+                          longitude: savedAddress.longitude,
+                          altitude: null,
+                          accuracy: null,
+                          altitudeAccuracy: null,
+                          heading: null,
+                          speed: null,
+                        },
+                        timestamp: Date.now(),
+                      });
+                    }
+                  }}
+                  className={`mb-2 rounded-2xl border p-3 ${
+                    addressText === savedAddress.address ? 'border-orange-500 bg-orange-50' : 'border-gray-100 bg-gray-50'
+                  }`}
+                >
+                  <Text className="font-black text-gray-950">{savedAddress.label || 'Saved Location'}</Text>
+                  <Text className="mt-1 text-sm font-semibold text-gray-500">{savedAddress.address}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </View>
+
+        <View className="mt-4 rounded-3xl bg-white p-5 shadow-sm shadow-black/5">
+          <Text className="mb-4 text-lg font-black text-gray-950">Payment method</Text>
+          <TouchableOpacity
+            onPress={() => setPaymentType('cash')}
+            className={`mb-3 flex-row items-center rounded-2xl border p-4 ${
+              paymentType === 'cash' ? 'border-orange-500 bg-orange-50' : 'border-gray-100 bg-gray-50'
+            }`}
+          >
+            <Ionicons name={paymentType === 'cash' ? 'radio-button-on' : 'radio-button-off'} size={21} color="#f97316" />
+            <Text className="ml-3 font-black text-gray-950">Cash on Delivery</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => setPaymentType('card')}
+            className={`flex-row items-center rounded-2xl border p-4 ${
+              paymentType === 'card' ? 'border-orange-500 bg-orange-50' : 'border-gray-100 bg-gray-50'
+            }`}
+          >
+            <Ionicons name={paymentType === 'card' ? 'radio-button-on' : 'radio-button-off'} size={21} color="#f97316" />
+            <Text className="ml-3 font-black text-gray-950">Saved Card</Text>
+          </TouchableOpacity>
+
+          {paymentType === 'card' && (
+            <View className="mt-3">
+              {paymentMethods.length === 0 ? (
+                <TouchableOpacity onPress={() => router.push('/payment-cards' as any)} className="rounded-2xl bg-gray-950 p-4">
+                  <Text className="text-center font-black text-white">Add card in Profile</Text>
+                </TouchableOpacity>
+              ) : (
+                paymentMethods.map((paymentMethod) => (
+                  <TouchableOpacity
+                    key={paymentMethod.id}
+                    onPress={() => setSelectedCardId(paymentMethod.id)}
+                    className={`mb-2 rounded-2xl border p-3 ${
+                      selectedCardId === paymentMethod.id ? 'border-orange-500 bg-orange-50' : 'border-gray-100 bg-gray-50'
+                    }`}
+                  >
+                    <Text className="font-black text-gray-950">
+                      {paymentMethod.brand} •••• {paymentMethod.last4}
+                    </Text>
+                    {!!paymentMethod.holderName && (
+                      <Text className="mt-1 text-sm font-semibold text-gray-500">{paymentMethod.holderName}</Text>
+                    )}
+                  </TouchableOpacity>
+                ))
+              )}
+            </View>
+          )}
+        </View>
+
+        <View className="mt-4 rounded-3xl bg-white p-5 shadow-sm shadow-black/5">
+          <Text className="mb-3 text-lg font-black text-gray-950">Delivery instructions</Text>
+          <TextInput
+            value={deliveryInstructions}
+            onChangeText={setDeliveryInstructions}
+            multiline
+            className="min-h-24 rounded-2xl bg-gray-100 px-4 py-3 text-base font-semibold text-gray-900"
+            placeholder="Ring doorbell, leave at door..."
+            placeholderTextColor="#9ca3af"
+          />
         </View>
 
         <View className="mt-4 rounded-3xl bg-white p-5 shadow-sm shadow-black/5">

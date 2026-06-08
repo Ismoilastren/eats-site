@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   SafeAreaView,
   ScrollView,
@@ -60,7 +61,8 @@ export default function HomeScreen() {
   const { user, profile } = useAuth();
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [menuItems, setMenuItems] = useState<ClientMenuItem[]>([]);
-  const [activeOrderCount, setActiveOrderCount] = useState(0);
+  const [activeOrders, setActiveOrders] = useState<Order[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -113,22 +115,21 @@ export default function HomeScreen() {
 
   useEffect(() => {
     if (!customerEmail) {
-      setActiveOrderCount(0);
+      setActiveOrders([]);
       return;
     }
 
     const unsubscribe = onSnapshot(
       query(collection(db, COLLECTIONS.ORDERS), where('customerEmail', '==', customerEmail)),
       (snapshot) => {
-        const count = snapshot.docs.filter((orderDoc) => {
-          const order = { id: orderDoc.id, ...orderDoc.data() } as Order;
-          return !isTerminalOrderStatus(order.status);
-        }).length;
-        setActiveOrderCount(count);
+        const nextOrders = snapshot.docs
+          .map((orderDoc) => ({ id: orderDoc.id, ...orderDoc.data() }) as Order)
+          .filter((order) => !isTerminalOrderStatus(order.status));
+        setActiveOrders(nextOrders);
       },
       (error) => {
         console.error('Client notification orders listener failed:', error);
-        setActiveOrderCount(0);
+        setActiveOrders([]);
       }
     );
 
@@ -179,13 +180,19 @@ export default function HomeScreen() {
             <Text className="text-2xl font-black text-gray-950">Order food</Text>
           </View>
           <TouchableOpacity
-            onPress={() => router.push('/(tabs)/orders')}
+            onPress={() => {
+              if (activeOrders.length === 0) {
+                Alert.alert('Notifications', 'No active order notifications yet.');
+                return;
+              }
+              setShowNotifications((value) => !value);
+            }}
             className="relative h-11 w-11 items-center justify-center rounded-full bg-gray-100"
           >
             <Ionicons name="notifications-outline" size={21} color="#111827" />
-            {activeOrderCount > 0 && (
+            {activeOrders.length > 0 && (
               <View className="absolute right-1 top-1 h-5 min-w-5 items-center justify-center rounded-full bg-orange-500 px-1">
-                <Text className="text-[10px] font-black text-white">{activeOrderCount}</Text>
+                <Text className="text-[10px] font-black text-white">{activeOrders.length}</Text>
               </View>
             )}
           </TouchableOpacity>
@@ -209,6 +216,34 @@ export default function HomeScreen() {
             </TouchableOpacity>
           )}
         </View>
+
+        {showNotifications && (
+          <View className="mt-3 rounded-3xl bg-gray-950 p-4">
+            <View className="mb-3 flex-row items-center justify-between">
+              <Text className="text-base font-black text-white">Active orders</Text>
+              <TouchableOpacity onPress={() => setShowNotifications(false)}>
+                <Ionicons name="close" size={20} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            {activeOrders.map((order) => (
+              <TouchableOpacity
+                key={order.id}
+                onPress={() => {
+                  setShowNotifications(false);
+                  router.push(`/order/${order.id}`);
+                }}
+                className="mb-2 rounded-2xl bg-white/10 p-3 last:mb-0"
+              >
+                <Text className="font-black text-white" numberOfLines={1}>
+                  {order.restaurantName || 'Restaurant'} order
+                </Text>
+                <Text className="mt-1 text-sm font-semibold text-gray-300">
+                  {order.status} • {formatCurrencyUZS((order as any).totalAmount ?? (order as any).total ?? 0)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false}>

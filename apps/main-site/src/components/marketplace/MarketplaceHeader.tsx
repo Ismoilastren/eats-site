@@ -3,11 +3,11 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { Bell, ChevronDown, LocateFixed, MapPin, Search, ShoppingCart, UserRound, X } from 'lucide-react';
-import { addressSuggestions, categories, restaurants } from '@/data/marketplace';
+import { addressSuggestions, restaurants } from '@/data/marketplace';
 import { useMarketplace } from '@/context/MarketplaceContext';
 
 export function MarketplaceHeader() {
-  const { address, setAddress, cartCount, user, login, logout } = useMarketplace();
+  const { address, setAddress, cartCount, user, login, logout, deliveryMode, setDeliveryMode } = useMarketplace();
   const [addressOpen, setAddressOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -25,24 +25,24 @@ export function MarketplaceHeader() {
 
   return (
     <>
-      <header className="sticky top-0 z-50 border-b border-black/5 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex h-18 max-w-7xl items-center gap-3 px-4 py-3 lg:px-8">
-          <Link href="/" className="shrink-0 text-2xl font-black tracking-tight text-[#111827]">
+      <header className="sticky top-0 z-50 border-b border-black/5 bg-white/95 shadow-sm shadow-black/[0.02] backdrop-blur">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-3 lg:flex-nowrap lg:px-8">
+          <Link href="/" className="shrink-0 text-xl font-black tracking-tight text-[#111827] md:text-2xl">
             <span className="text-[#facc15]">2(13)</span> Delivery
           </Link>
 
-          <button onClick={() => setAddressOpen(true)} className="hidden min-w-0 items-center gap-2 rounded-2xl bg-gray-100 px-4 py-3 text-left text-sm font-bold text-gray-800 hover:bg-gray-200 md:flex">
+          <button onClick={() => setAddressOpen(true)} className="order-3 flex min-w-0 flex-1 items-center gap-2 rounded-2xl bg-gray-100 px-4 py-3 text-left text-sm font-bold text-gray-800 hover:bg-gray-200 md:order-none md:max-w-[280px]">
             <MapPin size={18} className="shrink-0 text-gray-500" />
-            <span className="max-w-[240px] truncate">{address.text}</span>
+            <span className="truncate">{address.text || 'Select address'}</span>
             <ChevronDown size={16} />
           </button>
 
-          <button className="hidden rounded-2xl bg-yellow-300 px-2 py-1 text-sm font-black text-gray-950 sm:flex">
-            Delivery
-            <span className="ml-2 rounded-xl bg-white px-3 py-1">Pickup</span>
-          </button>
+          <div className="hidden rounded-2xl bg-gray-100 p-1 text-sm font-black text-gray-950 sm:flex">
+            <button onClick={() => setDeliveryMode('delivery')} className={`rounded-xl px-3 py-2 ${deliveryMode === 'delivery' ? 'bg-yellow-300 shadow-sm' : 'text-gray-500'}`}>Delivery</button>
+            <button onClick={() => setDeliveryMode('pickup')} className={`rounded-xl px-3 py-2 ${deliveryMode === 'pickup' ? 'bg-yellow-300 shadow-sm' : 'text-gray-500'}`}>Pickup</button>
+          </div>
 
-          <button onClick={() => setSearchOpen(true)} className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl bg-gray-100 px-4 py-3 text-left text-gray-500 hover:bg-gray-200">
+          <button onClick={() => setSearchOpen(true)} className="order-2 flex min-w-[180px] flex-1 items-center gap-3 rounded-2xl bg-gray-100 px-4 py-3 text-left text-gray-500 hover:bg-gray-200 lg:order-none">
             <Search size={20} />
             <span className="truncate font-semibold">Search restaurants or dishes</span>
           </button>
@@ -51,7 +51,7 @@ export function MarketplaceHeader() {
             <Bell size={20} />
           </button>
 
-          <Link href="/cart" className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-950 text-white hover:bg-gray-800">
+          <Link href="/cart" className="relative order-1 flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-950 text-white hover:bg-gray-800 lg:order-none">
             <ShoppingCart size={20} />
             {cartCount > 0 && <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-yellow-300 px-1 text-xs font-black text-gray-950">{cartCount}</span>}
           </Link>
@@ -65,7 +65,7 @@ export function MarketplaceHeader() {
 
       {addressOpen && (
         <div className="fixed inset-0 z-[70] bg-black/40 p-4">
-          <div className="mx-auto mt-16 max-w-xl rounded-[32px] bg-white p-6 shadow-2xl">
+          <div className="mx-auto mt-4 max-h-[92vh] max-w-xl overflow-y-auto rounded-[32px] bg-white p-6 shadow-2xl md:mt-16">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-black uppercase tracking-widest text-yellow-500">Tashkent</p>
@@ -74,7 +74,7 @@ export function MarketplaceHeader() {
               <button onClick={() => setAddressOpen(false)} className="rounded-full bg-gray-100 p-3"><X size={20} /></button>
             </div>
             <label className="mt-5 block text-sm font-black text-gray-500">Address</label>
-            <input value={addressInput} onChange={(event) => setAddressInput(event.target.value)} className="mt-2 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-4 font-bold outline-none focus:border-yellow-400" />
+            <input value={addressInput} onChange={(event) => setAddressInput(event.target.value)} placeholder="Tashkent, street and building" className="mt-2 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-4 font-bold outline-none focus:border-yellow-400" />
             {addressInput && !(addressInput.toLowerCase().includes('tashkent') || addressInput.toLowerCase().includes('toshkent')) && (
               <p className="mt-3 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-600">Outside delivery zone. Choose an address inside Tashkent.</p>
             )}
@@ -124,7 +124,13 @@ function SearchOverlay({ onClose }: { onClose: () => void }) {
   const [debounced, setDebounced] = useState('');
   const [recent, setRecent] = useState<string[]>([]);
 
-  useEffect(() => setRecent(JSON.parse(localStorage.getItem('recent_searches') || '[]') as string[]), []);
+  useEffect(() => {
+    try {
+      setRecent(JSON.parse(localStorage.getItem('recent_searches') || '[]') as string[]);
+    } catch {
+      setRecent([]);
+    }
+  }, []);
   useEffect(() => {
     const id = window.setTimeout(() => setDebounced(query), 180);
     return () => window.clearTimeout(id);
@@ -132,23 +138,30 @@ function SearchOverlay({ onClose }: { onClose: () => void }) {
 
   const results = useMemo(() => {
     const normalized = debounced.trim().toLowerCase();
-    if (!normalized) return [];
-    return restaurants.filter((restaurant) =>
+    if (!normalized) return { restaurants: [], dishes: [] };
+    const restaurantResults = restaurants.filter((restaurant) =>
       restaurant.name.toLowerCase().includes(normalized) ||
-      restaurant.cuisine.join(' ').toLowerCase().includes(normalized) ||
-      restaurant.menu.some((dish) => dish.name.toLowerCase().includes(normalized))
+      restaurant.cuisine.join(' ').toLowerCase().includes(normalized)
     );
+    const dishResults = restaurants.flatMap((restaurant) =>
+      restaurant.menu
+        .filter((dish) => dish.name.toLowerCase().includes(normalized) || dish.description.toLowerCase().includes(normalized))
+        .map((dish) => ({ dish, restaurant }))
+    );
+    return { restaurants: restaurantResults, dishes: dishResults };
   }, [debounced]);
 
   const commitSearch = (value: string) => {
     if (!value.trim()) return;
     const next = [value.trim(), ...recent.filter((item) => item !== value.trim())].slice(0, 6);
     setRecent(next);
-    localStorage.setItem('recent_searches', JSON.stringify(next));
+    try {
+      localStorage.setItem('recent_searches', JSON.stringify(next));
+    } catch {}
   };
 
   return (
-    <div className="fixed inset-0 z-[80] bg-white">
+    <div className="fixed inset-0 z-[80] overflow-y-auto bg-white">
       <div className="mx-auto max-w-5xl px-4 py-5">
         <div className="flex items-center gap-3">
           <div className="flex flex-1 items-center gap-3 rounded-3xl bg-gray-100 px-5 py-4">
@@ -156,7 +169,7 @@ function SearchOverlay({ onClose }: { onClose: () => void }) {
             <input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') commitSearch(query); }} placeholder="Pizza, Sushi, Burger, Plov..." className="w-full bg-transparent text-xl font-bold outline-none" />
             {query && <button onClick={() => setQuery('')}><X size={20} /></button>}
           </div>
-          <button onClick={onClose} className="rounded-2xl bg-gray-950 px-5 py-4 font-black text-white">Close</button>
+          <button onClick={onClose} className="rounded-2xl bg-gray-950 px-4 py-4 font-black text-white md:px-5">Close</button>
         </div>
         <div className="mt-8 grid gap-6 md:grid-cols-[260px_1fr]">
           <aside>
@@ -171,13 +184,24 @@ function SearchOverlay({ onClose }: { onClose: () => void }) {
           </aside>
           <main>
             {!debounced && <div className="rounded-[32px] bg-gray-50 p-10 text-center text-xl font-black text-gray-400">Search restaurants and dishes</div>}
-            {debounced && results.length === 0 && <div className="rounded-[32px] bg-gray-50 p-10 text-center text-xl font-black text-gray-400">Nothing found</div>}
+            {debounced && results.restaurants.length === 0 && results.dishes.length === 0 && <div className="rounded-[32px] bg-gray-50 p-10 text-center text-xl font-black text-gray-400">Nothing found</div>}
+            {results.restaurants.length > 0 && <h3 className="mb-3 text-2xl font-black">Restaurants</h3>}
             <div className="grid gap-4 md:grid-cols-2">
-              {results.map((restaurant) => (
+              {results.restaurants.map((restaurant) => (
                 <Link key={restaurant.id} href={`/restaurant/${restaurant.slug}`} onClick={() => commitSearch(query)} className="rounded-[28px] border border-gray-100 p-4 hover:bg-yellow-50">
                   <p className="text-xl font-black">{restaurant.name}</p>
                   <p className="mt-1 font-bold text-gray-500">{restaurant.cuisine.join(' · ')}</p>
-                  <p className="mt-2 text-sm font-black text-yellow-600">{restaurant.menu.filter((dish) => dish.name.toLowerCase().includes(debounced.toLowerCase())).map((dish) => dish.name).slice(0, 3).join(', ') || 'Restaurant match'}</p>
+                  <p className="mt-2 text-sm font-black text-yellow-600">Restaurant match</p>
+                </Link>
+              ))}
+            </div>
+            {results.dishes.length > 0 && <h3 className="mb-3 mt-8 text-2xl font-black">Dishes</h3>}
+            <div className="grid gap-4 md:grid-cols-2">
+              {results.dishes.slice(0, 12).map(({ dish, restaurant }) => (
+                <Link key={dish.id} href={`/restaurant/${restaurant.slug}?dish=${dish.id}`} onClick={() => commitSearch(query)} className="rounded-[28px] border border-gray-100 p-4 hover:bg-yellow-50">
+                  <p className="text-xl font-black">{dish.name}</p>
+                  <p className="mt-1 font-bold text-gray-500">{restaurant.name}</p>
+                  <p className="mt-2 text-sm font-black text-yellow-600">{dish.category}</p>
                 </Link>
               ))}
             </div>
@@ -187,4 +211,3 @@ function SearchOverlay({ onClose }: { onClose: () => void }) {
     </div>
   );
 }
-

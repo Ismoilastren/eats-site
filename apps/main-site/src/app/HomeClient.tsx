@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { Filter, Gift, Search, SlidersHorizontal, Timer, Utensils } from 'lucide-react';
-import { categories, promos, restaurants } from '@/data/marketplace';
+import { categories, deliveryTimeFilters, priceLevels, promos, restaurants, type PriceLevel } from '@/data/marketplace';
 import { MarketplaceHeader } from '@/components/marketplace/MarketplaceHeader';
 import { RestaurantCard } from '@/components/marketplace/RestaurantCard';
 import { useMarketplace } from '@/context/MarketplaceContext';
@@ -10,13 +10,15 @@ import { useMarketplace } from '@/context/MarketplaceContext';
 type SortMode = 'recommended' | 'fastest' | 'rating' | 'delivery';
 
 export default function HomeClient() {
-  const { favorites, address } = useMarketplace();
+  const { favorites, address, deliveryMode } = useMarketplace();
   const [selectedCategory, setSelectedCategory] = useState('Restaurants');
   const [sortMode, setSortMode] = useState<SortMode>('recommended');
   const [freeDelivery, setFreeDelivery] = useState(false);
   const [discounts, setDiscounts] = useState(false);
   const [openNow, setOpenNow] = useState(false);
   const [ratingOnly, setRatingOnly] = useState(false);
+  const [deliveryTime, setDeliveryTime] = useState('any');
+  const [priceLevel, setPriceLevel] = useState<PriceLevel | 'any'>('any');
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
@@ -27,13 +29,17 @@ export default function HomeClient() {
         restaurant.name.toLowerCase().includes(normalized) ||
         restaurant.cuisine.join(' ').toLowerCase().includes(normalized) ||
         restaurant.menu.some((dish) => dish.name.toLowerCase().includes(normalized) || dish.category.toLowerCase().includes(normalized));
-      return categoryMatch && queryMatch;
+      const modeMatch = deliveryMode === 'delivery' || restaurant.supportsPickup;
+      const zoneMatch = address.inZone || deliveryMode === 'pickup';
+      return categoryMatch && queryMatch && modeMatch && zoneMatch;
     });
 
     if (freeDelivery) list = list.filter((item) => item.deliveryFee === 0);
     if (discounts) list = list.filter((item) => item.hasDiscount);
     if (openNow) list = list.filter((item) => item.isOpen);
     if (ratingOnly) list = list.filter((item) => item.rating >= 4.6);
+    if (deliveryTime !== 'any') list = list.filter((item) => item.etaMax <= Number(deliveryTime));
+    if (priceLevel !== 'any') list = list.filter((item) => item.priceLevel === priceLevel);
 
     return [...list].sort((a, b) => {
       if (sortMode === 'fastest') return a.etaMin - b.etaMin;
@@ -41,7 +47,7 @@ export default function HomeClient() {
       if (sortMode === 'delivery') return a.deliveryFee - b.deliveryFee;
       return Number(b.hasDiscount) - Number(a.hasDiscount) || b.rating - a.rating;
     });
-  }, [discounts, freeDelivery, openNow, query, ratingOnly, selectedCategory, sortMode]);
+  }, [address.inZone, deliveryMode, deliveryTime, discounts, freeDelivery, openNow, priceLevel, query, ratingOnly, selectedCategory, sortMode]);
 
   const recommended = filtered.filter((restaurant) => restaurant.rating >= 4.6).slice(0, 4);
   const fast = filtered.filter((restaurant) => restaurant.etaMin <= 26).slice(0, 4);
@@ -57,7 +63,7 @@ export default function HomeClient() {
             <div className="max-w-2xl">
               <p className="inline-flex rounded-full bg-yellow-300 px-4 py-2 text-sm font-black text-gray-950">Tashkent marketplace</p>
               <h1 className="mt-5 text-5xl font-black tracking-tight md:text-7xl">Food, groceries and coffee delivered fast.</h1>
-              <p className="mt-4 text-lg font-semibold text-gray-300">Original 2(13) Delivery experience inspired by modern marketplace UX. Address: {address.text}</p>
+              <p className="mt-4 text-lg font-semibold text-gray-300">Premium local marketplace for Tashkent. Address: {address.text}</p>
               {!address.inZone && <p className="mt-4 rounded-2xl bg-red-500/15 px-4 py-3 font-black text-red-200">This address is outside delivery zone.</p>}
             </div>
             <div className="mt-8 flex flex-wrap gap-3">
@@ -71,7 +77,7 @@ export default function HomeClient() {
           </div>
           <div className="grid gap-4">
             <Metric icon={<Timer size={22} />} label="Average ETA" value="24 min" />
-            <Metric icon={<Utensils size={22} />} label="Restaurants" value="20+" />
+            <Metric icon={<Utensils size={22} />} label="Restaurants" value="25+" />
             <Metric icon={<Gift size={22} />} label="Promo code" value="FIRST21" />
           </div>
         </section>
@@ -94,6 +100,12 @@ export default function HomeClient() {
               <FilterButton active={discounts} onClick={() => setDiscounts((value) => !value)}>Discounts</FilterButton>
               <FilterButton active={openNow} onClick={() => setOpenNow((value) => !value)}>Open now</FilterButton>
               <FilterButton active={ratingOnly} onClick={() => setRatingOnly((value) => !value)}>4.6+</FilterButton>
+              <select value={deliveryTime} onChange={(event) => setDeliveryTime(event.target.value)} className="rounded-2xl border-0 bg-white px-4 py-3 font-black outline-none ring-1 ring-black/5">
+                {deliveryTimeFilters.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+              <select value={priceLevel} onChange={(event) => setPriceLevel(event.target.value as PriceLevel | 'any')} className="rounded-2xl border-0 bg-white px-4 py-3 font-black outline-none ring-1 ring-black/5">
+                {priceLevels.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
               <select value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)} className="rounded-2xl border-0 bg-white px-4 py-3 font-black outline-none ring-1 ring-black/5">
                 <option value="recommended">Recommended</option>
                 <option value="fastest">Fastest delivery</option>

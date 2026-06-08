@@ -22,10 +22,11 @@ export default function OrdersPage() {
           <div className="mt-8 space-y-4">
             {orders.map((order) => (
               <Link key={order.id} href={`/orders/${order.id}`} className="block rounded-[32px] bg-white p-5 shadow-sm ring-1 ring-black/5 hover:bg-yellow-50">
-                <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-2xl font-black">#{order.id}</p>
-                    <p className="font-bold text-gray-500">{order.restaurantName} · {order.items.length} items</p>
+                    <p className="font-bold text-gray-500">{order.restaurantName} · {order.items.length} items · {new Date(order.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                    <p className="mt-1 truncate font-semibold text-gray-400">{order.address}</p>
                   </div>
                   <p className="text-xl font-black">{formatCurrencyUZS(order.total)}</p>
                 </div>

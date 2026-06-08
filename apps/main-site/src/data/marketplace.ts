@@ -10,6 +10,7 @@ export type Dish = {
   imageUrl: string;
   price: number;
   popular?: boolean;
+  available: boolean;
 };
 
 export type Restaurant = {
@@ -29,6 +30,9 @@ export type Restaurant = {
   isOpen: boolean;
   isFreeDelivery?: boolean;
   hasDiscount?: boolean;
+  supportsPickup: boolean;
+  workingHours: string;
+  availableZones: string[];
   priceLevel: PriceLevel;
   location: { lat: number; lng: number };
   menu: Dish[];
@@ -63,11 +67,12 @@ const dishImages = [
 ];
 
 const baseDishNames = [
-  ['Classic Burger', 'Double Cheeseburger', 'Chicken Lavash', 'Crispy Fries', 'Combo Box'],
-  ['Margherita Pizza', 'Pepperoni Pizza', 'Four Cheese Pizza', 'Caesar Salad', 'Tiramisu'],
-  ['Philadelphia Roll', 'California Roll', 'Salmon Set', 'Miso Soup', 'Tempura Shrimp'],
-  ['Wedding Plov', 'Manti', 'Samsa', 'Shashlik Mix', 'Achichuk Salad'],
-  ['Flat White', 'Iced Latte', 'Cheesecake', 'Croissant', 'Breakfast Bowl'],
+  ['Classic Burger', 'Double Cheeseburger', 'Chicken Lavash', 'Crispy Fries', 'Combo Box', 'Chocolate Milkshake'],
+  ['Margherita Pizza', 'Pepperoni Pizza', 'Four Cheese Pizza', 'Caesar Salad', 'Tiramisu', 'Garlic Bread'],
+  ['Philadelphia Roll', 'California Roll', 'Salmon Set', 'Miso Soup', 'Tempura Shrimp', 'Tuna Nigiri'],
+  ['Wedding Plov', 'Manti', 'Samsa', 'Shashlik Mix', 'Achichuk Salad', 'Naryn Bowl'],
+  ['Flat White', 'Iced Latte', 'Cheesecake', 'Croissant', 'Breakfast Bowl', 'Granola Cup'],
+  ['Beef Lagman', 'Chicken Noodles', 'Dumpling Soup', 'Spicy Salad', 'Honey Cake', 'Berry Tea'],
 ];
 
 function menuFor(restaurantId: string, cuisineIndex: number): Dish[] {
@@ -81,6 +86,7 @@ function menuFor(restaurantId: string, cuisineIndex: number): Dish[] {
     imageUrl: dishImages[(cuisineIndex + index) % dishImages.length],
     price: 18000 + (cuisineIndex * 2500) + (index * 7000),
     popular: index < 2,
+    available: (cuisineIndex + index) % 9 !== 0,
   }));
 }
 
@@ -105,6 +111,11 @@ const specs = [
   ['night-food', 'night-food', 'Night Food 24/7', ['24/7', 'Fast food'], '24/7'],
   ['market-fresh', 'market-fresh', 'Market Fresh', ['Grocery', 'Healthy'], 'Grocery'],
   ['burger-avenue', 'burger-avenue', 'Burger Avenue', ['Burgers', 'Fast food'], 'Burgers'],
+  ['plov-station', 'plov-station', 'Plov Station', ['Uzbek food', 'Plov'], 'Uzbek food'],
+  ['sushi-avenue', 'sushi-avenue', 'Sushi Avenue', ['Sushi', 'Japanese'], 'Sushi'],
+  ['pasta-corner', 'pasta-corner', 'Pasta Corner', ['Italian', 'Pizza'], 'Pizza'],
+  ['tashkent-bakery', 'tashkent-bakery', 'Tashkent Bakery', ['Desserts', 'Breakfast'], 'Desserts'],
+  ['metro-coffee', 'metro-coffee', 'Metro Coffee', ['Coffee', 'Breakfast'], 'Coffee'],
 ] as const;
 
 export const restaurants: Restaurant[] = specs.map((spec, index) => ({
@@ -124,6 +135,9 @@ export const restaurants: Restaurant[] = specs.map((spec, index) => ({
   isOpen: index % 6 !== 0,
   isFreeDelivery: index % 4 === 0,
   hasDiscount: index % 3 === 0,
+  supportsPickup: index % 5 !== 2,
+  workingHours: index % 8 === 0 ? '24/7' : index % 6 === 0 ? '10:00-22:00' : '09:00-23:30',
+  availableZones: index % 7 === 0 ? ['center'] : ['tashkent', 'center'],
   priceLevel: (index % 3 === 0 ? '$' : index % 3 === 1 ? '$$' : '$$$') as PriceLevel,
   location: { lat: 41.311081 + index * 0.004, lng: 69.240562 + index * 0.003 },
   menu: menuFor(spec[0], index),
@@ -144,6 +158,20 @@ export const categories = [
   '24/7',
 ];
 
+export const deliveryTimeFilters = [
+  { label: 'Any time', value: 'any' },
+  { label: 'Under 25 min', value: '25' },
+  { label: 'Under 35 min', value: '35' },
+  { label: 'Under 45 min', value: '45' },
+];
+
+export const priceLevels: Array<{ label: string; value: PriceLevel | 'any' }> = [
+  { label: 'Any price', value: 'any' },
+  { label: '$', value: '$' },
+  { label: '$$', value: '$$' },
+  { label: '$$$', value: '$$$' },
+];
+
 export const promos: Promo[] = [
   { code: 'FIRST21', title: '21% off first order', description: 'Use FIRST21 at checkout.', type: 'percent', value: 21 },
   { code: 'FREEDEL', title: 'Free delivery', description: 'Delivery fee removed from cart.', type: 'freeDelivery', value: 0 },
@@ -157,4 +185,6 @@ export const addressSuggestions = [
   'Tashkent, Chilanzar C-5, house 12',
   'Tashkent, Yunusabad-4, building 8',
   'Tashkent, Magic City main gate',
+  'Tashkent, Parkent Street 131',
+  'Tashkent, Almazar metro station',
 ];

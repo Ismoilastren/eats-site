@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, CheckCircle2, Circle, Clock, MapPin } from 'lucide-react';
+import { ArrowLeft, Bike, CheckCircle2, Circle, Clock, MapPin, Phone } from 'lucide-react';
 import { MarketplaceHeader } from '@/components/marketplace/MarketplaceHeader';
 import { useMarketplace } from '@/context/MarketplaceContext';
 import { formatCurrencyUZS } from '@repo/shared-types';
@@ -44,7 +44,8 @@ export default function OrderTrackingPage() {
           <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
             <section className="rounded-[44px] bg-white p-6 shadow-sm ring-1 ring-black/5 md:p-10">
               <p className="text-sm font-black uppercase tracking-widest text-yellow-500">Order #{order.id}</p>
-              <h1 className="mt-2 text-5xl font-black">Arrives in {eta} min</h1>
+              <h1 className="mt-2 text-4xl font-black md:text-5xl">{step === statuses.length - 1 ? 'Delivered' : `Arrives in ${eta} min`}</h1>
+              <p className="mt-3 font-bold text-gray-500">To {order.address}</p>
               <div className="mt-8 rounded-[36px] bg-gray-950 p-6 text-white">
                 <div className="flex h-72 items-center justify-center rounded-[28px] bg-[radial-gradient(circle_at_top,#facc15_0,#111827_34%,#030712_100%)]">
                   <div className="text-center">
@@ -56,7 +57,7 @@ export default function OrderTrackingPage() {
               </div>
               <div className="mt-8 space-y-4">
                 {statuses.map((status, index) => (
-                  <div key={status} className="flex items-center gap-4">
+                  <div key={status} className={`flex items-center gap-4 rounded-3xl p-3 ${index === step ? 'bg-yellow-50' : ''}`}>
                     {index <= step ? <CheckCircle2 className="text-green-500" size={28} /> : <Circle className="text-gray-300" size={28} />}
                     <div>
                       <p className="text-lg font-black">{status}</p>
@@ -70,10 +71,18 @@ export default function OrderTrackingPage() {
               <Clock className="text-yellow-500" size={28} />
               <h2 className="mt-3 text-3xl font-black">{order.restaurantName}</h2>
               <p className="mt-2 font-bold text-gray-500">{order.address}</p>
+              {step >= 2 && (
+                <div className="mt-5 rounded-3xl bg-gray-950 p-4 text-white">
+                  <p className="text-sm font-black uppercase tracking-widest text-yellow-300">Courier</p>
+                  <p className="mt-2 text-xl font-black">{order.courier.name}</p>
+                  <p className="mt-1 flex items-center gap-2 font-bold text-gray-300"><Bike size={18} /> {order.courier.vehicle}</p>
+                  <p className="mt-2 flex items-center gap-2 font-bold text-gray-300"><Phone size={18} /> {order.courier.phone}</p>
+                </div>
+              )}
               <div className="mt-5 space-y-2">
                 {order.items.map((item) => (
-                  <div key={item.id} className="flex justify-between rounded-2xl bg-gray-50 px-4 py-3 font-bold">
-                    <span>{item.quantity}x {item.name}</span>
+                  <div key={item.id} className="flex justify-between gap-3 rounded-2xl bg-gray-50 px-4 py-3 font-bold">
+                    <span className="min-w-0">{item.quantity}x {item.name}</span>
                     <span>{formatCurrencyUZS(item.price * item.quantity)}</span>
                   </div>
                 ))}

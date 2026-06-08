@@ -24,6 +24,7 @@ export default function CartPage() {
     removeDish,
     clearCart,
     applyPromo,
+    removePromo,
     placeOrder,
   } = useMarketplace();
   const [name, setName] = useState(user?.name || '');
@@ -35,11 +36,20 @@ export default function CartPage() {
 
   const minOrder = cart[0]?.restaurantMinOrder || 0;
   const belowMinimum = cart.length > 0 && subtotal < minOrder;
+  const phoneValid = /^\+?998\d{9}$/.test(phone.replace(/\s/g, ''));
 
   const submit = () => {
     if (cart.length === 0) return;
     if (!name.trim() || !phone.trim() || !address.text.trim()) {
       setError('Name, phone and delivery address are required.');
+      return;
+    }
+    if (!address.inZone) {
+      setError('Select an address inside Tashkent delivery zone before checkout.');
+      return;
+    }
+    if (!phoneValid) {
+      setError('Enter a valid Uzbekistan phone number, for example +998901234567.');
       return;
     }
     if (belowMinimum) {
@@ -79,7 +89,7 @@ export default function CartPage() {
                       <p className="text-xl font-black">{item.name}</p>
                       <p className="mt-1 font-bold text-gray-500">{formatCurrencyUZS(item.price)} · {item.restaurantName}</p>
                     </div>
-                    <div className="flex items-center gap-2 rounded-full bg-white p-1">
+                    <div className="flex shrink-0 items-center gap-2 rounded-full bg-white p-1">
                       <button onClick={() => updateQuantity(item.id, -1)} className="rounded-full bg-gray-100 p-3"><Minus size={16} /></button>
                       <span className="min-w-7 text-center font-black">{item.quantity}</span>
                       <button onClick={() => updateQuantity(item.id, 1)} className="rounded-full bg-yellow-300 p-3"><Plus size={16} /></button>
@@ -112,8 +122,8 @@ export default function CartPage() {
             <h2 className="text-3xl font-black">Order summary</h2>
             <div className="mt-5 rounded-3xl bg-gray-50 p-4">
               <p className="flex items-center gap-2 font-black"><MapPin size={18} /> Delivery address</p>
-              <p className="mt-2 font-bold text-gray-500">{address.text}</p>
-              {!address.inZone && <p className="mt-2 text-sm font-black text-red-500">Outside delivery zone</p>}
+              <p className="mt-2 font-bold text-gray-500">{address.text || 'No address selected'}</p>
+              {!address.inZone && <p className="mt-2 text-sm font-black text-red-500">Outside delivery zone. Use the header address selector.</p>}
             </div>
             <div className="mt-4 grid grid-cols-2 gap-2">
               <button onClick={() => setPayment('cash')} className={`rounded-2xl px-4 py-4 font-black ${payment === 'cash' ? 'bg-yellow-300' : 'bg-gray-100'}`}><Wallet className="mx-auto mb-1" /> Cash</button>
@@ -123,7 +133,12 @@ export default function CartPage() {
               <input value={promoInput} onChange={(event) => setPromoInput(event.target.value)} placeholder="Promo code" className="min-w-0 flex-1 rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none" />
               <button onClick={() => { if (!applyPromo(promoInput)) setError('Promo code not found. Try FIRST21.'); else setError(''); }} className="flex items-center gap-2 rounded-2xl bg-gray-950 px-4 font-black text-white"><Ticket size={18} /> Apply</button>
             </div>
-            {promo && <p className="mt-2 rounded-2xl bg-green-50 px-4 py-3 text-sm font-black text-green-700">Applied: {promo.code}</p>}
+            {promo && (
+              <div className="mt-2 flex items-center justify-between rounded-2xl bg-green-50 px-4 py-3 text-sm font-black text-green-700">
+                <span>Applied: {promo.code}</span>
+                <button onClick={() => { removePromo(); setPromoInput(''); }} className="text-green-900 underline">Remove</button>
+              </div>
+            )}
             {error && <p className="mt-3 rounded-2xl bg-red-50 px-4 py-3 text-sm font-black text-red-600">{error}</p>}
             <div className="mt-6 space-y-3 border-t border-gray-100 pt-5 font-bold text-gray-600">
               <Row label="Subtotal" value={formatCurrencyUZS(subtotal)} />
@@ -133,7 +148,7 @@ export default function CartPage() {
               <Row label="Total" value={formatCurrencyUZS(total)} strong />
             </div>
             {belowMinimum && <p className="mt-4 rounded-2xl bg-yellow-50 px-4 py-3 text-sm font-black text-yellow-700">Minimum order: {formatCurrencyUZS(minOrder)}</p>}
-            <button onClick={submit} disabled={cart.length === 0 || belowMinimum} className="mt-6 w-full rounded-2xl bg-yellow-300 px-4 py-5 text-lg font-black text-gray-950 disabled:bg-gray-200 disabled:text-gray-400">Place order</button>
+            <button onClick={submit} disabled={cart.length === 0 || belowMinimum || !address.inZone} className="mt-6 w-full rounded-2xl bg-yellow-300 px-4 py-5 text-lg font-black text-gray-950 disabled:bg-gray-200 disabled:text-gray-400">Place order</button>
           </aside>
         </div>
       </main>

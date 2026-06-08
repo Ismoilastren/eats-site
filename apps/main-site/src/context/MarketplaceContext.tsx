@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { Dish, Promo, promos, Restaurant, restaurants } from '@/data/marketplace';
+import { DeliveryMode, Dish, Promo, promos, Restaurant, restaurants } from '@/data/marketplace';
 
 export type CartLine = Dish & {
   quantity: number;
@@ -23,6 +23,7 @@ export type LocalOrder = {
   total: number;
   createdAt: string;
   statusIndex: number;
+  courier: { name: string; vehicle: string; phone: string };
 };
 
 type MarketplaceContextValue = {
@@ -32,6 +33,7 @@ type MarketplaceContextValue = {
   favorites: string[];
   orders: LocalOrder[];
   promo: Promo | null;
+  deliveryMode: DeliveryMode;
   addDish: (restaurant: Restaurant, dish: Dish, quantity?: number) => void;
   updateQuantity: (dishId: string, delta: number) => void;
   removeDish: (dishId: string) => void;
@@ -41,6 +43,8 @@ type MarketplaceContextValue = {
   login: (name: string, phone: string) => void;
   logout: () => void;
   applyPromo: (code: string) => boolean;
+  removePromo: () => void;
+  setDeliveryMode: (mode: DeliveryMode) => void;
   placeOrder: (payload: { name: string; phone: string; address: string }) => LocalOrder;
   subtotal: number;
   deliveryFee: number;
@@ -69,6 +73,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   const [favorites, setFavorites] = useState<string[]>([]);
   const [orders, setOrders] = useState<LocalOrder[]>([]);
   const [promo, setPromo] = useState<Promo | null>(null);
+  const [deliveryMode, setDeliveryModeState] = useState<DeliveryMode>('delivery');
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -78,6 +83,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     setFavorites(readStorage<string[]>('marketplace_favorites', []));
     setOrders(readStorage<LocalOrder[]>('marketplace_orders', []));
     setPromo(readStorage<Promo | null>('marketplace_promo', null));
+    setDeliveryModeState(readStorage<DeliveryMode>('marketplace_delivery_mode', 'delivery'));
     setLoaded(true);
   }, []);
 
@@ -89,10 +95,12 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     localStorage.setItem('marketplace_favorites', JSON.stringify(favorites));
     localStorage.setItem('marketplace_orders', JSON.stringify(orders));
     localStorage.setItem('marketplace_promo', JSON.stringify(promo));
-  }, [address, cart, favorites, loaded, orders, promo, user]);
+    localStorage.setItem('marketplace_delivery_mode', JSON.stringify(deliveryMode));
+  }, [address, cart, deliveryMode, favorites, loaded, orders, promo, user]);
 
   const addDish = (restaurant: Restaurant, dish: Dish, quantity = 1) => {
     setCart((current) => {
+      if (!dish.available) return current;
       if (current.length > 0 && current[0].restaurantSlug !== restaurant.slug) {
         const replace = window.confirm('Your cart has items from another restaurant. Replace it?');
         if (!replace) return current;
@@ -132,6 +140,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   const toggleFavorite = (restaurantId: string) => setFavorites((current) => current.includes(restaurantId) ? current.filter((id) => id !== restaurantId) : [...current, restaurantId]);
   const login = (name: string, phone: string) => setUser({ name, phone });
   const logout = () => setUser(null);
+  const setDeliveryMode = (mode: DeliveryMode) => setDeliveryModeState(mode);
 
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const deliveryFee = cart.length === 0 || promo?.type === 'freeDelivery' ? 0 : cart[0].restaurantDeliveryFee;
@@ -146,6 +155,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     setPromo(found);
     return true;
   };
+  const removePromo = () => setPromo(null);
 
   const placeOrder = (payload: { name: string; phone: string; address: string }) => {
     const restaurant = restaurants.find((item) => item.slug === cart[0]?.restaurantSlug);
@@ -159,6 +169,11 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       total,
       createdAt: new Date().toISOString(),
       statusIndex: 0,
+      courier: {
+        name: 'Akmal R.',
+        vehicle: 'Bicycle',
+        phone: '+998 90 777 21 13',
+      },
     };
     setOrders((current) => [order, ...current]);
     clearCart();
@@ -173,6 +188,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     favorites,
     orders,
     promo,
+    deliveryMode,
     addDish,
     updateQuantity,
     removeDish,
@@ -182,6 +198,8 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     login,
     logout,
     applyPromo,
+    removePromo,
+    setDeliveryMode,
     placeOrder,
     subtotal,
     deliveryFee,
@@ -189,7 +207,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     discount,
     total,
     cartCount,
-  }), [address, cart, cartCount, deliveryFee, discount, favorites, orders, promo, serviceFee, subtotal, total, user]);
+  }), [address, cart, cartCount, deliveryFee, deliveryMode, discount, favorites, orders, promo, serviceFee, subtotal, total, user]);
 
   return <MarketplaceContext.Provider value={value}>{children}</MarketplaceContext.Provider>;
 }

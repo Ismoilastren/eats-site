@@ -4,14 +4,31 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { formatCurrencyUZS } from '@repo/shared-types';
 import { useCartStore } from '../../stores/cartStore';
+import { useAuth } from '../../context/AuthContext';
 
 export default function CartScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const items = useCartStore((state) => state.items);
   const restaurant = useCartStore((state) => state.restaurant);
   const updateQuantity = useCartStore((state) => state.updateQuantity);
   const subtotal = useCartStore((state) => state.getSubtotal());
   const itemCount = useCartStore((state) => state.getItemCount());
+
+  if (!user) {
+    return (
+      <SafeAreaView className="flex-1 bg-gray-50">
+        <View className="flex-1 items-center justify-center p-6">
+          <Ionicons name="person-circle-outline" size={64} color="#d1d5db" />
+          <Text className="mt-6 text-xl font-black text-gray-950">Login required</Text>
+          <Text className="mt-2 text-center text-gray-500">Sign in before checkout.</Text>
+          <TouchableOpacity onPress={() => router.replace('/login')} className="mt-6 rounded-full bg-orange-500 px-8 py-4">
+            <Text className="font-black text-white">Sign in</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (items.length === 0) {
     return (
@@ -32,7 +49,9 @@ export default function CartScreen() {
     <SafeAreaView className="flex-1 bg-gray-50">
       <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: 132 }}>
         <Text className="text-3xl font-black text-gray-950">Cart</Text>
-        <Text className="mt-1 text-base font-semibold text-gray-500">{restaurant?.name}</Text>
+        <Text className="mt-1 text-base font-semibold text-gray-500">
+          {restaurant?.name || items[0]?.restaurantName || 'Selected restaurant'}
+        </Text>
 
         <View className="mt-5 rounded-3xl bg-white p-2 shadow-sm shadow-black/5">
           {items.map((item) => (
@@ -45,9 +64,9 @@ export default function CartScreen() {
               />
               <View className="ml-3 flex-1">
                 <Text className="font-black text-gray-950" numberOfLines={1}>
-                  {item.name}
+                  {item.name || 'Item'}
                 </Text>
-                <Text className="mt-1 text-sm font-bold text-gray-500">{formatCurrencyUZS(item.price)}</Text>
+                <Text className="mt-1 text-sm font-bold text-gray-500">{formatCurrencyUZS(item.price || 0)}</Text>
               </View>
               <View className="flex-row items-center rounded-full bg-gray-100 p-1">
                 <TouchableOpacity

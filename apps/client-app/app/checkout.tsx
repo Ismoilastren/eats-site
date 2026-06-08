@@ -152,6 +152,7 @@ export default function CheckoutScreen() {
       const orderRef = await addDoc(collection(db, COLLECTIONS.ORDERS), {
         userId: firebaseUser.uid,
         customerName,
+        customerEmail: firebaseUser.email || user?.email || '',
         customerPhone,
         customerAddress: addressText,
         customerLocation: { lat: customerLatitude, lng: customerLongitude },

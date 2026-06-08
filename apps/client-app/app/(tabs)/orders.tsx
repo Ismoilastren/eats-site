@@ -12,7 +12,8 @@ import {
   ORDER_STATUS_COLORS,
   ORDER_STATUS_LABELS,
 } from '@repo/shared-types';
-import { auth, collection, db, onSnapshot, query, where } from '@repo/firebase-config';
+import { collection, db, onSnapshot, query, where } from '@repo/firebase-config';
+import { useAuth } from '../../context/AuthContext';
 
 function statusBadge(status: string) {
   const normalized = normalizeOrderStatus(status);
@@ -28,22 +29,25 @@ function statusBadge(status: string) {
 
 export default function OrdersScreen() {
   const router = useRouter();
+  const { user, initializing } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
-  const uid = auth.currentUser?.uid;
+  const uid = user?.uid;
 
   useEffect(() => {
     if (!uid) {
       setOrders([]);
-      setLoading(false);
+      setLoading(initializing);
       return;
     }
 
     const unsubscribe = onSnapshot(
       query(collection(db, COLLECTIONS.ORDERS), where('userId', '==', uid)),
       (snapshot) => {
-        const data: Order[] = [];
-        snapshot.forEach((orderDoc) => data.push({ id: orderDoc.id, ...orderDoc.data() } as Order));
+          const data: Order[] = [];
+        snapshot.forEach((orderDoc) => {
+          data.push({ id: orderDoc.id, ...orderDoc.data() } as Order);
+        });
         data.sort((a: any, b: any) => {
           const aTime = a.createdAt?.toMillis?.() ?? a.createdAt?.seconds ?? 0;
           const bTime = b.createdAt?.toMillis?.() ?? b.createdAt?.seconds ?? 0;
@@ -59,7 +63,7 @@ export default function OrdersScreen() {
     );
 
     return () => unsubscribe();
-  }, [uid]);
+  }, [initializing, uid]);
 
   const activeOrders = useMemo(() => orders.filter((order) => !isTerminalOrderStatus(order.status)), [orders]);
   const pastOrders = useMemo(() => orders.filter((order) => isTerminalOrderStatus(order.status)), [orders]);
@@ -75,11 +79,14 @@ export default function OrdersScreen() {
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator size="large" color="#f97316" />
         </View>
-      ) : !uid ? (
+      ) : !user ? (
         <View className="flex-1 items-center justify-center px-6">
           <Ionicons name="person-circle-outline" size={64} color="#d1d5db" />
           <Text className="mt-4 text-xl font-black text-gray-950">Login required</Text>
           <Text className="mt-2 text-center font-semibold text-gray-500">Sign in to see your order history.</Text>
+          <TouchableOpacity onPress={() => router.replace('/login')} className="mt-6 rounded-full bg-orange-500 px-8 py-4">
+            <Text className="font-black text-white">Sign in</Text>
+          </TouchableOpacity>
         </View>
       ) : listData.length === 0 ? (
         <View className="flex-1 items-center justify-center px-6">
@@ -105,7 +112,7 @@ export default function OrdersScreen() {
                     {item.restaurantName}
                   </Text>
                   <Text className="mt-1 text-sm font-semibold text-gray-500">
-                    {item.items.reduce((sum, orderItem) => sum + orderItem.quantity, 0)} items •{' '}
+                    {(item.items || []).reduce((sum, orderItem) => sum + Number(orderItem.quantity || 0), 0)} items •{' '}
                     {formatCurrencyUZS((item as any).totalAmount ?? (item as any).total)}
                   </Text>
                   <Text className="mt-1 text-xs font-semibold text-gray-400">

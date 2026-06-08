@@ -12,7 +12,7 @@ import {
   ORDER_STATUS_COLORS,
   ORDER_STATUS_LABELS,
 } from '@repo/shared-types';
-import { collection, db, onSnapshot, query, where } from '@repo/firebase-config';
+import { collection, db, onSnapshot, query, where, type Query } from '@repo/firebase-config';
 import { useAuth } from '../../context/AuthContext';
 
 function statusBadge(status: string) {
@@ -33,6 +33,7 @@ export default function OrdersScreen() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const customerEmail = user?.email || profile?.email || '';
+  const uid = user?.uid || profile?.uid || '';
 
   useEffect(() => {
     if (initializing) {
@@ -40,7 +41,7 @@ export default function OrdersScreen() {
       return;
     }
 
-    if (!customerEmail) {
+    if (!customerEmail && !uid) {
       setOrders([]);
       setLoading(false);
       return;
@@ -49,34 +50,55 @@ export default function OrdersScreen() {
     setLoading(true);
 
     try {
-      const unsubscribe = onSnapshot(
-        query(collection(db, COLLECTIONS.ORDERS), where('customerEmail', '==', customerEmail)),
-        (snapshot) => {
-          const data: Order[] = [];
-          snapshot.forEach((orderDoc) => {
-            data.push({ id: orderDoc.id, ...orderDoc.data() } as Order);
-          });
-          data.sort((a: any, b: any) => {
+      const mergedOrders = new Map<string, Order>();
+      let hydratedListeners = 0;
+
+      const publishOrders = () => {
+        const data = Array.from(mergedOrders.values());
+        data.sort((a: any, b: any) => {
             const aTime = a.createdAt?.toMillis?.() ?? a.createdAt?.seconds ?? 0;
             const bTime = b.createdAt?.toMillis?.() ?? b.createdAt?.seconds ?? 0;
             return bTime - aTime;
           });
-          setOrders(data);
-          setLoading(false);
-        },
-        (error) => {
-          console.error('Client orders listener failed:', error);
+        setOrders(data);
+        hydratedListeners += 1;
+        if (hydratedListeners >= queries.length) {
           setLoading(false);
         }
+      };
+
+      const queries: Query[] = [];
+      if (customerEmail) {
+        queries.push(query(collection(db, COLLECTIONS.ORDERS), where('customerEmail', '==', customerEmail)));
+      }
+      if (uid) {
+        queries.push(query(collection(db, COLLECTIONS.ORDERS), where('userId', '==', uid)));
+      }
+
+      const unsubscribes = queries.map((ordersQuery) =>
+        onSnapshot(
+          ordersQuery,
+          (snapshot) => {
+            snapshot.forEach((orderDoc) => {
+              mergedOrders.set(orderDoc.id, { id: orderDoc.id, ...orderDoc.data() } as Order);
+            });
+            publishOrders();
+          },
+          (error) => {
+            console.error('Client orders listener failed:', error);
+            hydratedListeners += 1;
+            if (hydratedListeners >= queries.length) setLoading(false);
+          }
+        )
       );
 
-      return () => unsubscribe();
+      return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
     } catch (error) {
       console.error('Client orders query setup failed:', error);
       setOrders([]);
       setLoading(false);
     }
-  }, [customerEmail, initializing]);
+  }, [customerEmail, initializing, uid]);
 
   const activeOrders = useMemo(() => orders.filter((order) => !isTerminalOrderStatus(order.status)), [orders]);
   const pastOrders = useMemo(() => orders.filter((order) => isTerminalOrderStatus(order.status)), [orders]);

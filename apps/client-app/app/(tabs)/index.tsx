@@ -12,7 +12,16 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { collection, db, limit, onSnapshot, query, where } from '@repo/firebase-config';
-import { COLLECTIONS, PAGE_SIZE, Restaurant, formatCurrencyUZS } from '@repo/shared-types';
+import {
+  COLLECTIONS,
+  MenuItem,
+  Order,
+  PAGE_SIZE,
+  Restaurant,
+  formatCurrencyUZS,
+  isTerminalOrderStatus,
+} from '@repo/shared-types';
+import { useAuth } from '../../context/AuthContext';
 
 const CATEGORIES = ['All', 'Burger', 'Pizza', 'Sushi', 'Healthy', 'Asian', 'Dessert', 'Coffee'];
 
@@ -22,6 +31,10 @@ type ClientRestaurant = Restaurant & {
   coverImageUrl?: string;
   category?: string;
   categories?: string[];
+};
+
+type ClientMenuItem = MenuItem & {
+  restaurantName?: string;
 };
 
 const text = (value: unknown) => String(value || '').trim();
@@ -44,10 +57,14 @@ const getRestaurantCategories = (restaurant: ClientRestaurant) => {
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { user, profile } = useAuth();
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [menuItems, setMenuItems] = useState<ClientMenuItem[]>([]);
+  const [activeOrderCount, setActiveOrderCount] = useState(0);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const customerEmail = user?.email || profile?.email || '';
 
   useEffect(() => {
     const q = query(
@@ -75,12 +92,63 @@ export default function HomeScreen() {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      query(collection(db, COLLECTIONS.MENU_ITEMS), where('isAvailable', '==', true), limit(PAGE_SIZE * 20)),
+      (snapshot) => {
+        const data: ClientMenuItem[] = [];
+        snapshot.forEach((itemDoc) => {
+          data.push({ id: itemDoc.id, ...itemDoc.data() } as ClientMenuItem);
+        });
+        setMenuItems(data);
+      },
+      (error) => {
+        console.error('Client menu items listener failed:', error);
+        setMenuItems([]);
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!customerEmail) {
+      setActiveOrderCount(0);
+      return;
+    }
+
+    const unsubscribe = onSnapshot(
+      query(collection(db, COLLECTIONS.ORDERS), where('customerEmail', '==', customerEmail)),
+      (snapshot) => {
+        const count = snapshot.docs.filter((orderDoc) => {
+          const order = { id: orderDoc.id, ...orderDoc.data() } as Order;
+          return !isTerminalOrderStatus(order.status);
+        }).length;
+        setActiveOrderCount(count);
+      },
+      (error) => {
+        console.error('Client notification orders listener failed:', error);
+        setActiveOrderCount(0);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [customerEmail]);
+
   const filteredRestaurants = useMemo(() => {
     const normalizedSearch = searchQuery.trim().toLowerCase();
     const normalizedCategory = selectedCategory.trim().toLowerCase();
 
     return restaurants.filter((restaurant) => {
       const clientRestaurant = restaurant as ClientRestaurant;
+      const restaurantMenuItems = menuItems.filter((item) => item.restaurantId === restaurant.id);
+      const menuSearchText = restaurantMenuItems
+        .map((item) =>
+          [item.name, item.description, item.category, item.restaurantName]
+            .map((value) => text(value).toLowerCase())
+            .join(' ')
+        )
+        .join(' ');
       const searchableText = [
         clientRestaurant.name,
         clientRestaurant.description,
@@ -89,18 +157,18 @@ export default function HomeScreen() {
         ...(Array.isArray(clientRestaurant.categories) ? clientRestaurant.categories : []),
       ]
         .map((value) => text(value).toLowerCase())
-        .join(' ');
+        .join(' ')
+        .concat(' ', menuSearchText);
 
       const matchesSearch = !normalizedSearch || searchableText.includes(normalizedSearch);
       const matchesCategory =
         normalizedCategory === 'all' ||
-        getRestaurantCategories(clientRestaurant).some((category) =>
-          category.includes(normalizedCategory)
-        );
+        getRestaurantCategories(clientRestaurant).some((category) => category.includes(normalizedCategory)) ||
+        restaurantMenuItems.some((item) => text(item.category).toLowerCase().includes(normalizedCategory));
 
       return matchesSearch && matchesCategory;
     });
-  }, [restaurants, searchQuery, selectedCategory]);
+  }, [menuItems, restaurants, searchQuery, selectedCategory]);
 
   return (
     <SafeAreaView className="flex-1 bg-gray-50">
@@ -110,8 +178,16 @@ export default function HomeScreen() {
             <Text className="text-xs font-black uppercase tracking-widest text-orange-500">2(13)</Text>
             <Text className="text-2xl font-black text-gray-950">Order food</Text>
           </View>
-          <TouchableOpacity className="h-11 w-11 items-center justify-center rounded-full bg-gray-100">
+          <TouchableOpacity
+            onPress={() => router.push('/(tabs)/orders')}
+            className="relative h-11 w-11 items-center justify-center rounded-full bg-gray-100"
+          >
             <Ionicons name="notifications-outline" size={21} color="#111827" />
+            {activeOrderCount > 0 && (
+              <View className="absolute right-1 top-1 h-5 min-w-5 items-center justify-center rounded-full bg-orange-500 px-1">
+                <Text className="text-[10px] font-black text-white">{activeOrderCount}</Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
 

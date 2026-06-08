@@ -37,6 +37,20 @@ export default function RootLayout() {
             }}
           />
           <Stack.Screen
+            name="addresses"
+            options={{
+              headerShown: false,
+              animation: 'slide_from_right',
+            }}
+          />
+          <Stack.Screen
+            name="payment-cards"
+            options={{
+              headerShown: false,
+              animation: 'slide_from_right',
+            }}
+          />
+          <Stack.Screen
             name="order/[id]"
             options={{
               headerShown: true,

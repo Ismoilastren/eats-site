@@ -1,12 +1,10 @@
 import type { Metadata } from "next";
-import { Suspense } from "react";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import 'leaflet/dist/leaflet.css';
-import Navbar from "@/components/layout/Navbar";
-import Footer from "@/components/layout/Footer";
 import { CartProvider } from "@/context/CartContext";
 import { SettingsProvider } from "@/context/SettingsContext";
+import { MarketplaceProvider } from "@/context/MarketplaceContext";
 import { Toaster } from "react-hot-toast";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -26,13 +24,9 @@ export default function RootLayout({
       <body className={`${inter.className} min-h-screen flex flex-col`}>
         <SettingsProvider>
           <CartProvider>
-            <Suspense fallback={<div className="h-20 bg-white border-b border-gray-200 w-full animate-pulse"></div>}>
-              <Navbar />
-            </Suspense>
-            <main className="flex-1">
-              {children}
-            </main>
-            <Footer />
+            <MarketplaceProvider>
+              <main className="flex-1">{children}</main>
+            </MarketplaceProvider>
           </CartProvider>
         </SettingsProvider>
         <Toaster position="top-center" />

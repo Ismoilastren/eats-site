@@ -8,13 +8,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { Dish } from '@/data/marketplace';
 import { CartDrawer } from '@/components/marketplace/CartDrawer';
 import { MarketplaceHeader } from '@/components/marketplace/MarketplaceHeader';
+import { YandexMapPreview } from '@/components/marketplace/YandexMapPreview';
 import { useMarketplace } from '@/context/MarketplaceContext';
 import { formatCurrencyUZS } from '@repo/shared-types';
 
 export default function RestaurantPage() {
   const params = useParams<{ slug: string }>();
   const searchParams = useSearchParams();
-  const { addDish, cart, updateQuantity, restaurants, dataLoading, dataError } = useMarketplace();
+  const { addDish, cart, updateQuantity, restaurants, dataLoading, dataError, address } = useMarketplace();
   const restaurant = useMemo(() => restaurants.find((item) => item.slug === params.slug || item.id === params.slug), [params.slug, restaurants]);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [infoOpen, setInfoOpen] = useState(false);
@@ -152,6 +153,11 @@ export default function RestaurantPage() {
               <p>Delivery: {restaurant.deliveryFee === 0 ? 'Free' : formatCurrencyUZS(restaurant.deliveryFee)}</p>
               <p>ETA: {restaurant.etaMin}-{restaurant.etaMax} minutes</p>
               <p>Rating: {restaurant.rating} from {restaurant.reviews} reviews</p>
+              <p>Restaurant address: {restaurant.address || 'Tashkent'}</p>
+              <p>Delivery address: {address.text}</p>
+            </div>
+            <div className="mt-4">
+              <YandexMapPreview center={restaurant.location} label={restaurant.address || restaurant.name} />
             </div>
             <button onClick={() => setInfoOpen(false)} className="mt-5 w-full rounded-2xl bg-gray-950 px-4 py-4 font-black text-white">Close</button>
           </div>

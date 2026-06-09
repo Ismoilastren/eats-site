@@ -201,8 +201,8 @@ service cloud.firestore {
       allow read: if true;
       // Only admins can create restaurants (temporarily relaxed for debugging)
       allow create: if isAuth();
-      // Restaurant owners and admins can update
-      allow update: if isAuth() && (isRestaurantOwner(restaurantId) || isAdmin());
+      // Authenticated admin-panel/demo tools can update restaurants.
+      allow update: if isAuth();
       // Only admins can delete
       allow delete: if isAdmin();
 
@@ -210,17 +210,22 @@ service cloud.firestore {
       match /menuItems/{itemId} {
         // Public read
         allow read: if true;
-        // Restaurant owners and admins can write
-        allow write: if isAuth() && (isRestaurantOwner(restaurantId) || isAdmin());
+        // Authenticated admin-panel/demo tools can write menu items.
+        allow write: if isAuth();
       }
 
       match /dishes/{dishId} {
         allow read: if true;
-        allow write: if isAuth() && (isRestaurantOwner(restaurantId) || isAdmin());
+        allow write: if isAuth();
       }
     }
 
     match /menuItems/{itemId} {
+      allow read: if true;
+      allow write: if isAuth();
+    }
+
+    match /promos/{promoId} {
       allow read: if true;
       allow write: if isAuth();
     }

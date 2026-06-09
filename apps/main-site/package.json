@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "tsc --noEmit",
-    "seed:marketplace": "tsx scripts/seed-marketplace.ts"
+    "seed:marketplace": "tsx scripts/seed-marketplace.ts",
+    "seed:demo-restaurants": "tsx scripts/seed-demo-restaurants.ts"
   },
   "dependencies": {
     "@repo/firebase-config": "workspace:*",

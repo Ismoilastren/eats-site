@@ -34,6 +34,7 @@ export type Restaurant = {
   workingHours: string;
   availableZones: string[];
   priceLevel: PriceLevel;
+  address?: string;
   location: { lat: number; lng: number };
   menu: Dish[];
 };
@@ -139,6 +140,7 @@ export const restaurants: Restaurant[] = specs.map((spec, index) => ({
   workingHours: index % 8 === 0 ? '24/7' : index % 6 === 0 ? '10:00-22:00' : '09:00-23:30',
   availableZones: index % 7 === 0 ? ['center'] : ['tashkent', 'center'],
   priceLevel: (index % 3 === 0 ? '$' : index % 3 === 1 ? '$$' : '$$$') as PriceLevel,
+  address: 'Tashkent, Amir Temur Avenue 14',
   location: { lat: 41.311081 + index * 0.004, lng: 69.240562 + index * 0.003 },
   menu: menuFor(spec[0], index),
 }));

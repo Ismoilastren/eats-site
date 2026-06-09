@@ -79,6 +79,10 @@ function readMockOrders(): LocalOrder[] {
   }
 }
 
+function sortOrdersByCreatedAt(orders: LocalOrder[]): LocalOrder[] {
+  return [...orders].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
 function writeMockOrders(orders: LocalOrder[]) {
   if (typeof window === 'undefined') return;
   localStorage.setItem('marketplace_orders', JSON.stringify(orders));
@@ -203,9 +207,9 @@ export async function createOrder(orderInput: MarketplaceOrderInput): Promise<Lo
 export async function getOrdersByUser(userId: string): Promise<LocalOrder[]> {
   if (!isFirestoreDataSource()) return readMockOrders();
 
-  const ordersQuery = query(collection(db, 'orders'), where('userId', '==', userId || MOCK_CUSTOMER_ID), orderBy('createdAt', 'desc'));
+  const ordersQuery = query(collection(db, 'orders'), where('userId', '==', userId || MOCK_CUSTOMER_ID));
   const snapshot = await getDocs(ordersQuery);
-  return snapshot.docs.map((orderDoc) => mapFirestoreOrder(orderDoc.data(), orderDoc.id));
+  return sortOrdersByCreatedAt(snapshot.docs.map((orderDoc) => mapFirestoreOrder(orderDoc.data(), orderDoc.id)));
 }
 
 export async function getOrderById(orderId: string): Promise<LocalOrder | null> {
@@ -217,7 +221,7 @@ export async function getOrderById(orderId: string): Promise<LocalOrder | null> 
 
 export async function getAllOrders(): Promise<LocalOrder[]> {
   if (!isFirestoreDataSource()) {
-    return readMockOrders().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return sortOrdersByCreatedAt(readMockOrders());
   }
 
   const ordersQuery = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
@@ -232,9 +236,9 @@ export async function getOrdersByRestaurant(restaurantId: string): Promise<Local
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }
 
-  const ordersQuery = query(collection(db, 'orders'), where('restaurantId', '==', restaurantId), orderBy('createdAt', 'desc'));
+  const ordersQuery = query(collection(db, 'orders'), where('restaurantId', '==', restaurantId));
   const snapshot = await getDocs(ordersQuery);
-  return snapshot.docs.map((orderDoc) => mapFirestoreOrder(orderDoc.data(), orderDoc.id));
+  return sortOrdersByCreatedAt(snapshot.docs.map((orderDoc) => mapFirestoreOrder(orderDoc.data(), orderDoc.id)));
 }
 
 export async function getAvailableCourierOrders(): Promise<LocalOrder[]> {
@@ -312,7 +316,7 @@ export function subscribeToOrder(orderId: string, onChange: (order: LocalOrder |
 export function subscribeToOrders(onChange: (orders: LocalOrder[]) => void): Unsubscribe {
   if (!isFirestoreDataSource()) {
     const refresh = () => {
-      onChange(readMockOrders().sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+      onChange(sortOrdersByCreatedAt(readMockOrders()));
     };
     refresh();
     window.addEventListener('marketplace-orders-updated', refresh);

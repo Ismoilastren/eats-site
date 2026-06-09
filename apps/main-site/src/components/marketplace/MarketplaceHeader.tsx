@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Bell, ChevronDown, LocateFixed, MapPin, Search, ShoppingCart, UserRound, X } from 'lucide-react';
 import { addressSuggestions } from '@/data/marketplace';
 import { useMarketplace } from '@/context/MarketplaceContext';
+import { YandexMapPreview } from './YandexMapPreview';
 
 export function MarketplaceHeader() {
   const { address, setAddress, cartCount, user, login, logout, deliveryMode, setDeliveryMode } = useMarketplace();
@@ -18,6 +19,7 @@ export function MarketplaceHeader() {
   const [authError, setAuthError] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
   const [addressInput, setAddressInput] = useState(address.text);
+  const [addressError, setAddressError] = useState('');
 
   useEffect(() => setAddressInput(address.text), [address.text]);
   useEffect(() => {
@@ -32,7 +34,20 @@ export function MarketplaceHeader() {
   const saveAddress = (text: string) => {
     const inZone = text.toLowerCase().includes('tashkent') || text.toLowerCase().includes('toshkent');
     setAddress({ text, inZone });
+    setAddressError('');
     setAddressOpen(false);
+  };
+  const useCurrentLocation = () => {
+    setAddressError('');
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setAddressError('Location access is not available in this browser.');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      () => saveAddress('Tashkent, current location'),
+      () => setAddressError('Could not access location. You can enter the address manually.'),
+      { enableHighAccuracy: true, timeout: 7000 }
+    );
   };
 
   const normalizePhone = (value: string) => value.replace(/[^\d+]/g, '');
@@ -126,7 +141,11 @@ export function MarketplaceHeader() {
             {addressInput && !(addressInput.toLowerCase().includes('tashkent') || addressInput.toLowerCase().includes('toshkent')) && (
               <p className="mt-3 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-600">Outside delivery zone. Choose an address inside Tashkent.</p>
             )}
-            <button onClick={() => saveAddress('Tashkent, current location')} className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-gray-950 px-4 py-4 font-black text-white">
+            {addressError && <p className="mt-3 rounded-2xl bg-orange-50 px-4 py-3 text-sm font-bold text-orange-700">{addressError}</p>}
+            <div className="mt-4">
+              <YandexMapPreview center={{ lat: 41.311081, lng: 69.240562 }} label={addressInput || address.text} />
+            </div>
+            <button onClick={useCurrentLocation} className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-gray-950 px-4 py-4 font-black text-white">
               <LocateFixed size={18} /> Use current location
             </button>
             <div className="mt-4 space-y-2">

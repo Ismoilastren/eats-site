@@ -63,6 +63,9 @@ export default function HomeClient() {
   const recommended = filtered.filter((restaurant) => restaurant.rating >= 4.6).slice(0, 4);
   const fast = filtered.filter((restaurant) => restaurant.etaMin <= 26).slice(0, 4);
   const favoriteRestaurants = restaurants.filter((restaurant) => favorites.includes(restaurant.id));
+  const averageEta = restaurants.length > 0
+    ? Math.round(restaurants.reduce((sum, restaurant) => sum + restaurant.etaMax, 0) / restaurants.length)
+    : 0;
 
   return (
     <div className="min-h-screen bg-[#f6f6f3] text-gray-950">
@@ -95,8 +98,8 @@ export default function HomeClient() {
             </div>
           </div>
           <div className="grid gap-4">
-            <Metric icon={<Timer size={22} />} label="Average ETA" value="24 min" />
-            <Metric icon={<Utensils size={22} />} label="Restaurants" value={`${restaurants.length}+`} />
+            <Metric icon={<Timer size={22} />} label="Average ETA" value={averageEta ? `${averageEta} min` : '—'} />
+            <Metric icon={<Utensils size={22} />} label="Restaurants" value={String(restaurants.length)} />
             <Metric icon={<Gift size={22} />} label="Promo code" value={marketplacePromos[0]?.code || 'FIRST21'} />
           </div>
         </section>
@@ -135,7 +138,7 @@ export default function HomeClient() {
           </div>
         </section>
 
-        {dataError && <div className="mt-6 rounded-[28px] bg-red-50 px-5 py-4 font-black text-red-600">{dataError}</div>}
+        {dataError && <div className="mt-6 rounded-[28px] bg-red-50 px-5 py-4 font-black text-red-600">Could not load live marketplace data. Refresh the page or check Firebase settings.</div>}
         {dataLoading ? (
           <div className="mt-10 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
             {Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-80 animate-pulse rounded-[36px] bg-white" />)}

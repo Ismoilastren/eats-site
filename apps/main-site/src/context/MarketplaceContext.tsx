@@ -81,6 +81,7 @@ type MarketplaceContextValue = {
 };
 
 const MarketplaceContext = createContext<MarketplaceContextValue | null>(null);
+const FRIENDLY_DATA_ERROR = 'Could not load live marketplace data. Refresh the page or check Firebase settings.';
 
 function readStorage<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined') return fallback;
@@ -125,7 +126,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
 
     getPromos()
       .then(setMarketplacePromos)
-      .catch((error) => setDataError(error instanceof Error ? error.message : 'Failed to load promos'));
+      .catch(() => setDataError(FRIENDLY_DATA_ERROR));
 
     const unsubscribe = subscribeRestaurants(
       (restaurantRecords) => {
@@ -133,7 +134,8 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
         setDataLoading(false);
       },
       (error) => {
-        setDataError(error.message);
+        console.error('Marketplace restaurants subscription failed:', error);
+        setDataError(FRIENDLY_DATA_ERROR);
         setRestaurants([]);
         setDataLoading(false);
       }
@@ -149,7 +151,8 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       const records = await getOrdersByUser(MOCK_CUSTOMER_ID);
       setOrders(records);
     } catch (error) {
-      setDataError(error instanceof Error ? error.message : 'Failed to load orders');
+      console.error('Marketplace orders load failed:', error);
+      setOrders([]);
     }
   }, []);
 

@@ -22,7 +22,7 @@ export type CartLine = Dish & {
   restaurantDeliveryFee: number;
 };
 
-export type MockUser = { name: string; phone: string };
+export type MockUser = { name: string; phone: string; email?: string };
 export type SavedAddress = { text: string; inZone: boolean; lat?: number; lng?: number };
 export type LocalOrder = {
   id: string;
@@ -66,7 +66,7 @@ type MarketplaceContextValue = {
   clearCart: () => void;
   setAddress: (address: SavedAddress) => void;
   toggleFavorite: (restaurantId: string) => void;
-  login: (name: string, phone: string) => void;
+  login: (name: string, phone: string, email?: string) => void;
   logout: () => void;
   applyPromo: (code: string) => boolean;
   removePromo: () => void;
@@ -215,7 +215,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   const clearCart = () => setCart([]);
   const setAddress = (next: SavedAddress) => setAddressState(next);
   const toggleFavorite = (restaurantId: string) => setFavorites((current) => current.includes(restaurantId) ? current.filter((id) => id !== restaurantId) : [...current, restaurantId]);
-  const login = (name: string, phone: string) => setUser({ name, phone });
+  const login = (name: string, phone: string, email?: string) => setUser({ name, phone, email });
   const logout = () => setUser(null);
   const setDeliveryMode = (mode: DeliveryMode) => setDeliveryModeState(mode);
 

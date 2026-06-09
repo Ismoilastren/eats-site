@@ -43,6 +43,9 @@ export default function CartPage() {
   const minOrder = cart[0]?.restaurantMinOrder || 0;
   const belowMinimum = cart.length > 0 && subtotal < minOrder;
   const phoneValid = /^\+?998\d{9}$/.test(phone.replace(/\s/g, ''));
+  const displayAddress = address.text === 'Current location'
+    ? 'Detected location, Tashkent'
+    : address.text.replace(/^Tashkent,\s*/i, '') || 'No address selected';
 
   const submit = async () => {
     if (cart.length === 0) return;
@@ -136,7 +139,7 @@ export default function CartPage() {
             <h2 className="text-3xl font-black">Order summary</h2>
             <div className="mt-5 rounded-3xl bg-gray-50 p-4">
               <p className="flex items-center gap-2 font-black"><MapPin size={18} /> Delivery address</p>
-              <p className="mt-2 font-bold text-gray-500">{address.text || 'No address selected'}</p>
+              <p className="mt-2 font-bold text-gray-500">{displayAddress}</p>
               <p className="mt-1 text-xs font-black text-gray-400">
                 {(address.lat || TASHKENT_CENTER.lat).toFixed(5)}, {(address.lng || TASHKENT_CENTER.lng).toFixed(5)}
               </p>
@@ -144,7 +147,7 @@ export default function CartPage() {
               <div className="mt-4">
                 <YandexMapPreview
                   center={{ lat: address.lat || TASHKENT_CENTER.lat, lng: address.lng || TASHKENT_CENTER.lng }}
-                  label={address.text || 'Delivery address'}
+                  label={displayAddress}
                   className="h-48"
                 />
               </div>

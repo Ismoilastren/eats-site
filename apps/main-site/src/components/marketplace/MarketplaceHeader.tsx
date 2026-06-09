@@ -2,15 +2,16 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { Bell, ChevronDown, MapPin, Search, ShoppingCart, UserRound, X } from 'lucide-react';
+import { Bell, ChevronDown, LogOut, MapPin, PackageCheck, Search, ShoppingCart, UserRound, X } from 'lucide-react';
 import { useMarketplace } from '@/context/MarketplaceContext';
 import { AddressMapPicker } from './AddressMapPicker';
 
 export function MarketplaceHeader() {
-  const { address, setAddress, cartCount, user, login, logout, deliveryMode, setDeliveryMode } = useMarketplace();
+  const { address, setAddress, cartCount, user, login, logout, deliveryMode, setDeliveryMode, orders } = useMarketplace();
   const [addressOpen, setAddressOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [name, setName] = useState(user?.name || '');
   const [phone, setPhone] = useState(user?.phone || '+998');
   const [otp, setOtp] = useState('');
@@ -62,6 +63,19 @@ export function MarketplaceHeader() {
       setAuthOpen(false);
     }, 250);
   };
+  const googleDemoLogin = () => {
+    // Demo fallback for presentations when Firebase Google provider is not configured on the customer site.
+    login('Google User', '+998901111111', 'demo.google@example.com');
+    setAuthOpen(false);
+  };
+
+  const activeNotifications = useMemo(() => orders
+    .filter((order) => order.status !== 'delivered' && order.status !== 'cancelled' && order.status !== 'rejected')
+    .slice(0, 5), [orders]);
+  const notificationCount = activeNotifications.length;
+  const displayAddress = address.text === 'Current location'
+    ? 'Detected location, Tashkent'
+    : address.text.replace(/^Tashkent,\s*/i, '') || 'Select address';
 
   return (
     <>
@@ -73,7 +87,7 @@ export function MarketplaceHeader() {
 
           <button onClick={() => setAddressOpen(true)} className="order-3 flex min-w-0 flex-1 items-center gap-2 rounded-2xl bg-gray-100 px-4 py-3 text-left text-sm font-bold text-gray-800 hover:bg-gray-200 md:order-none md:max-w-[280px]">
             <MapPin size={18} className="shrink-0 text-gray-500" />
-            <span className="truncate">{address.text || 'Select address'}</span>
+            <span className="truncate">{displayAddress}</span>
             <ChevronDown size={16} />
           </button>
 
@@ -87,8 +101,9 @@ export function MarketplaceHeader() {
             <span className="truncate font-semibold">Search restaurants or dishes</span>
           </button>
 
-          <button onClick={() => setSearchOpen(true)} className="hidden h-12 w-12 items-center justify-center rounded-2xl bg-gray-100 text-gray-700 hover:bg-gray-200 sm:flex">
+          <button aria-label="Open notifications" onClick={() => setNotificationsOpen((value) => !value)} className="relative hidden h-12 w-12 items-center justify-center rounded-2xl bg-gray-100 text-gray-700 hover:bg-gray-200 sm:flex">
             <Bell size={20} />
+            {notificationCount > 0 && <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-yellow-300 px-1 text-xs font-black text-gray-950">{notificationCount}</span>}
           </button>
 
           <Link href="/cart" className="relative order-1 flex h-12 w-12 items-center justify-center rounded-2xl bg-gray-950 text-white hover:bg-gray-800 lg:order-none">
@@ -101,6 +116,33 @@ export function MarketplaceHeader() {
             {user ? user.name.split(' ')[0] : 'Login'}
           </button>
         </div>
+        {notificationsOpen && (
+          <div className="absolute right-4 top-[74px] z-[65] w-[min(360px,calc(100vw-32px))] rounded-[28px] bg-white p-4 shadow-2xl ring-1 ring-black/5 lg:right-8">
+            <div className="flex items-center justify-between">
+              <p className="text-lg font-black text-gray-950">Notifications</p>
+              <button aria-label="Close notifications" onClick={() => setNotificationsOpen(false)} className="rounded-full bg-gray-100 p-2"><X size={16} /></button>
+            </div>
+            {activeNotifications.length === 0 ? (
+              <div className="mt-4 rounded-3xl bg-gray-50 p-6 text-center">
+                <Bell className="mx-auto text-gray-300" size={34} />
+                <p className="mt-3 font-black text-gray-950">No notifications yet</p>
+                <p className="mt-1 text-sm font-bold text-gray-500">Your order updates will appear here.</p>
+              </div>
+            ) : (
+              <div className="mt-3 space-y-2">
+                {activeNotifications.map((order) => (
+                  <Link key={order.id} href={`/orders/${order.id}`} onClick={() => setNotificationsOpen(false)} className="flex gap-3 rounded-3xl bg-gray-50 p-4 hover:bg-yellow-50">
+                    <PackageCheck className="mt-1 shrink-0 text-orange-500" size={20} />
+                    <span>
+                      <span className="block font-black text-gray-950">{order.status === 'accepted' ? 'Order accepted' : order.status === 'preparing' ? 'Preparing' : order.status === 'on_the_way' ? 'Courier on the way' : order.status === 'delivered' ? 'Delivered' : 'Order update'}</span>
+                      <span className="mt-1 block text-sm font-bold text-gray-500">{order.restaurantName} · {order.id.slice(0, 8)}</span>
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </header>
 
       {addressOpen && (
@@ -116,25 +158,32 @@ export function MarketplaceHeader() {
 
       {authOpen && (
         <div className="fixed inset-0 z-[70] bg-black/40 p-4">
-          <div className="mx-auto mt-20 max-w-md rounded-[32px] bg-white p-6 shadow-2xl">
+          <div className="mx-auto mt-12 max-w-md rounded-[32px] bg-white p-6 shadow-2xl md:mt-20">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-3xl font-black text-gray-950">{user ? 'Profile' : authStep === 'otp' ? 'Enter verification code' : 'Sign in'}</h2>
-                {!user && <p className="mt-1 font-bold text-gray-500">{authStep === 'otp' ? 'Demo code: 1111' : 'Enter your name and phone number to continue.'}</p>}
+                <h2 className="text-3xl font-black text-gray-950">{user ? 'Account' : authStep === 'otp' ? 'Enter verification code' : 'Sign in'}</h2>
+                {!user && <p className="mt-1 font-bold text-gray-500">{authStep === 'otp' ? 'Use demo code 1111 to finish sign in.' : 'Continue with phone number or Google.'}</p>}
               </div>
-              <button onClick={() => setAuthOpen(false)} className="rounded-full bg-gray-100 p-3"><X size={20} /></button>
+              <button aria-label="Close login" onClick={() => setAuthOpen(false)} className="rounded-full bg-gray-100 p-3"><X size={20} /></button>
             </div>
             {user ? (
               <div className="mt-5 space-y-3">
-                <p className="rounded-2xl bg-gray-50 p-4 font-bold">{user.name}<br /><span className="text-gray-500">{user.phone}</span></p>
+                <p className="rounded-3xl bg-gray-50 p-4 font-bold">{user.name}<br /><span className="text-gray-500">{user.email || user.phone}</span></p>
                 <Link onClick={() => setAuthOpen(false)} href="/profile" className="block rounded-2xl bg-gray-100 px-4 py-4 font-black text-gray-950">Profile</Link>
                 <Link onClick={() => setAuthOpen(false)} href="/orders" className="block rounded-2xl bg-gray-100 px-4 py-4 font-black text-gray-950">Orders</Link>
-                <button onClick={() => { logout(); setAuthOpen(false); }} className="w-full rounded-2xl bg-gray-950 px-4 py-4 font-black text-white">Logout</button>
+                <button onClick={() => { logout(); setAuthOpen(false); }} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gray-950 px-4 py-4 font-black text-white"><LogOut size={18} /> Logout</button>
               </div>
             ) : (
               <div className="mt-5 space-y-3">
                 {authStep === 'details' ? (
                   <>
+                    <button disabled={authBusy} onClick={googleDemoLogin} className="flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-4 font-black text-gray-950 shadow-sm hover:bg-gray-50 disabled:opacity-60">
+                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-950 text-sm font-black text-white">G</span>
+                      Continue with Google
+                    </button>
+                    <div className="flex items-center gap-3 text-xs font-black uppercase tracking-widest text-gray-400">
+                      <span className="h-px flex-1 bg-gray-100" /> or use phone <span className="h-px flex-1 bg-gray-100" />
+                    </div>
                     <label className="block">
                       <span className="text-sm font-black text-gray-500">Name</span>
                       <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-yellow-300" />
@@ -144,7 +193,7 @@ export function MarketplaceHeader() {
                       <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+998 90 123 45 67" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-yellow-300" />
                     </label>
                     {authError && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-black text-red-600">{authError}</p>}
-                    <button disabled={authBusy} onClick={continueAuth} className="w-full rounded-2xl bg-yellow-300 px-4 py-4 font-black text-gray-950 disabled:opacity-60">{authBusy ? 'Checking...' : 'Continue'}</button>
+                    <button disabled={authBusy} onClick={continueAuth} className="w-full rounded-2xl bg-yellow-300 px-4 py-4 font-black text-gray-950 disabled:opacity-60">{authBusy ? 'Sending code...' : 'Continue'}</button>
                   </>
                 ) : (
                   <>
@@ -185,6 +234,13 @@ function SearchOverlay({ onClose }: { onClose: () => void }) {
     const id = window.setTimeout(() => setDebounced(query), 180);
     return () => window.clearTimeout(id);
   }, [query]);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
 
   const results = useMemo(() => {
     const normalized = debounced.trim().toLowerCase();
@@ -225,7 +281,7 @@ function SearchOverlay({ onClose }: { onClose: () => void }) {
           <aside>
             <h3 className="font-black text-gray-950">Popular</h3>
             <div className="mt-3 flex flex-wrap gap-2 md:block md:space-y-2">
-              {['Pizza', 'Sushi', 'Burger', 'Plov', 'Lavash', 'Coffee'].map((item) => (
+              {['Pizza', 'Sushi', 'Burger', 'Lavash', 'Coffee'].map((item) => (
                 <button key={item} onClick={() => { setQuery(item); commitSearch(item); }} className="rounded-full bg-yellow-100 px-4 py-2 font-bold text-gray-900 md:block">{item}</button>
               ))}
             </div>
@@ -234,7 +290,12 @@ function SearchOverlay({ onClose }: { onClose: () => void }) {
           </aside>
           <main>
             {!debounced && <div className="rounded-[32px] bg-gray-50 p-10 text-center text-xl font-black text-gray-400">Search restaurants and dishes</div>}
-            {debounced && results.restaurants.length === 0 && results.dishes.length === 0 && <div className="rounded-[32px] bg-gray-50 p-10 text-center text-xl font-black text-gray-400">Nothing found</div>}
+            {debounced && results.restaurants.length === 0 && results.dishes.length === 0 && (
+              <div className="rounded-[32px] bg-gray-50 p-10 text-center">
+                <p className="text-xl font-black text-gray-950">No results found</p>
+                <p className="mt-2 font-bold text-gray-500">Try pizza, sushi, burger, lavash, coffee</p>
+              </div>
+            )}
             {results.restaurants.length > 0 && <h3 className="mb-3 text-2xl font-black">Restaurants</h3>}
             <div className="grid gap-4 md:grid-cols-2">
               {results.restaurants.map((restaurant) => (

@@ -26,6 +26,9 @@ export default function RestaurantPage() {
   const customerLocation = { lat: address.lat || TASHKENT_CENTER.lat, lng: address.lng || TASHKENT_CENTER.lng };
   const routeDistanceKm = restaurant ? haversineDistanceKm(restaurant.location, customerLocation) : 0;
   const routeEtaMinutes = restaurant ? Math.max(restaurant.etaMin, Math.round(routeDistanceKm * 4 + 12)) : 0;
+  const displayAddress = address.text === 'Current location'
+    ? 'Detected location, Tashkent'
+    : address.text.replace(/^Tashkent,\s*/i, '') || 'Delivery address';
 
   useEffect(() => {
     if (!restaurant) return;
@@ -155,10 +158,10 @@ export default function RestaurantPage() {
               <p>Schedule: {restaurant.workingHours}</p>
               <p>Min order: {formatCurrencyUZS(restaurant.minOrder)}</p>
               <p>Delivery: {restaurant.deliveryFee === 0 ? 'Free' : formatCurrencyUZS(restaurant.deliveryFee)}</p>
-              <p>ETA: {restaurant.etaMin}-{restaurant.etaMax} minutes</p>
+              <p>Delivery time: {restaurant.etaMin}-{restaurant.etaMax} minutes</p>
               <p>Rating: {restaurant.rating} from {restaurant.reviews} reviews</p>
               <p>Restaurant address: {restaurant.address || 'Tashkent'}</p>
-              <p>Delivery address: {address.text}</p>
+              <p>Delivery address: {displayAddress}</p>
               <p>Distance: {routeDistanceKm.toFixed(1)} km</p>
               <p>Estimated delivery time: {routeEtaMinutes} minutes</p>
             </div>

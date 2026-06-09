@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, LocateFixed, MapPin, Navigation, Search, X } from 'lucide-react';
 import { TASHKENT_CENTER } from '@/lib/yandexMaps';
 import { YandexMap } from './YandexMap';
@@ -29,6 +29,12 @@ const primarySuggestions = [
   'Tashkent, Yunusabad 4',
 ];
 
+function cleanAddressTitle(text: string) {
+  if (!text) return 'Selected point, Tashkent';
+  if (text === 'Current location') return 'Current location';
+  return text.replace(/^Tashkent,\s*/i, '').trim() || text;
+}
+
 function normalizeAddress(text: string, coords?: { lat: number; lng: number }): SavedAddress {
   const nextCoords = coords || addressCoordinates[text] || TASHKENT_CENTER;
   const inZone = text.toLowerCase().includes('tashkent') || text.toLowerCase().includes('toshkent') || text === 'Current location';
@@ -50,6 +56,10 @@ export function AddressMapPicker({
   onConfirm: (address: SavedAddress) => void;
 }) {
   const [query, setQuery] = useState('');
+  const [geocodeQuery, setGeocodeQuery] = useState('');
+  const [geocodedSuggestions, setGeocodedSuggestions] = useState<AddressOption[]>([]);
+  const [detectingAddress, setDetectingAddress] = useState(false);
+  const [searchingAddress, setSearchingAddress] = useState(false);
   const [selected, setSelected] = useState<SavedAddress>(() => normalizeAddress(initialAddress.text || 'Tashkent, Amir Temur Avenue 14', {
     lat: initialAddress.lat || TASHKENT_CENTER.lat,
     lng: initialAddress.lng || TASHKENT_CENTER.lng,
@@ -57,15 +67,106 @@ export function AddressMapPicker({
   const [selectedMeta, setSelectedMeta] = useState<SelectedMeta>(initialAddress.text === 'Current location' ? 'current' : 'preset');
   const [error, setError] = useState('');
 
+  const reverseGeocode = useCallback(async (coords: { lat: number; lng: number }) => {
+    const apiKey = process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY;
+    if (!apiKey) return null;
+    const params = new URLSearchParams({
+      apikey: apiKey,
+      format: 'json',
+      lang: 'en_US',
+      geocode: `${coords.lng},${coords.lat}`,
+      results: '1',
+    });
+    const response = await fetch(`https://geocode-maps.yandex.ru/1.x/?${params.toString()}`);
+    if (!response.ok) return null;
+    const data = await response.json() as {
+      response?: {
+        GeoObjectCollection?: {
+          featureMember?: Array<{ GeoObject?: { name?: string; description?: string; metaDataProperty?: { GeocoderMetaData?: { text?: string } } } }>;
+        };
+      };
+    };
+    const geoObject = data.response?.GeoObjectCollection?.featureMember?.[0]?.GeoObject;
+    const title = geoObject?.name || geoObject?.metaDataProperty?.GeocoderMetaData?.text;
+    if (!title) return null;
+    const description = geoObject?.description || 'Tashkent';
+    return `${title}${description.toLowerCase().includes('tashkent') ? ', Tashkent' : ''}`;
+  }, []);
+
+  const geocodeSearch = useCallback(async (value: string) => {
+    const apiKey = process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY;
+    if (!apiKey || value.trim().length < 3) return [];
+    const params = new URLSearchParams({
+      apikey: apiKey,
+      format: 'json',
+      lang: 'en_US',
+      geocode: `${value.trim()}, Tashkent`,
+      bbox: '69.1200,41.1900~69.4200,41.4200',
+      rspn: '1',
+      results: '4',
+    });
+    const response = await fetch(`https://geocode-maps.yandex.ru/1.x/?${params.toString()}`);
+    if (!response.ok) return [];
+    const data = await response.json() as {
+      response?: {
+        GeoObjectCollection?: {
+          featureMember?: Array<{ GeoObject?: { name?: string; description?: string; Point?: { pos?: string } } }>;
+        };
+      };
+    };
+    return (data.response?.GeoObjectCollection?.featureMember || [])
+      .map((item) => {
+        const geoObject = item.GeoObject;
+        const [lng, lat] = (geoObject?.Point?.pos || '').split(' ').map(Number);
+        if (!geoObject?.name || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        const label = `${geoObject.name}${geoObject.description?.toLowerCase().includes('tashkent') ? ', Tashkent' : ''}`;
+        return { ...normalizeAddress(label, { lat, lng }), label };
+      })
+      .filter((item): item is AddressOption => Boolean(item));
+  }, []);
+
   const suggestions: AddressOption[] = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    return primarySuggestions
+    const localSuggestions = primarySuggestions
       .filter((item) => !normalized || item.toLowerCase().includes(normalized))
       .map((item) => ({ ...normalizeAddress(item), label: item }));
+    const merged = [...localSuggestions, ...geocodedSuggestions];
+    return merged.filter((item, index, list) => list.findIndex((entry) => entry.label === item.label) === index);
+  }, [geocodedSuggestions, query]);
+
+  useEffect(() => {
+    const normalized = query.trim();
+    if (normalized.length < 3) {
+      setGeocodeQuery('');
+      setGeocodedSuggestions([]);
+      setSearchingAddress(false);
+      return;
+    }
+    const id = window.setTimeout(() => setGeocodeQuery(normalized), 350);
+    return () => window.clearTimeout(id);
   }, [query]);
 
-  const selectAddress = (value: string) => {
-    const next = normalizeAddress(value);
+  useEffect(() => {
+    let cancelled = false;
+    if (!geocodeQuery) return;
+    setSearchingAddress(true);
+    geocodeSearch(geocodeQuery)
+      .then((items) => {
+        if (!cancelled) setGeocodedSuggestions(items);
+      })
+      .catch(() => {
+        if (!cancelled) setGeocodedSuggestions([]);
+      })
+      .finally(() => {
+        if (!cancelled) setSearchingAddress(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [geocodeQuery, geocodeSearch]);
+
+  const selectAddress = (item: AddressOption) => {
+    const next = normalizeAddress(item.label, { lat: item.lat || TASHKENT_CENTER.lat, lng: item.lng || TASHKENT_CENTER.lng });
     setSelected(next);
     setSelectedMeta('preset');
     setQuery('');
@@ -104,6 +205,22 @@ export function AddressMapPicker({
   };
 
   const selectedSecondary = selectedMeta === 'current' ? 'Detected location in Tashkent' : selectedMeta === 'map' ? 'Near selected point' : 'Tashkent delivery area';
+  const selectedTitle = cleanAddressTitle(selectedDisplayText);
+
+  const handleMapSelect = useCallback((coords: { lat: number; lng: number }) => {
+    setSelected((current) => ({ ...current, text: 'Selected point, Tashkent', ...coords }));
+    setSelectedMeta('map');
+    setDetectingAddress(true);
+    window.setTimeout(() => {
+      reverseGeocode(coords)
+        .then((label) => {
+          if (!label) return;
+          setSelected((current) => ({ ...current, text: label, ...coords }));
+        })
+        .catch(() => undefined)
+        .finally(() => setDetectingAddress(false));
+    }, 450);
+  }, [reverseGeocode]);
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/65 p-0 md:p-4">
@@ -113,7 +230,7 @@ export function AddressMapPicker({
             <p className="text-sm font-black uppercase tracking-widest text-orange-500">Tashkent</p>
             <h2 className="text-3xl font-black leading-tight text-gray-950 md:text-4xl">Delivery address</h2>
           </div>
-          <button onClick={onCancel} className="rounded-full bg-gray-100 p-3 text-gray-700 hover:bg-gray-200"><X size={20} /></button>
+          <button aria-label="Close address picker" onClick={onCancel} className="rounded-full bg-gray-100 p-3 text-gray-700 hover:bg-gray-200"><X size={20} /></button>
         </div>
 
         <div className="grid min-h-0 flex-1 overflow-y-auto md:grid-cols-[390px_1fr] md:overflow-hidden">
@@ -138,7 +255,7 @@ export function AddressMapPicker({
             <div className="mt-4">
               <div className="mb-2 flex items-center justify-between">
                 <p className="text-xs font-black uppercase tracking-widest text-gray-400">Popular addresses</p>
-                <span className="rounded-full bg-orange-50 px-2.5 py-1 text-xs font-black text-orange-600">{suggestions.length}</span>
+                <span className="rounded-full bg-orange-50 px-2.5 py-1 text-xs font-black text-orange-600">{searchingAddress ? 'Searching' : suggestions.length}</span>
               </div>
               <div className="space-y-2 md:max-h-[260px] md:overflow-y-auto md:pr-1">
                 {suggestions.map((item) => {
@@ -146,7 +263,7 @@ export function AddressMapPicker({
                   return (
                     <button
                       key={item.label}
-                      onClick={() => selectAddress(item.label)}
+                      onClick={() => selectAddress(item)}
                       className={`block w-full rounded-[22px] px-4 py-3 text-left transition ${active ? 'bg-orange-50 text-orange-700 ring-2 ring-orange-200' : 'bg-gray-50 text-gray-800 hover:bg-yellow-50'}`}
                     >
                       <span className="flex items-start gap-3">
@@ -176,7 +293,7 @@ export function AddressMapPicker({
                 </div>
                 <div className="min-w-0">
                   <p className="text-xs font-black uppercase tracking-widest text-orange-300">Selected address</p>
-                  <p className="mt-1 line-clamp-2 font-black leading-snug">{selectedDisplayText}</p>
+                  <p className="mt-1 line-clamp-2 font-black leading-snug">{detectingAddress ? 'Detecting address...' : selectedTitle}</p>
                   <p className="mt-1 text-sm font-bold text-gray-300">{selectedSecondary}</p>
                   <p className="mt-1 text-xs font-bold text-gray-500">{(selected.lat || TASHKENT_CENTER.lat).toFixed(5)}, {(selected.lng || TASHKENT_CENTER.lng).toFixed(5)}</p>
                 </div>
@@ -197,10 +314,7 @@ export function AddressMapPicker({
               showLocateControl={false}
               heightClassName="h-[360px] md:h-full md:min-h-[420px]"
               fallbackLabel="Map is unavailable. You can still confirm the typed address."
-              onSelect={(coords) => {
-                setSelected((current) => ({ ...current, text: current.text === 'Current location' ? 'Selected point' : current.text, ...coords }));
-                setSelectedMeta('map');
-              }}
+              onSelect={handleMapSelect}
             />
           </section>
         </div>

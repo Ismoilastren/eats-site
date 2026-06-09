@@ -88,6 +88,7 @@ function mapFirestoreRestaurant(data: DocumentData, id: string, menu: Dish[] = [
     location: {
       lat: Number(data.location?.lat ?? data.location?.latitude ?? 41.311081),
       lng: Number(data.location?.lng ?? data.location?.longitude ?? 69.240562),
+      address: String(data.address || data.location?.address || 'Tashkent'),
     },
     menu,
   };

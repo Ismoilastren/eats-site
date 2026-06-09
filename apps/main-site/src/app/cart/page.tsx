@@ -5,8 +5,11 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { ArrowLeft, CreditCard, MapPin, Minus, Plus, Ticket, Trash2, Wallet } from 'lucide-react';
 import { formatCurrencyUZS } from '@repo/shared-types';
+import { AddressMapPicker } from '@/components/marketplace/AddressMapPicker';
 import { MarketplaceHeader } from '@/components/marketplace/MarketplaceHeader';
+import { YandexMapPreview } from '@/components/marketplace/YandexMapPreview';
 import { useMarketplace } from '@/context/MarketplaceContext';
+import { TASHKENT_CENTER } from '@/lib/yandexMaps';
 
 export default function CartPage() {
   const router = useRouter();
@@ -26,6 +29,7 @@ export default function CartPage() {
     applyPromo,
     removePromo,
     placeOrder,
+    setAddress,
   } = useMarketplace();
   const [name, setName] = useState(user?.name || '');
   const [phone, setPhone] = useState(user?.phone || '+998');
@@ -34,6 +38,7 @@ export default function CartPage() {
   const [promoInput, setPromoInput] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [addressPickerOpen, setAddressPickerOpen] = useState(false);
 
   const minOrder = cart[0]?.restaurantMinOrder || 0;
   const belowMinimum = cart.length > 0 && subtotal < minOrder;
@@ -132,7 +137,20 @@ export default function CartPage() {
             <div className="mt-5 rounded-3xl bg-gray-50 p-4">
               <p className="flex items-center gap-2 font-black"><MapPin size={18} /> Delivery address</p>
               <p className="mt-2 font-bold text-gray-500">{address.text || 'No address selected'}</p>
+              <p className="mt-1 text-xs font-black text-gray-400">
+                {(address.lat || TASHKENT_CENTER.lat).toFixed(5)}, {(address.lng || TASHKENT_CENTER.lng).toFixed(5)}
+              </p>
               {!address.inZone && <p className="mt-2 text-sm font-black text-red-500">Outside delivery zone. Use the header address selector.</p>}
+              <div className="mt-4">
+                <YandexMapPreview
+                  center={{ lat: address.lat || TASHKENT_CENTER.lat, lng: address.lng || TASHKENT_CENTER.lng }}
+                  label={address.text || 'Delivery address'}
+                  className="h-48"
+                />
+              </div>
+              <button onClick={() => setAddressPickerOpen(true)} className="mt-4 w-full rounded-2xl bg-gray-950 px-4 py-3 font-black text-white hover:bg-gray-800">
+                Change address
+              </button>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-2">
               <button onClick={() => setPayment('cash')} className={`rounded-2xl px-4 py-4 font-black ${payment === 'cash' ? 'bg-yellow-300' : 'bg-gray-100'}`}><Wallet className="mx-auto mb-1" /> Cash</button>
@@ -161,6 +179,16 @@ export default function CartPage() {
           </aside>
         </div>
       </main>
+      {addressPickerOpen && (
+        <AddressMapPicker
+          initialAddress={address}
+          onCancel={() => setAddressPickerOpen(false)}
+          onConfirm={(nextAddress) => {
+            setAddress(nextAddress);
+            setAddressPickerOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }

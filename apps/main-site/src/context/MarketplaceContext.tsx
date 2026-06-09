@@ -12,6 +12,7 @@ import {
   type OrderStatus,
   type MarketplaceOrderInput,
 } from '@/services/marketplace';
+import { TASHKENT_CENTER } from '@/lib/yandexMaps';
 
 export type CartLine = Dish & {
   quantity: number;
@@ -22,7 +23,7 @@ export type CartLine = Dish & {
 };
 
 export type MockUser = { name: string; phone: string };
-export type SavedAddress = { text: string; inZone: boolean };
+export type SavedAddress = { text: string; inZone: boolean; lat?: number; lng?: number };
 export type LocalOrder = {
   id: string;
   restaurantId: string;
@@ -97,7 +98,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   const [cart, setCart] = useState<CartLine[]>([]);
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [user, setUser] = useState<MockUser | null>(null);
-  const [address, setAddressState] = useState<SavedAddress>({ text: 'Tashkent, Amir Temur Avenue 14', inZone: true });
+  const [address, setAddressState] = useState<SavedAddress>({ text: 'Tashkent, Amir Temur Avenue 14', inZone: true, ...TASHKENT_CENTER });
   const [favorites, setFavorites] = useState<string[]>([]);
   const [orders, setOrders] = useState<LocalOrder[]>([]);
   const [promo, setPromo] = useState<Promo | null>(null);
@@ -110,7 +111,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   useEffect(() => {
     setCart(readStorage<CartLine[]>('marketplace_cart', []));
     setUser(readStorage<MockUser | null>('marketplace_user', null));
-    setAddressState(readStorage<SavedAddress>('marketplace_address', { text: 'Tashkent, Amir Temur Avenue 14', inZone: true }));
+    setAddressState(readStorage<SavedAddress>('marketplace_address', { text: 'Tashkent, Amir Temur Avenue 14', inZone: true, ...TASHKENT_CENTER }));
     setFavorites(readStorage<string[]>('marketplace_favorites', []));
     if (!isFirestoreDataSource()) {
       setOrders(readStorage<LocalOrder[]>('marketplace_orders', []));
@@ -242,6 +243,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       restaurantLocation: restaurant?.location,
       items: cart,
       address: payload.address,
+      customerLocation: { lat: address.lat || TASHKENT_CENTER.lat, lng: address.lng || TASHKENT_CENTER.lng },
       customerName: payload.name,
       customerPhone: payload.phone,
       paymentMethod: payload.paymentMethod || 'cash',
@@ -258,7 +260,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     clearCart();
     setPromo(null);
     return order;
-  }, [cart, deliveryFee, discount, promo?.code, restaurants, serviceFee, subtotal, total]);
+  }, [address.lat, address.lng, cart, deliveryFee, discount, promo?.code, restaurants, serviceFee, subtotal, total]);
 
   const value = useMemo<MarketplaceContextValue>(() => ({
     cart,

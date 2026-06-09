@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { collection, db, getDocs, limit, query } from '@repo/firebase-config';
 import { MARKETPLACE_DATA_SOURCE } from '@/services/marketplace';
+import { getYandexMapsStatus, isYandexMapsKeyConfigured, loadYandexMaps, type YandexMapsStatus } from '@/lib/yandexMaps';
 
 type DebugState = {
   loading: boolean;
@@ -12,6 +13,8 @@ type DebugState = {
   dataSource: string;
   restaurantsCount: number | null;
   ordersCount: number | null;
+  yandexMapsKeyConfigured: boolean;
+  yandexMapsStatus: YandexMapsStatus;
   error: string | null;
 };
 
@@ -23,6 +26,8 @@ export default function ConnectionDebugPage() {
     dataSource: MARKETPLACE_DATA_SOURCE,
     restaurantsCount: null,
     ordersCount: null,
+    yandexMapsKeyConfigured: isYandexMapsKeyConfigured(),
+    yandexMapsStatus: 'not_loaded',
     error: null,
   });
 
@@ -43,6 +48,7 @@ export default function ConnectionDebugPage() {
           ok: true,
           restaurantsCount: restaurantsSnap.size,
           ordersCount: ordersSnap.size,
+          yandexMapsStatus: getYandexMapsStatus(),
           error: null,
         }));
       } catch (error) {
@@ -62,9 +68,27 @@ export default function ConnectionDebugPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!isYandexMapsKeyConfigured()) return;
+    let cancelled = false;
+    setState((current) => ({ ...current, yandexMapsStatus: 'loading' }));
+    loadYandexMaps()
+      .then(() => {
+        if (!cancelled) setState((current) => ({ ...current, yandexMapsStatus: 'loaded' }));
+      })
+      .catch(() => {
+        if (!cancelled) setState((current) => ({ ...current, yandexMapsStatus: 'error' }));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const rows = [
     ['Data source', state.dataSource],
     ['Firebase project ID', state.projectId],
+    ['Yandex Maps key configured', state.yandexMapsKeyConfigured ? 'Yes' : 'No'],
+    ['Yandex Maps loader', state.yandexMapsStatus],
     ['Firestore read', state.loading ? 'Checking...' : state.ok ? 'OK' : 'Failed'],
     ['Restaurants count', state.restaurantsCount ?? '-'],
     ['Orders count', state.ordersCount ?? '-'],

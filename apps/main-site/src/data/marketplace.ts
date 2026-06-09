@@ -35,7 +35,7 @@ export type Restaurant = {
   availableZones: string[];
   priceLevel: PriceLevel;
   address?: string;
-  location: { lat: number; lng: number };
+  location: { lat: number; lng: number; address?: string };
   menu: Dish[];
 };
 

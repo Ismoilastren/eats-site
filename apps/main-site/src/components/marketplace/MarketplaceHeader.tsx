@@ -2,10 +2,9 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { Bell, ChevronDown, LocateFixed, MapPin, Search, ShoppingCart, UserRound, X } from 'lucide-react';
-import { addressSuggestions } from '@/data/marketplace';
+import { Bell, ChevronDown, MapPin, Search, ShoppingCart, UserRound, X } from 'lucide-react';
 import { useMarketplace } from '@/context/MarketplaceContext';
-import { YandexMapPreview } from './YandexMapPreview';
+import { AddressMapPicker } from './AddressMapPicker';
 
 export function MarketplaceHeader() {
   const { address, setAddress, cartCount, user, login, logout, deliveryMode, setDeliveryMode } = useMarketplace();
@@ -18,10 +17,7 @@ export function MarketplaceHeader() {
   const [authStep, setAuthStep] = useState<'details' | 'otp'>('details');
   const [authError, setAuthError] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
-  const [addressInput, setAddressInput] = useState(address.text);
-  const [addressError, setAddressError] = useState('');
 
-  useEffect(() => setAddressInput(address.text), [address.text]);
   useEffect(() => {
     if (!authOpen) return;
     setName(user?.name || '');
@@ -30,25 +26,6 @@ export function MarketplaceHeader() {
     setAuthStep('details');
     setAuthError('');
   }, [authOpen, user?.name, user?.phone]);
-
-  const saveAddress = (text: string) => {
-    const inZone = text.toLowerCase().includes('tashkent') || text.toLowerCase().includes('toshkent');
-    setAddress({ text, inZone });
-    setAddressError('');
-    setAddressOpen(false);
-  };
-  const useCurrentLocation = () => {
-    setAddressError('');
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      setAddressError('Location access is not available in this browser.');
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      () => saveAddress('Tashkent, current location'),
-      () => setAddressError('Could not access location. You can enter the address manually.'),
-      { enableHighAccuracy: true, timeout: 7000 }
-    );
-  };
 
   const normalizePhone = (value: string) => value.replace(/[^\d+]/g, '');
   const phoneLooksValid = (value: string) => /^\+?998\d{9}$/.test(normalizePhone(value));
@@ -127,35 +104,14 @@ export function MarketplaceHeader() {
       </header>
 
       {addressOpen && (
-        <div className="fixed inset-0 z-[70] bg-black/40 p-4">
-          <div className="mx-auto mt-4 max-h-[92vh] max-w-xl overflow-y-auto rounded-[32px] bg-white p-6 shadow-2xl md:mt-16">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-black uppercase tracking-widest text-yellow-500">Tashkent</p>
-                <h2 className="text-3xl font-black text-gray-950">Delivery address</h2>
-              </div>
-              <button onClick={() => setAddressOpen(false)} className="rounded-full bg-gray-100 p-3"><X size={20} /></button>
-            </div>
-            <label className="mt-5 block text-sm font-black text-gray-500">Address</label>
-            <input value={addressInput} onChange={(event) => setAddressInput(event.target.value)} placeholder="Tashkent, street and building" className="mt-2 w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-4 font-bold outline-none focus:border-yellow-400" />
-            {addressInput && !(addressInput.toLowerCase().includes('tashkent') || addressInput.toLowerCase().includes('toshkent')) && (
-              <p className="mt-3 rounded-2xl bg-red-50 px-4 py-3 text-sm font-bold text-red-600">Outside delivery zone. Choose an address inside Tashkent.</p>
-            )}
-            {addressError && <p className="mt-3 rounded-2xl bg-orange-50 px-4 py-3 text-sm font-bold text-orange-700">{addressError}</p>}
-            <div className="mt-4">
-              <YandexMapPreview center={{ lat: 41.311081, lng: 69.240562 }} label={addressInput || address.text} />
-            </div>
-            <button onClick={useCurrentLocation} className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-gray-950 px-4 py-4 font-black text-white">
-              <LocateFixed size={18} /> Use current location
-            </button>
-            <div className="mt-4 space-y-2">
-              {addressSuggestions.map((item) => (
-                <button key={item} onClick={() => saveAddress(item)} className="block w-full rounded-2xl bg-gray-50 px-4 py-3 text-left font-bold text-gray-700 hover:bg-yellow-50">{item}</button>
-              ))}
-            </div>
-            <button onClick={() => saveAddress(addressInput)} className="mt-5 w-full rounded-2xl bg-yellow-300 px-4 py-4 font-black text-gray-950">Save address</button>
-          </div>
-        </div>
+        <AddressMapPicker
+          initialAddress={address}
+          onCancel={() => setAddressOpen(false)}
+          onConfirm={(nextAddress) => {
+            setAddress(nextAddress);
+            setAddressOpen(false);
+          }}
+        />
       )}
 
       {authOpen && (

@@ -32,7 +32,8 @@ export type MarketplaceOrderInput = {
   userId?: string;
   restaurantId: string;
   restaurantName: string;
-  restaurantLocation?: { lat: number; lng: number };
+  restaurantLocation?: { lat: number; lng: number; address?: string };
+  customerLocation?: { lat: number; lng: number };
   items: CartLine[];
   address: string;
   customerName: string;
@@ -161,7 +162,12 @@ export async function createOrder(orderInput: MarketplaceOrderInput): Promise<Lo
   }
 
   const orderRef = doc(collection(db, 'orders'));
-  const customerLocation = { lat: 41.311081, lng: 69.240562, latitude: 41.311081, longitude: 69.240562 };
+  const customerLocation = {
+    lat: orderInput.customerLocation?.lat ?? 41.311081,
+    lng: orderInput.customerLocation?.lng ?? 69.240562,
+    latitude: orderInput.customerLocation?.lat ?? 41.311081,
+    longitude: orderInput.customerLocation?.lng ?? 69.240562,
+  };
   const payload = {
     id: orderRef.id,
     userId: orderInput.userId || MOCK_CUSTOMER_ID,

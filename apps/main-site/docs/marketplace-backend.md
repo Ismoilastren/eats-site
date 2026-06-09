@@ -24,7 +24,28 @@ NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
 NEXT_PUBLIC_FIREBASE_APP_ID=
 NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=
 NEXT_PUBLIC_MARKETPLACE_DATA_SOURCE=firestore
+NEXT_PUBLIC_YANDEX_MAPS_API_KEY=
 ```
+
+## Yandex Maps
+
+The customer address picker and restaurant preview use Yandex Maps JavaScript API v3.
+
+Required for production:
+
+```bash
+NEXT_PUBLIC_YANDEX_MAPS_API_KEY=
+```
+
+Do not commit the key. Add it in the Vercel customer project environment variables, then redeploy the customer site.
+
+In the Yandex developer console, allow these hosts:
+
+- `eats-site-main-site.vercel.app`
+- `localhost:3002`
+- `localhost:3000`
+
+If the key is missing or blocked, the app shows a clean address form fallback and checkout still works. `/debug/connection` shows whether the key is configured and whether the client-side loader reached `loaded` or `error`.
 
 ## Seed Firestore
 
@@ -64,7 +85,8 @@ The seed is idempotent. It writes with `setDoc(..., { merge: true })`, so runnin
   workingHours: string;
   zones: string[];
   priceLevel: '$' | '$$' | '$$$';
-  location: { lat: number; lng: number };
+  address: string;
+  location: { lat: number; lng: number; address?: string };
 }
 ```
 
@@ -109,7 +131,7 @@ Checkout writes:
   userId: string;
   restaurantId: string;
   restaurantName: string;
-  restaurantLocation: { lat: number; lng: number };
+  restaurantLocation: { lat: number; lng: number; address?: string };
   items: Array<{ id: string; name: string; price: number; quantity: number; restaurantId: string }>;
   address: string;
   customerAddress: string;
@@ -135,5 +157,5 @@ Checkout writes:
 ## Current Limitations
 
 - Main-site still uses a mock customer id until full web auth is enabled.
-- `customerLocation` defaults to Tashkent center on web checkout unless a real address GPS picker is added.
+- Real routing is not enabled. Restaurant pages use straight-line distance and an estimated delivery time.
 - Firestore mode uses direct reads. Add composite indexes if Firebase asks for them after production data grows.

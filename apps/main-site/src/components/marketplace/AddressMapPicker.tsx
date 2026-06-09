@@ -7,6 +7,7 @@ import { YandexMap } from './YandexMap';
 import type { SavedAddress } from '@/context/MarketplaceContext';
 
 type AddressOption = SavedAddress & { label: string };
+type SelectedMeta = 'preset' | 'current' | 'map';
 
 const addressCoordinates: Record<string, { lat: number; lng: number }> = {
   'Tashkent, Amir Temur Avenue 14': { lat: 41.311081, lng: 69.240562 },
@@ -53,6 +54,7 @@ export function AddressMapPicker({
     lat: initialAddress.lat || TASHKENT_CENTER.lat,
     lng: initialAddress.lng || TASHKENT_CENTER.lng,
   }));
+  const [selectedMeta, setSelectedMeta] = useState<SelectedMeta>(initialAddress.text === 'Current location' ? 'current' : 'preset');
   const [error, setError] = useState('');
 
   const suggestions: AddressOption[] = useMemo(() => {
@@ -65,7 +67,8 @@ export function AddressMapPicker({
   const selectAddress = (value: string) => {
     const next = normalizeAddress(value);
     setSelected(next);
-    setQuery(value);
+    setSelectedMeta('preset');
+    setQuery('');
     setError('');
   };
 
@@ -79,15 +82,19 @@ export function AddressMapPicker({
       (position) => {
         const next = normalizeAddress('Current location', { lat: position.coords.latitude, lng: position.coords.longitude });
         setSelected(next);
-        setQuery(next.text);
+        setSelectedMeta('current');
+        setQuery('');
       },
       () => setError('Could not access your location. Select an address manually.'),
       { enableHighAccuracy: true, timeout: 7000 }
     );
   };
 
+  const showEmptySuggestions = query.trim().length > 0 && suggestions.length === 0;
+  const selectedDisplayText = showEmptySuggestions ? query.trim() : selected.text;
+
   const confirm = () => {
-    const text = query.trim() || selected.text;
+    const text = selectedDisplayText;
     const next = normalizeAddress(text, { lat: selected.lat || TASHKENT_CENTER.lat, lng: selected.lng || TASHKENT_CENTER.lng });
     if (!next.inZone) {
       setError('Delivery is available inside Tashkent. Choose a Tashkent address.');
@@ -95,6 +102,8 @@ export function AddressMapPicker({
     }
     onConfirm(next);
   };
+
+  const selectedSecondary = selectedMeta === 'current' ? 'Detected location in Tashkent' : selectedMeta === 'map' ? 'Near selected point' : 'Tashkent delivery area';
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/65 p-0 md:p-4">
@@ -114,7 +123,7 @@ export function AddressMapPicker({
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder={selected.text || 'Search street, building, landmark'}
+                placeholder="Search address"
                 className="min-w-0 flex-1 bg-transparent font-bold outline-none"
               />
               {query && <button onClick={() => setQuery('')} className="rounded-full bg-white p-1 text-gray-500"><X size={16} /></button>}
@@ -146,15 +155,15 @@ export function AddressMapPicker({
                         </span>
                         <span>
                           <span className="block font-black">{item.label.replace('Tashkent, ', '')}</span>
-                          <span className="mt-0.5 block text-sm font-bold text-gray-500">Tashkent · {(item.lat || TASHKENT_CENTER.lat).toFixed(4)}, {(item.lng || TASHKENT_CENTER.lng).toFixed(4)}</span>
+                          <span className="mt-0.5 block text-sm font-bold text-gray-500">Tashkent delivery area</span>
                         </span>
                       </span>
                     </button>
                   );
                 })}
-                {suggestions.length === 0 && (
+                {showEmptySuggestions && (
                   <div className="rounded-[22px] bg-gray-50 px-4 py-5 text-center font-bold text-gray-500">
-                    No preset address found. You can confirm the typed address.
+                    No matching address found. You can confirm the typed address.
                   </div>
                 )}
               </div>
@@ -167,8 +176,9 @@ export function AddressMapPicker({
                 </div>
                 <div className="min-w-0">
                   <p className="text-xs font-black uppercase tracking-widest text-orange-300">Selected address</p>
-                  <p className="mt-1 line-clamp-2 font-black leading-snug">{query.trim() || selected.text}</p>
-                  <p className="mt-1 text-sm font-bold text-gray-400">{(selected.lat || TASHKENT_CENTER.lat).toFixed(5)}, {(selected.lng || TASHKENT_CENTER.lng).toFixed(5)}</p>
+                  <p className="mt-1 line-clamp-2 font-black leading-snug">{selectedDisplayText}</p>
+                  <p className="mt-1 text-sm font-bold text-gray-300">{selectedSecondary}</p>
+                  <p className="mt-1 text-xs font-bold text-gray-500">{(selected.lat || TASHKENT_CENTER.lat).toFixed(5)}, {(selected.lng || TASHKENT_CENTER.lng).toFixed(5)}</p>
                 </div>
               </div>
             </div>
@@ -187,7 +197,10 @@ export function AddressMapPicker({
               showLocateControl={false}
               heightClassName="h-[360px] md:h-full md:min-h-[420px]"
               fallbackLabel="Map is unavailable. You can still confirm the typed address."
-              onSelect={(coords) => setSelected((current) => ({ ...current, ...coords }))}
+              onSelect={(coords) => {
+                setSelected((current) => ({ ...current, text: current.text === 'Current location' ? 'Selected point' : current.text, ...coords }));
+                setSelectedMeta('map');
+              }}
             />
           </section>
         </div>

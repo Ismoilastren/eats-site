@@ -20,6 +20,7 @@ type YandexMapProps = {
   dark?: boolean;
   heightClassName?: string;
   fallbackLabel?: string;
+  showLocateControl?: boolean;
   onSelect?: (coords: { lat: number; lng: number }) => void;
   onStatusChange?: (status: 'not_loaded' | 'loading' | 'loaded' | 'error') => void;
 };
@@ -53,6 +54,7 @@ export function YandexMap({
   dark = false,
   heightClassName = 'h-[420px]',
   fallbackLabel = 'Map is temporarily unavailable.',
+  showLocateControl = true,
   onSelect,
   onStatusChange,
 }: YandexMapProps) {
@@ -173,7 +175,7 @@ export function YandexMap({
         <button aria-label="Zoom out" onClick={() => updateZoom(zoom - 1)} className="border-t border-gray-100 p-3 text-gray-950 hover:bg-gray-100"><Minus size={18} /></button>
       </div>
 
-      {interactive && (
+      {interactive && showLocateControl && (
         <button
           type="button"
           onClick={() => navigator.geolocation?.getCurrentPosition((position) => onSelect?.({ lat: position.coords.latitude, lng: position.coords.longitude }))}

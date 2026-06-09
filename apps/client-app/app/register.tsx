@@ -24,18 +24,49 @@ import {
 } from '@repo/firebase-config';
 import { COLLECTIONS } from '@repo/shared-types';
 
+// ─── PHONE MASK: +998 XX XXX XX XX (max 17 chars) ───────────────────────────
+const UZ_PREFIX = '+998';
+const PHONE_MAX_LEN = 17; // '+998 90 123 45 67'
+
+function formatPhoneUZ(raw: string): string {
+  // Strip everything except digits, keep only last 9 after +998
+  const digits = raw.replace(/\D/g, '');
+  // Remove leading 998 if the user types it manually
+  const local = digits.startsWith('998') ? digits.slice(3) : digits;
+  const d = local.slice(0, 9); // max 9 local digits
+
+  let result = UZ_PREFIX;
+  if (d.length > 0) result += ' ' + d.slice(0, 2);
+  if (d.length > 2) result += ' ' + d.slice(2, 5);
+  if (d.length > 5) result += ' ' + d.slice(5, 7);
+  if (d.length > 7) result += ' ' + d.slice(7, 9);
+  return result;
+}
+
+function handlePhoneInput(raw: string, prev: string): string {
+  // If user tries to delete the prefix, reset to prefix only
+  if (!raw.startsWith(UZ_PREFIX)) return UZ_PREFIX;
+  return formatPhoneUZ(raw);
+}
+
 export default function RegisterScreen() {
   const router = useRouter();
   const [name, setName] = useState('');
-  const [phone, setPhone] = useState('+998');
+  const [phone, setPhone] = useState(UZ_PREFIX);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  const isPhoneComplete = phone.length === PHONE_MAX_LEN;
+
   const handleRegister = async () => {
-    if (!name.trim() || !phone.trim() || !email.trim() || !password.trim()) {
+    if (!name.trim() || !email.trim() || !password.trim()) {
       Alert.alert('Missing details', 'Fill in name, phone, email, and password.');
+      return;
+    }
+    if (!isPhoneComplete) {
+      Alert.alert('Invalid phone', 'Enter a valid Uzbek number: +998 XX XXX XX XX');
       return;
     }
     if (password.length < 6) {
@@ -123,14 +154,22 @@ export default function RegisterScreen() {
             <View className="mb-4">
               <Text className="mb-2 text-sm font-black uppercase tracking-wide text-gray-400">Phone</Text>
               <TextInput
-                className="rounded-2xl bg-gray-100 px-4 py-4 text-base font-semibold text-gray-950"
+                className={`rounded-2xl bg-gray-100 px-4 py-4 text-base font-semibold ${
+                  phone.length > 4 && !isPhoneComplete ? 'text-red-500' : 'text-gray-950'
+                }`}
                 placeholder="+998 90 123 45 67"
                 placeholderTextColor="#9ca3af"
                 value={phone}
-                onChangeText={setPhone}
+                onChangeText={(raw) => setPhone(handlePhoneInput(raw, phone))}
                 keyboardType="phone-pad"
                 autoComplete="tel"
+                maxLength={PHONE_MAX_LEN}
               />
+              {phone.length > 4 && !isPhoneComplete && (
+                <Text style={{ fontSize: 12, color: '#ef4444', marginTop: 4, marginLeft: 4, fontWeight: '700' }}>
+                  Enter full number: +998 XX XXX XX XX
+                </Text>
+              )}
             </View>
 
             <View className="mb-4">

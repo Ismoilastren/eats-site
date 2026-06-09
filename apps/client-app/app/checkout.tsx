@@ -4,6 +4,7 @@ import {
   Alert,
   SafeAreaView,
   ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
@@ -47,7 +48,7 @@ type SavedAddress = {
   longitude?: number;
 };
 
-type PaymentMethod = {
+type PaymentCard = {
   id: string;
   brand: string;
   last4: string;
@@ -62,60 +63,72 @@ export default function CheckoutScreen() {
   const clearCart = useCartStore((state) => state.clearCart);
   const setStoreDeliveryFee = useCartStore((state) => state.setDeliveryFee);
   const subtotal = useCartStore((state) => state.getSubtotal());
+
   const [deliveryFee, setDeliveryFee] = useState(0);
-  const [addressText, setAddressText] = useState('Current location');
+  const [addressText, setAddressText] = useState('');
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
+  const [loadingLocation, setLoadingLocation] = useState(true);
+
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
-  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+  const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
+
+  const [savedCards, setSavedCards] = useState<PaymentCard[]>([]);
   const [paymentType, setPaymentType] = useState<'cash' | 'card'>('cash');
   const [selectedCardId, setSelectedCardId] = useState('');
+
   const [deliveryInstructions, setDeliveryInstructions] = useState('');
-  const [loadingLocation, setLoadingLocation] = useState(true);
   const [placing, setPlacing] = useState(false);
 
   const total = useMemo(() => subtotal + deliveryFee, [subtotal, deliveryFee]);
 
-  const fetchCurrentDeliveryFee = async () => {
-    const settingsSnap = await getDoc(doc(db, 'settings', 'global'));
-    const settingsFee = settingsSnap.exists() ? feeFromSettings(settingsSnap.data()) : null;
-    if (settingsFee !== null) return settingsFee;
-
-    const systemSnap = await getDoc(doc(db, 'system_settings', 'global'));
-    const systemFee = systemSnap.exists() ? feeFromSettings(systemSnap.data()) : null;
-    if (systemFee !== null) return systemFee;
-
-    return Number(restaurant?.deliveryFee || 0);
+  // ── Format GPS reverse geocode — deduplicated (Robust) ──
+  const formatAddress = (addr: any) => {
+    if (!addr) return 'Unknown location';
+    const parts = [addr.street, addr.district, addr.city, addr.subregion]
+      .map(p => p?.trim())
+      .filter(Boolean);
+    return [...new Set(parts)].join(', ');
   };
 
+  // ── Load GPS location ──
   const loadLocation = async () => {
     setLoadingLocation(true);
     try {
-      const permission = await Location.requestForegroundPermissionsAsync();
-      if (permission.status !== 'granted') {
-        Alert.alert('Location required', 'Enable location access to place a delivery order.');
-        setLocation(null);
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Location required', 'Please enable location access for delivery.');
+        setLoadingLocation(false);
         return;
       }
-
-      const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       setLocation(current);
 
-      const reverse = await Location.reverseGeocodeAsync(current.coords);
-      const first = reverse[0];
-      if (first) {
-        const parts = [first.street, first.name, first.district, first.city].filter(Boolean);
-        setAddressText(parts.length ? parts.join(', ') : `${current.coords.latitude}, ${current.coords.longitude}`);
-      } else {
-        setAddressText(`${current.coords.latitude}, ${current.coords.longitude}`);
+      const [reverse] = await Location.reverseGeocodeAsync(current.coords);
+      if (reverse) {
+        const formatted = formatAddress(reverse);
+        if (formatted && !selectedAddressId) setAddressText(formatted);
       }
-    } catch (error) {
-      console.error('Failed to load customer location:', error);
-      Alert.alert('Location error', 'Could not read GPS location.');
+    } catch (e) {
+      console.warn('GPS error:', e);
     } finally {
       setLoadingLocation(false);
     }
   };
 
+  // ── Fetch delivery fee ──
+  const fetchDeliveryFee = async (): Promise<number> => {
+    try {
+      const snap = await getDoc(doc(db, 'settings', 'global'));
+      const fee = snap.exists() ? feeFromSettings(snap.data()) : null;
+      if (fee !== null) return fee;
+      const snap2 = await getDoc(doc(db, 'system_settings', 'global'));
+      const fee2 = snap2.exists() ? feeFromSettings(snap2.data()) : null;
+      if (fee2 !== null) return fee2;
+    } catch (_) {}
+    return Number(restaurant?.deliveryFee || 0);
+  };
+
+  // ── Load user data + delivery fee ──
   useEffect(() => {
     loadLocation();
   }, []);
@@ -123,115 +136,82 @@ export default function CheckoutScreen() {
   useEffect(() => {
     const firebaseUser = auth.currentUser;
     if (!firebaseUser) return;
-
     let cancelled = false;
-    const loadCheckoutData = async () => {
+
+    const load = async () => {
       try {
-        const [addressSnap, paymentSnap] = await Promise.all([
+        const [addrSnap, cardSnap, fee] = await Promise.all([
           getDocs(query(collection(db, COLLECTIONS.USERS, firebaseUser.uid, 'addresses'))),
           getDocs(query(collection(db, COLLECTIONS.USERS, firebaseUser.uid, 'paymentMethods'))),
+          fetchDeliveryFee(),
         ]);
-
         if (cancelled) return;
 
-        const nextAddresses: SavedAddress[] = [];
-        addressSnap.forEach((addressDoc) => {
-          nextAddresses.push({ id: addressDoc.id, ...addressDoc.data() } as SavedAddress);
-        });
-        setSavedAddresses(nextAddresses);
-        if (nextAddresses[0]?.address) {
-          setAddressText(nextAddresses[0].address);
-          if (nextAddresses[0].latitude && nextAddresses[0].longitude) {
+        // Addresses
+        const addrs: SavedAddress[] = addrSnap.docs.map(d => ({ id: d.id, ...d.data() } as SavedAddress));
+        setSavedAddresses(addrs);
+        if (addrs[0]) {
+          setSelectedAddressId(addrs[0].id);
+          setAddressText(addrs[0].address);
+          if (addrs[0].latitude && addrs[0].longitude) {
             setLocation({
               coords: {
-                latitude: nextAddresses[0].latitude,
-                longitude: nextAddresses[0].longitude,
-                altitude: null,
-                accuracy: null,
-                altitudeAccuracy: null,
-                heading: null,
-                speed: null,
+                latitude: addrs[0].latitude, longitude: addrs[0].longitude,
+                altitude: null, accuracy: null, altitudeAccuracy: null, heading: null, speed: null,
               },
               timestamp: Date.now(),
             });
           }
         }
 
-        const nextPaymentMethods: PaymentMethod[] = [];
-        paymentSnap.forEach((paymentDoc) => {
-          nextPaymentMethods.push({ id: paymentDoc.id, ...paymentDoc.data() } as PaymentMethod);
-        });
-        setPaymentMethods(nextPaymentMethods);
-        if (nextPaymentMethods[0]) {
+        // Cards
+        const cards: PaymentCard[] = cardSnap.docs.map(d => ({ id: d.id, ...d.data() } as PaymentCard));
+        setSavedCards(cards);
+        if (cards[0]) {
           setPaymentType('card');
-          setSelectedCardId(nextPaymentMethods[0].id);
+          setSelectedCardId(cards[0].id);
         }
-      } catch (error) {
-        console.error('Failed to load checkout saved data:', error);
+
+        // Fee
+        setDeliveryFee(fee);
+        setStoreDeliveryFee(fee);
+      } catch (e) {
+        console.error('Checkout load error:', e);
       }
     };
 
-    loadCheckoutData();
-    return () => {
-      cancelled = true;
-    };
+    load();
+    return () => { cancelled = true; };
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadFee = async () => {
-      try {
-        const fee = await fetchCurrentDeliveryFee();
-        if (!cancelled) {
-          setDeliveryFee(fee);
-          setStoreDeliveryFee(fee);
-        }
-      } catch (error) {
-        console.error('Failed to fetch delivery fee:', error);
-      }
-    };
-
-    loadFee();
-    return () => {
-      cancelled = true;
-    };
-  }, [restaurant?.id]);
-
+  // ── Place Order ──
   const handlePlaceOrder = async () => {
     const firebaseUser = auth.currentUser;
     if (!firebaseUser) {
-      Alert.alert('Login required', 'Please log in with Firebase auth before placing an order.');
+      Alert.alert('Login required', 'Please log in to place an order.');
       return;
     }
     if (!restaurant || items.length === 0) {
-      Alert.alert('Cart empty', 'Add items from a restaurant first.');
+      Alert.alert('Empty cart', 'Add items before checking out.');
       return;
     }
     if (!location) {
-      Alert.alert('Location required', 'GPS location is required for courier tracking.');
+      Alert.alert('Location required', 'GPS location is needed for delivery tracking.');
       return;
     }
     if (paymentType === 'card' && !selectedCardId) {
-      Alert.alert('Payment required', 'Select a saved card or use cash.');
+      Alert.alert('No card selected', 'Please select a saved card or pay with cash.');
       return;
     }
 
     setPlacing(true);
     try {
-      const selectedCard = paymentMethods.find((paymentMethod) => paymentMethod.id === selectedCardId);
-      const latestFee = await fetchCurrentDeliveryFee();
-      const customerLatitude = location.coords.latitude;
-      const customerLongitude = location.coords.longitude;
-      const restaurantLocation = normalizeCoordinate(restaurant.location) || TASHKENT;
-      const customerName =
-        user?.displayName ||
-        firebaseUser.displayName ||
-        firebaseUser.email?.split('@')[0] ||
-        'Customer';
+      const latestFee = await fetchDeliveryFee();
+      const selectedCard = savedCards.find(c => c.id === selectedCardId);
+      const customerName = user?.displayName || firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Customer';
       const customerPhone = user?.phone || firebaseUser.phoneNumber || '';
-      const calculatedSubtotal = subtotal;
-      const calculatedTotal = calculatedSubtotal + latestFee;
+      const restaurantLocation = normalizeCoordinate(restaurant.location) || TASHKENT;
+      const calculatedTotal = subtotal + latestFee;
 
       const orderRef = await addDoc(collection(db, COLLECTIONS.ORDERS), {
         userId: firebaseUser.uid,
@@ -239,21 +219,21 @@ export default function CheckoutScreen() {
         customerEmail: firebaseUser.email || user?.email || '',
         customerPhone,
         customerAddress: addressText,
-        customerLocation: { lat: customerLatitude, lng: customerLongitude },
+        customerLocation: { lat: location.coords.latitude, lng: location.coords.longitude },
         deliveryAddress: addressText,
-        deliveryLocation: { latitude: customerLatitude, longitude: customerLongitude },
+        deliveryLocation: { latitude: location.coords.latitude, longitude: location.coords.longitude },
         restaurantId: restaurant.id,
         restaurantName: restaurant.name,
         restaurantImage: restaurant.imageUrl || '',
         restaurantLocation,
-        items: items.map((item) => ({
+        items: items.map(item => ({
           id: item.id,
           name: item.name,
           price: Number(item.price) || 0,
           quantity: item.quantity,
           imageUrl: item.imageUrl || '',
         })),
-        subtotal: calculatedSubtotal,
+        subtotal,
         deliveryFee: latestFee,
         total: calculatedTotal,
         totalAmount: calculatedTotal,
@@ -261,21 +241,13 @@ export default function CheckoutScreen() {
         courierId: null,
         assignedCourier: null,
         courierLocation: null,
-        customer: {
-          name: customerName,
-          phone: customerPhone,
-          email: firebaseUser.email || user?.email || '',
-        },
+        customer: { name: customerName, phone: customerPhone, email: firebaseUser.email || '' },
         paymentMethod: paymentType === 'card'
-          ? {
-              type: 'CARD',
-              brand: selectedCard?.brand || 'Card',
-              last4: selectedCard?.last4 || '0000',
-            }
-          : {
-              type: 'CASH',
-            },
+          ? { type: 'CARD', brand: selectedCard?.brand || 'Card', last4: selectedCard?.last4 || '0000' }
+          : { type: 'CASH' },
         deliveryInstructions,
+        source: 'app',
+        platform: 'expo',
         estimatedDelivery: null,
         deliveredAt: null,
         cancelledAt: null,
@@ -287,186 +259,359 @@ export default function CheckoutScreen() {
       clearCart();
       router.replace(`/order/${orderRef.id}`);
     } catch (error: any) {
-      console.error('Failed to place native client order:', error);
-      Alert.alert('Order failed', error?.message || 'Could not place order.');
+      console.error('Place order error:', error);
+      Alert.alert('Order failed', error?.message || 'Could not place order. Try again.');
     } finally {
       setPlacing(false);
     }
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-50">
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 120 }}>
-        <Text className="text-3xl font-black text-gray-950">Checkout</Text>
-        <Text className="mt-1 text-base font-semibold text-gray-500">{restaurant?.name || 'Restaurant'}</Text>
+    <SafeAreaView style={s.safeArea}>
+      <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
 
-        <View className="mt-5 rounded-3xl bg-white p-5 shadow-sm shadow-black/5">
-          <View className="flex-row items-center justify-between">
-            <View className="flex-row items-center">
-              <View className="h-11 w-11 items-center justify-center rounded-full bg-orange-50">
-                <Ionicons name="location" size={21} color="#f97316" />
-              </View>
-              <View className="ml-3 flex-1">
-                <Text className="font-black text-gray-950">Delivery address</Text>
-                <Text className="mt-1 text-sm font-semibold text-gray-500" numberOfLines={2}>
-                  {loadingLocation ? 'Reading GPS...' : addressText}
-                </Text>
-              </View>
+        {/* ── Header ── */}
+        <Text style={s.pageTitle}>Checkout</Text>
+        <Text style={s.pageSubtitle}>{restaurant?.name || 'Restaurant'}</Text>
+
+        {/* ══════════════════════════════════════
+            SECTION: DELIVERY ADDRESS
+        ══════════════════════════════════════ */}
+        <View style={s.card}>
+          <View style={s.sectionHeader}>
+            <View style={s.sectionIcon}>
+              <Ionicons name="location" size={20} color="#f97316" />
             </View>
-            {loadingLocation && <ActivityIndicator color="#f97316" />}
+            <View style={{ flex: 1 }}>
+              <Text style={s.sectionTitle}>Delivery address</Text>
+              {loadingLocation
+                ? <Text style={s.sectionSub}>Reading GPS location...</Text>
+                : <Text style={s.sectionSub} numberOfLines={2}>{addressText || 'Enter your address below'}</Text>
+              }
+            </View>
+            {loadingLocation && <ActivityIndicator color="#f97316" size="small" />}
           </View>
 
+          {/* Editable address input */}
           <TextInput
             value={addressText}
-            onChangeText={setAddressText}
+            onChangeText={(t) => { setAddressText(t); setSelectedAddressId(null); }}
             multiline
-            className="mt-4 rounded-2xl bg-gray-100 px-4 py-3 text-base font-semibold text-gray-900"
-            placeholder="Apartment, entrance, floor"
+            style={s.textInput}
+            placeholder="Apartment, entrance, floor..."
             placeholderTextColor="#9ca3af"
           />
 
-          <TouchableOpacity onPress={loadLocation} className="mt-4 flex-row items-center justify-center rounded-2xl bg-gray-950 py-3">
-            <Ionicons name="navigate" size={18} color="#fff" />
-            <Text className="ml-2 font-black text-white">Refresh GPS</Text>
+          <TouchableOpacity onPress={loadLocation} style={s.refreshBtn} activeOpacity={0.8}>
+            <Ionicons name="navigate" size={16} color="#fff" />
+            <Text style={s.refreshBtnText}>Refresh GPS</Text>
           </TouchableOpacity>
 
+          {/* Saved addresses */}
           {savedAddresses.length > 0 && (
-            <View className="mt-5">
-              <Text className="mb-2 text-sm font-black uppercase tracking-widest text-gray-400">Saved addresses</Text>
-              {savedAddresses.map((savedAddress) => (
+            <View style={{ marginTop: 16 }}>
+              <Text style={s.subLabel}>SAVED ADDRESSES</Text>
+              {savedAddresses.map(addr => (
                 <TouchableOpacity
-                  key={savedAddress.id}
+                  key={addr.id}
                   onPress={() => {
-                    setAddressText(savedAddress.address);
-                    if (savedAddress.latitude && savedAddress.longitude) {
+                    setSelectedAddressId(addr.id);
+                    setAddressText(addr.address);
+                    if (addr.latitude && addr.longitude) {
                       setLocation({
                         coords: {
-                          latitude: savedAddress.latitude,
-                          longitude: savedAddress.longitude,
-                          altitude: null,
-                          accuracy: null,
-                          altitudeAccuracy: null,
-                          heading: null,
-                          speed: null,
+                          latitude: addr.latitude, longitude: addr.longitude,
+                          altitude: null, accuracy: null, altitudeAccuracy: null, heading: null, speed: null,
                         },
                         timestamp: Date.now(),
                       });
                     }
                   }}
-                  className={`mb-2 rounded-2xl border p-3 ${
-                    addressText === savedAddress.address ? 'border-orange-500 bg-orange-50' : 'border-gray-100 bg-gray-50'
-                  }`}
+                  style={[s.addrChip, selectedAddressId === addr.id && s.addrChipSelected]}
+                  activeOpacity={0.8}
                 >
-                  <Text className="font-black text-gray-950">{savedAddress.label || 'Saved Location'}</Text>
-                  <Text className="mt-1 text-sm font-semibold text-gray-500">{savedAddress.address}</Text>
+                  <Ionicons
+                    name={selectedAddressId === addr.id ? 'radio-button-on' : 'radio-button-off'}
+                    size={18}
+                    color="#f97316"
+                    style={{ marginRight: 10 }}
+                  />
+                  <View style={{ flex: 1 }}>
+                    <Text style={s.addrLabel}>{addr.label || 'Saved Location'}</Text>
+                    <Text style={s.addrText} numberOfLines={1}>{addr.address}</Text>
+                  </View>
                 </TouchableOpacity>
               ))}
             </View>
           )}
         </View>
 
-        <View className="mt-4 rounded-3xl bg-white p-5 shadow-sm shadow-black/5">
-          <Text className="mb-4 text-lg font-black text-gray-950">Payment method</Text>
+        {/* ══════════════════════════════════════
+            SECTION: PAYMENT METHOD
+        ══════════════════════════════════════ */}
+        <View style={s.card}>
+          <Text style={s.cardTitle}>Payment method</Text>
+
+          {/* Cash option */}
           <TouchableOpacity
             onPress={() => setPaymentType('cash')}
-            className={`mb-3 flex-row items-center rounded-2xl border p-4 ${
-              paymentType === 'cash' ? 'border-orange-500 bg-orange-50' : 'border-gray-100 bg-gray-50'
-            }`}
+            style={[s.payOption, paymentType === 'cash' && s.payOptionSelected]}
+            activeOpacity={0.8}
           >
-            <Ionicons name={paymentType === 'cash' ? 'radio-button-on' : 'radio-button-off'} size={21} color="#f97316" />
-            <Text className="ml-3 font-black text-gray-950">Cash on Delivery</Text>
+            <Ionicons name={paymentType === 'cash' ? 'radio-button-on' : 'radio-button-off'} size={20} color="#f97316" />
+            <Ionicons name="cash-outline" size={20} color="#374151" style={{ marginLeft: 12 }} />
+            <Text style={s.payOptionText}>Cash on Delivery</Text>
           </TouchableOpacity>
 
+          {/* Card option — disabled if no cards */}
           <TouchableOpacity
-            onPress={() => setPaymentType('card')}
-            className={`flex-row items-center rounded-2xl border p-4 ${
-              paymentType === 'card' ? 'border-orange-500 bg-orange-50' : 'border-gray-100 bg-gray-50'
-            }`}
+            onPress={() => savedCards.length > 0 ? setPaymentType('card') : null}
+            style={[s.payOption, paymentType === 'card' && s.payOptionSelected, savedCards.length === 0 && s.payOptionDisabled]}
+            activeOpacity={savedCards.length > 0 ? 0.8 : 1}
           >
-            <Ionicons name={paymentType === 'card' ? 'radio-button-on' : 'radio-button-off'} size={21} color="#f97316" />
-            <Text className="ml-3 font-black text-gray-950">Saved Card</Text>
+            <Ionicons
+              name={paymentType === 'card' ? 'radio-button-on' : 'radio-button-off'}
+              size={20}
+              color={savedCards.length === 0 ? '#d1d5db' : '#f97316'}
+            />
+            <Ionicons name="card-outline" size={20} color={savedCards.length === 0 ? '#d1d5db' : '#374151'} style={{ marginLeft: 12 }} />
+            <Text style={[s.payOptionText, savedCards.length === 0 && { color: '#9ca3af' }]}>
+              {savedCards.length === 0 ? 'Saved Card (none added)' : 'Saved Card'}
+            </Text>
           </TouchableOpacity>
 
-          {paymentType === 'card' && (
-            <View className="mt-3">
-              {paymentMethods.length === 0 ? (
-                <TouchableOpacity onPress={() => router.push('/payment-cards' as any)} className="rounded-2xl bg-gray-950 p-4">
-                  <Text className="text-center font-black text-white">Add card in Profile</Text>
+          {/* Card selector grid */}
+          {paymentType === 'card' && savedCards.length > 0 && (
+            <View style={{ marginTop: 12, gap: 8 }}>
+              {savedCards.map(card => (
+                <TouchableOpacity
+                  key={card.id}
+                  onPress={() => setSelectedCardId(card.id)}
+                  style={[s.cardChip, selectedCardId === card.id && s.cardChipSelected]}
+                  activeOpacity={0.8}
+                >
+                  <View style={s.cardBrandBadge}>
+                    <Text style={s.cardBrandText}>{card.brand.slice(0, 2).toUpperCase()}</Text>
+                  </View>
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={s.cardNumber}>•••• •••• •••• {card.last4}</Text>
+                    {card.holderName && <Text style={s.cardHolder}>{card.holderName}</Text>}
+                  </View>
+                  {selectedCardId === card.id && (
+                    <Ionicons name="checkmark-circle" size={22} color="#f97316" />
+                  )}
                 </TouchableOpacity>
-              ) : (
-                paymentMethods.map((paymentMethod) => (
-                  <TouchableOpacity
-                    key={paymentMethod.id}
-                    onPress={() => setSelectedCardId(paymentMethod.id)}
-                    className={`mb-2 rounded-2xl border p-3 ${
-                      selectedCardId === paymentMethod.id ? 'border-orange-500 bg-orange-50' : 'border-gray-100 bg-gray-50'
-                    }`}
-                  >
-                    <Text className="font-black text-gray-950">
-                      {paymentMethod.brand} •••• {paymentMethod.last4}
-                    </Text>
-                    {!!paymentMethod.holderName && (
-                      <Text className="mt-1 text-sm font-semibold text-gray-500">{paymentMethod.holderName}</Text>
-                    )}
-                  </TouchableOpacity>
-                ))
-              )}
+              ))}
+
+              <TouchableOpacity
+                onPress={() => router.push('/payment-cards' as any)}
+                style={s.addCardBtn}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="add-circle-outline" size={18} color="#6b7280" />
+                <Text style={s.addCardBtnText}>Add new card</Text>
+              </TouchableOpacity>
             </View>
+          )}
+
+          {paymentType === 'card' && savedCards.length === 0 && (
+            <TouchableOpacity
+              onPress={() => router.push('/payment-cards' as any)}
+              style={s.addCardBtnPrimary}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="card-outline" size={18} color="#fff" />
+              <Text style={s.addCardBtnPrimaryText}>Add a Card in Profile</Text>
+            </TouchableOpacity>
           )}
         </View>
 
-        <View className="mt-4 rounded-3xl bg-white p-5 shadow-sm shadow-black/5">
-          <Text className="mb-3 text-lg font-black text-gray-950">Delivery instructions</Text>
+        {/* ══════════════════════════════════════
+            SECTION: DELIVERY INSTRUCTIONS
+        ══════════════════════════════════════ */}
+        <View style={s.card}>
+          <Text style={s.cardTitle}>Delivery instructions</Text>
           <TextInput
             value={deliveryInstructions}
             onChangeText={setDeliveryInstructions}
             multiline
-            className="min-h-24 rounded-2xl bg-gray-100 px-4 py-3 text-base font-semibold text-gray-900"
-            placeholder="Ring doorbell, leave at door..."
+            style={[s.textInput, { minHeight: 80 }]}
+            placeholder="Ring doorbell, leave at door, gate code..."
             placeholderTextColor="#9ca3af"
           />
         </View>
 
-        <View className="mt-4 rounded-3xl bg-white p-5 shadow-sm shadow-black/5">
-          <Text className="mb-4 text-lg font-black text-gray-950">Order summary</Text>
-          {items.map((item) => (
-            <View key={item.id} className="mb-3 flex-row justify-between">
-              <Text className="flex-1 text-sm font-bold text-gray-600">
-                {item.quantity}x {item.name}
-              </Text>
-              <Text className="text-sm font-black text-gray-950">{formatCurrencyUZS(item.price * item.quantity)}</Text>
+        {/* ══════════════════════════════════════
+            SECTION: ORDER SUMMARY
+        ══════════════════════════════════════ */}
+        <View style={s.card}>
+          <Text style={s.cardTitle}>Order summary</Text>
+          {items.map(item => (
+            <View key={item.id} style={s.summaryRow}>
+              <Text style={s.summaryItemName}>{item.quantity}× {item.name}</Text>
+              <Text style={s.summaryItemPrice}>{formatCurrencyUZS(item.price * item.quantity)}</Text>
             </View>
           ))}
-          <View className="mt-3 border-t border-gray-100 pt-3">
-            <View className="mb-2 flex-row justify-between">
-              <Text className="font-semibold text-gray-500">Subtotal</Text>
-              <Text className="font-black text-gray-950">{formatCurrencyUZS(subtotal)}</Text>
-            </View>
-            <View className="mb-2 flex-row justify-between">
-              <Text className="font-semibold text-gray-500">Delivery</Text>
-              <Text className="font-black text-gray-950">{formatCurrencyUZS(deliveryFee)}</Text>
-            </View>
-            <View className="mt-2 flex-row justify-between border-t border-gray-100 pt-3">
-              <Text className="text-lg font-black text-gray-950">Total</Text>
-              <Text className="text-lg font-black text-gray-950">{formatCurrencyUZS(total)}</Text>
-            </View>
+          <View style={s.divider} />
+          <View style={s.summaryRow}>
+            <Text style={s.summaryLabel}>Subtotal</Text>
+            <Text style={s.summaryValue}>{formatCurrencyUZS(subtotal)}</Text>
+          </View>
+          <View style={s.summaryRow}>
+            <Text style={s.summaryLabel}>Delivery fee</Text>
+            <Text style={s.summaryValue}>{formatCurrencyUZS(deliveryFee)}</Text>
+          </View>
+          <View style={[s.summaryRow, { marginTop: 8 }]}>
+            <Text style={s.summaryTotal}>Total</Text>
+            <Text style={s.summaryTotal}>{formatCurrencyUZS(total)}</Text>
           </View>
         </View>
+
+        <View style={{ height: 120 }} />
       </ScrollView>
 
-      <View className="absolute bottom-0 left-0 right-0 bg-white px-4 pb-8 pt-4 shadow-lg shadow-black/10">
+      {/* ── Sticky Place Order Bar ── */}
+      <View style={s.footer}>
+        <View style={s.footerMeta}>
+          <Text style={s.footerLabel}>{items.reduce((n, i) => n + i.quantity, 0)} items</Text>
+          <Text style={s.footerTotal}>{formatCurrencyUZS(total)}</Text>
+        </View>
         <TouchableOpacity
           onPress={handlePlaceOrder}
           disabled={placing || loadingLocation}
-          className={`rounded-2xl py-4 ${placing || loadingLocation ? 'bg-gray-300' : 'bg-orange-500'}`}
+          style={[s.placeBtn, (placing || loadingLocation) && s.placeBtnDisabled]}
+          activeOpacity={0.85}
         >
-          {placing ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text className="text-center text-base font-black text-white">Place Order</Text>
-          )}
+          {placing
+            ? <ActivityIndicator color="#fff" />
+            : <>
+                <Text style={s.placeBtnText}>Place Order</Text>
+                <Ionicons name="arrow-forward" size={20} color="#fff" />
+              </>
+          }
         </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
 }
+
+// ─── STYLES ──────────────────────────────────────────────────────────────────
+const s = StyleSheet.create({
+  safeArea: { flex: 1, backgroundColor: '#f9fafb' },
+  scroll: { padding: 16, paddingBottom: 20 },
+
+  pageTitle: { fontSize: 28, fontWeight: '900', color: '#030712' },
+  pageSubtitle: { fontSize: 14, fontWeight: '600', color: '#6b7280', marginTop: 2, marginBottom: 16 },
+
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 18,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  cardTitle: { fontSize: 17, fontWeight: '900', color: '#030712', marginBottom: 14 },
+
+  sectionHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 14 },
+  sectionIcon: {
+    width: 40, height: 40, borderRadius: 12,
+    backgroundColor: '#fff7ed', alignItems: 'center', justifyContent: 'center',
+  },
+  sectionTitle: { fontSize: 15, fontWeight: '800', color: '#030712' },
+  sectionSub: { fontSize: 13, fontWeight: '500', color: '#6b7280', marginTop: 2 },
+
+  textInput: {
+    backgroundColor: '#f3f4f6',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+  },
+
+  refreshBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#111827', borderRadius: 12, paddingVertical: 12,
+    gap: 8, marginTop: 10,
+  },
+  refreshBtnText: { color: '#fff', fontWeight: '800', fontSize: 14 },
+
+  subLabel: { fontSize: 11, fontWeight: '900', color: '#9ca3af', letterSpacing: 1.5, marginBottom: 8 },
+
+  addrChip: {
+    flexDirection: 'row', alignItems: 'center',
+    padding: 12, borderRadius: 14, borderWidth: 1.5,
+    borderColor: '#e5e7eb', backgroundColor: '#f9fafb', marginBottom: 6,
+  },
+  addrChipSelected: { borderColor: '#f97316', backgroundColor: '#fff7ed' },
+  addrLabel: { fontSize: 14, fontWeight: '800', color: '#030712' },
+  addrText: { fontSize: 12, fontWeight: '500', color: '#6b7280', marginTop: 2 },
+
+  payOption: {
+    flexDirection: 'row', alignItems: 'center',
+    padding: 14, borderRadius: 14, borderWidth: 1.5,
+    borderColor: '#e5e7eb', backgroundColor: '#f9fafb', marginBottom: 8,
+  },
+  payOptionSelected: { borderColor: '#f97316', backgroundColor: '#fff7ed' },
+  payOptionDisabled: { opacity: 0.5 },
+  payOptionText: { fontSize: 15, fontWeight: '700', color: '#111827', marginLeft: 10 },
+
+  cardChip: {
+    flexDirection: 'row', alignItems: 'center',
+    padding: 12, borderRadius: 14, borderWidth: 1.5,
+    borderColor: '#e5e7eb', backgroundColor: '#f9fafb',
+  },
+  cardChipSelected: { borderColor: '#f97316', backgroundColor: '#fff7ed' },
+  cardBrandBadge: {
+    width: 44, height: 28, borderRadius: 6,
+    backgroundColor: '#1e293b', alignItems: 'center', justifyContent: 'center',
+  },
+  cardBrandText: { color: '#fff', fontSize: 10, fontWeight: '900' },
+  cardNumber: { fontSize: 14, fontWeight: '700', color: '#030712' },
+  cardHolder: { fontSize: 12, fontWeight: '500', color: '#6b7280', marginTop: 2 },
+
+  addCardBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#e5e7eb',
+    borderStyle: 'dashed', gap: 6,
+  },
+  addCardBtnText: { fontSize: 13, fontWeight: '700', color: '#6b7280' },
+  addCardBtnPrimary: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#111827', borderRadius: 12, paddingVertical: 14,
+    gap: 8, marginTop: 10,
+  },
+  addCardBtnPrimaryText: { color: '#fff', fontWeight: '800', fontSize: 14 },
+
+  divider: { height: 1, backgroundColor: '#f3f4f6', marginVertical: 10 },
+  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+  summaryItemName: { flex: 1, fontSize: 13, fontWeight: '600', color: '#374151' },
+  summaryItemPrice: { fontSize: 13, fontWeight: '800', color: '#030712' },
+  summaryLabel: { fontSize: 14, fontWeight: '600', color: '#6b7280' },
+  summaryValue: { fontSize: 14, fontWeight: '800', color: '#030712' },
+  summaryTotal: { fontSize: 17, fontWeight: '900', color: '#030712' },
+
+  footer: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    backgroundColor: '#fff', paddingHorizontal: 16, paddingTop: 14,
+    paddingBottom: 34, borderTopWidth: 1, borderTopColor: '#f3f4f6',
+    shadowColor: '#000', shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.07, shadowRadius: 12, elevation: 10, gap: 10,
+  },
+  footerMeta: { flexDirection: 'row', justifyContent: 'space-between' },
+  footerLabel: { fontSize: 13, fontWeight: '600', color: '#9ca3af' },
+  footerTotal: { fontSize: 16, fontWeight: '900', color: '#030712' },
+  placeBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#f97316', borderRadius: 16, paddingVertical: 18,
+    gap: 8, shadowColor: '#f97316', shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35, shadowRadius: 12, elevation: 6,
+  },
+  placeBtnDisabled: { backgroundColor: '#d1d5db', shadowOpacity: 0 },
+  placeBtnText: { fontSize: 16, fontWeight: '900', color: '#fff' },
+});

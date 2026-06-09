@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useParams, useSearchParams } from 'next/navigation';
 import { ArrowLeft, Clock, Info, Minus, Plus, Search, Star, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { Dish, restaurants } from '@/data/marketplace';
+import { Dish } from '@/data/marketplace';
 import { CartDrawer } from '@/components/marketplace/CartDrawer';
 import { MarketplaceHeader } from '@/components/marketplace/MarketplaceHeader';
 import { useMarketplace } from '@/context/MarketplaceContext';
@@ -14,8 +14,8 @@ import { formatCurrencyUZS } from '@repo/shared-types';
 export default function RestaurantPage() {
   const params = useParams<{ slug: string }>();
   const searchParams = useSearchParams();
-  const restaurant = restaurants.find((item) => item.slug === params.slug);
-  const { addDish, cart, updateQuantity } = useMarketplace();
+  const { addDish, cart, updateQuantity, restaurants, dataLoading, dataError } = useMarketplace();
+  const restaurant = useMemo(() => restaurants.find((item) => item.slug === params.slug || item.id === params.slug), [params.slug, restaurants]);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [infoOpen, setInfoOpen] = useState(false);
   const [menuSearch, setMenuSearch] = useState('');
@@ -45,6 +45,20 @@ export default function RestaurantPage() {
     }, {});
   }, [dishes]);
 
+  if (dataLoading) {
+    return (
+      <div className="min-h-screen bg-[#f6f6f3]">
+        <MarketplaceHeader />
+        <main className="mx-auto max-w-7xl px-4 py-12 lg:px-8">
+          <div className="h-[340px] animate-pulse rounded-[44px] bg-white" />
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            {Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-72 animate-pulse rounded-[32px] bg-white" />)}
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   if (!restaurant) {
     return (
       <div className="min-h-screen bg-[#f6f6f3]">
@@ -52,6 +66,7 @@ export default function RestaurantPage() {
         <main className="mx-auto max-w-4xl px-4 py-12">
           <div className="rounded-[40px] bg-white p-12 text-center">
             <h1 className="text-4xl font-black">Restaurant not found</h1>
+            {dataError && <p className="mt-3 font-bold text-red-500">{dataError}</p>}
             <Link href="/" className="mt-6 inline-block rounded-2xl bg-yellow-300 px-6 py-4 font-black">Back to home</Link>
           </div>
         </main>

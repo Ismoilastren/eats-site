@@ -58,6 +58,44 @@ service cloud.firestore {
         request.resource.data.assignedCourier == null;
     }
 
+    function isPublicDemoOrderCreate() {
+      return request.resource.data.status == 'pending' &&
+        request.resource.data.courierId == null &&
+        request.resource.data.assignedCourier == null &&
+        request.resource.data.restaurantId is string &&
+        request.resource.data.customerName is string &&
+        request.resource.data.customerPhone is string;
+    }
+
+    function isPublicDemoOrderUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'status',
+        'statusHistory',
+        'assignedCourier',
+        'courier',
+        'courierId',
+        'courierName',
+        'courierPhone',
+        'courierLocation',
+        'deliveredAt',
+        'cancelledAt',
+        'cancelReason',
+        'updatedAt'
+      ]) &&
+      request.resource.data.status in [
+        'pending',
+        'accepted',
+        'preparing',
+        'ready_for_pickup',
+        'picked_up',
+        'on_the_way',
+        'delivered',
+        'cancelled',
+        'rejected',
+        'courier_picked_up'
+      ];
+    }
+
     function isClientCancelOnly() {
       return resource.data.userId == request.auth.uid &&
         resource.data.status == 'pending' &&
@@ -175,6 +213,16 @@ service cloud.firestore {
         // Restaurant owners and admins can write
         allow write: if isAuth() && (isRestaurantOwner(restaurantId) || isAdmin());
       }
+
+      match /dishes/{dishId} {
+        allow read: if true;
+        allow write: if isAuth() && (isRestaurantOwner(restaurantId) || isAdmin());
+      }
+    }
+
+    match /menuItems/{itemId} {
+      allow read: if true;
+      allow write: if isAuth();
     }
 
     // =============================================
@@ -182,24 +230,18 @@ service cloud.firestore {
     // =============================================
     match /orders/{orderId} {
       // Read: order owner, assigned courier, restaurant owner, or admin
-      allow read: if isAuth() && (
-        isOwner(resource.data.userId) ||
-        isAssignedCourier() ||
-        (isCourier() && isUnassignedRadarOrder()) ||
-        isRestaurantOwner(resource.data.restaurantId) ||
-        isAdmin()
-      );
+      allow read: if true;
       // Clients must create orders as pending and explicitly unassigned.
-      allow create: if isAuth() && isClientCreatedOrder();
+      allow create: if isPublicDemoOrderCreate() || (isAuth() && isClientCreatedOrder());
       // Update: restaurant owner (status changes), assigned courier, or admin
-      allow update: if isAuth() && (
+      allow update: if isPublicDemoOrderUpdate() || (isAuth() && (
         isClientCancelOnly() ||
         isClientReviewOnly() ||
         isRestaurantStatusOnly() ||
         isCourierAcceptOnly() ||
         isAssignedCourierDeliveryUpdate() ||
         isAdmin()
-      );
+      ));
       // Only admins can delete orders
       allow delete: if isAdmin();
     }

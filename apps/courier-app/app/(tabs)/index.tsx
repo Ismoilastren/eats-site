@@ -153,10 +153,14 @@ export default function RadarScreen() {
           courierPhone: courier.phone || 'N/A',
           assignedCourier: {
             id: courier.id,
-            name: courier.displayName || courier.fullName || 'Courier',
+            name: courier.name || courier.displayName || courier.fullName || 'Courier',
             phone: courier.phone || 'N/A',
             vehicleType: courier.vehicleType || 'bicycle',
-            vehicle: vehicleParts.join(' '),
+            vehicle: {
+              model: courier.vehicleModel || courier.vehicle?.model || 'Car',
+              plate: courier.vehiclePlate || courier.vehicle?.plate || '',
+              color: courier.vehicleColor || courier.vehicle?.color || ''
+            }
           },
           updatedAt: serverTimestamp(),
         });

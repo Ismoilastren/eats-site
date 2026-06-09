@@ -1,0 +1,210 @@
+import {
+  collection,
+  db,
+  doc,
+  getDoc,
+  getDocs,
+  onSnapshot,
+  query,
+  where,
+  type DocumentData,
+  type Unsubscribe,
+} from '@repo/firebase-config';
+import { Dish, Restaurant, restaurants as mockRestaurants } from '@/data/marketplace';
+import { isFirestoreDataSource } from './config';
+
+const RESTAURANTS_COLLECTION = 'restaurants';
+const DISHES_COLLECTION = 'dishes';
+
+function mapFirestoreDish(data: DocumentData, id: string, restaurantId: string): Dish {
+  return {
+    id: String(data.id || id),
+    restaurantId: String(data.restaurantId || restaurantId),
+    name: String(data.name || 'Dish'),
+    description: String(data.description || ''),
+    imageUrl: String(data.imageUrl || ''),
+    category: String(data.category || 'Mains'),
+    price: Number(data.price || 0),
+    popular: Array.isArray(data.tags) ? data.tags.includes('popular') : Boolean(data.popular),
+    available: data.isAvailable ?? data.available ?? true,
+  };
+}
+
+function mapFirestoreRestaurant(data: DocumentData, id: string, menu: Dish[] = []): Restaurant {
+  const cuisines = Array.isArray(data.cuisines)
+    ? data.cuisines.map(String)
+    : Array.isArray(data.cuisine)
+      ? data.cuisine.map(String)
+      : [];
+  const categories = Array.isArray(data.categories)
+    ? data.categories.map(String)
+    : data.category
+      ? [String(data.category)]
+      : cuisines;
+
+  const rawPriceLevel = data.priceLevel;
+  const priceLevel = rawPriceLevel === 1 || rawPriceLevel === '$'
+    ? '$'
+    : rawPriceLevel === 3 || rawPriceLevel === '$$$'
+      ? '$$$'
+      : '$$';
+  const imageUrl = String(data.coverImageUrl || data.imageUrl || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?q=80&w=1200&auto=format&fit=crop');
+
+  return {
+    id: String(data.id || id),
+    slug: String(data.slug || id),
+    name: String(data.name || 'Restaurant'),
+    imageUrl,
+    cuisine: cuisines.length > 0 ? cuisines : categories,
+    category: String(categories[0] || cuisines[0] || 'Restaurants'),
+    rating: Number(data.rating || 0),
+    reviews: Number(data.reviewsCount ?? data.reviewCount ?? data.reviews ?? 0),
+    etaMin: Number(data.etaMin || data.avgDeliveryTime || 25),
+    etaMax: Number(data.etaMax || data.avgDeliveryTime || 40),
+    deliveryFee: Number(data.deliveryFee || 0),
+    minOrder: Number(data.minOrder ?? data.minOrderAmount ?? 0),
+    promo: Array.isArray(data.promoIds) ? data.promoIds[0] : data.promo,
+    isOpen: data.status === 'inactive' ? false : data.isOpen ?? data.isActive ?? true,
+    isFreeDelivery: Number(data.deliveryFee || 0) === 0,
+    hasDiscount: Array.isArray(data.promoIds) ? data.promoIds.length > 0 : Boolean(data.hasDiscount),
+    supportsPickup: data.supportsPickup ?? true,
+    workingHours: String(data.workingHours || '09:00-23:00'),
+    availableZones: Array.isArray(data.zones) ? data.zones.map(String) : Array.isArray(data.availableZones) ? data.availableZones.map(String) : ['tashkent'],
+    priceLevel,
+    location: {
+      lat: Number(data.location?.lat ?? data.location?.latitude ?? 41.311081),
+      lng: Number(data.location?.lng ?? data.location?.longitude ?? 69.240562),
+    },
+    menu,
+  };
+}
+
+export async function getDishesByRestaurant(restaurantId: string): Promise<Dish[]> {
+  if (!isFirestoreDataSource()) {
+    return mockRestaurants.find((restaurant) => restaurant.id === restaurantId)?.menu || [];
+  }
+
+  const snapshot = await getDocs(collection(db, RESTAURANTS_COLLECTION, restaurantId, DISHES_COLLECTION));
+  const subcollectionDishes = snapshot.docs.map((dishDoc) => mapFirestoreDish(dishDoc.data(), dishDoc.id, restaurantId));
+  if (subcollectionDishes.length > 0) return subcollectionDishes;
+
+  const legacyMenuQuery = query(collection(db, 'menuItems'), where('restaurantId', '==', restaurantId));
+  const legacySnapshot = await getDocs(legacyMenuQuery);
+  return legacySnapshot.docs.map((dishDoc) => mapFirestoreDish(dishDoc.data(), dishDoc.id, restaurantId));
+}
+
+export async function getRestaurants(): Promise<Restaurant[]> {
+  if (!isFirestoreDataSource()) return mockRestaurants;
+
+  const snapshot = await getDocs(collection(db, RESTAURANTS_COLLECTION));
+  const records = await Promise.all(
+    snapshot.docs.map(async (restaurantDoc) => {
+      const menu = await getDishesByRestaurant(restaurantDoc.id);
+      return mapFirestoreRestaurant(restaurantDoc.data(), restaurantDoc.id, menu);
+    })
+  );
+  return records;
+}
+
+export async function getRestaurantById(restaurantId: string): Promise<Restaurant | null> {
+  if (!isFirestoreDataSource()) {
+    return mockRestaurants.find((restaurant) => restaurant.id === restaurantId) || null;
+  }
+
+  const restaurantDoc = await getDoc(doc(db, RESTAURANTS_COLLECTION, restaurantId));
+  if (!restaurantDoc.exists()) return null;
+  const menu = await getDishesByRestaurant(restaurantDoc.id);
+  return mapFirestoreRestaurant(restaurantDoc.data(), restaurantDoc.id, menu);
+}
+
+export function subscribeRestaurants(
+  onChange: (restaurants: Restaurant[]) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  if (!isFirestoreDataSource()) {
+    onChange(mockRestaurants);
+    return () => undefined;
+  }
+
+  return onSnapshot(
+    collection(db, RESTAURANTS_COLLECTION),
+    async (snapshot) => {
+      try {
+        const records = await Promise.all(
+          snapshot.docs.map(async (restaurantDoc) => {
+            const menu = await getDishesByRestaurant(restaurantDoc.id);
+            return mapFirestoreRestaurant(restaurantDoc.data(), restaurantDoc.id, menu);
+          })
+        );
+        onChange(records);
+      } catch (error) {
+        onError?.(error instanceof Error ? error : new Error('Failed to map restaurants'));
+      }
+    },
+    (error) => onError?.(error)
+  );
+}
+
+export function subscribeDishesByRestaurant(
+  restaurantId: string,
+  onChange: (dishes: Dish[]) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  if (!isFirestoreDataSource()) {
+    onChange(mockRestaurants.find((restaurant) => restaurant.id === restaurantId)?.menu || []);
+    return () => undefined;
+  }
+
+  return onSnapshot(
+    collection(db, RESTAURANTS_COLLECTION, restaurantId, DISHES_COLLECTION),
+    async (snapshot) => {
+      try {
+        const subcollectionDishes = snapshot.docs.map((dishDoc) => mapFirestoreDish(dishDoc.data(), dishDoc.id, restaurantId));
+        if (subcollectionDishes.length > 0) {
+          onChange(subcollectionDishes);
+          return;
+        }
+        onChange(await getDishesByRestaurant(restaurantId));
+      } catch (error) {
+        onError?.(error instanceof Error ? error : new Error('Failed to map dishes'));
+      }
+    },
+    (error) => onError?.(error)
+  );
+}
+
+export async function getRestaurantBySlug(slug: string): Promise<Restaurant | null> {
+  if (!isFirestoreDataSource()) {
+    return mockRestaurants.find((restaurant) => restaurant.slug === slug) || null;
+  }
+
+  const slugQuery = query(collection(db, RESTAURANTS_COLLECTION), where('slug', '==', slug));
+  const snapshot = await getDocs(slugQuery);
+  const restaurantDoc = snapshot.docs[0];
+  if (!restaurantDoc) {
+    const byId = await getDoc(doc(db, RESTAURANTS_COLLECTION, slug));
+    if (!byId.exists()) return null;
+    const menu = await getDishesByRestaurant(byId.id);
+    return mapFirestoreRestaurant(byId.data(), byId.id, menu);
+  }
+  const menu = await getDishesByRestaurant(restaurantDoc.id);
+  return mapFirestoreRestaurant(restaurantDoc.data(), restaurantDoc.id, menu);
+}
+
+export async function searchMarketplace(searchQuery: string): Promise<{ restaurants: Restaurant[]; dishes: Array<{ dish: Dish; restaurant: Restaurant }> }> {
+  const normalized = searchQuery.trim().toLowerCase();
+  if (!normalized) return { restaurants: [], dishes: [] };
+
+  const restaurants = await getRestaurants();
+  return {
+    restaurants: restaurants.filter((restaurant) =>
+      restaurant.name.toLowerCase().includes(normalized) ||
+      restaurant.cuisine.join(' ').toLowerCase().includes(normalized)
+    ),
+    dishes: restaurants.flatMap((restaurant) =>
+      restaurant.menu
+        .filter((dish) => dish.name.toLowerCase().includes(normalized) || dish.description.toLowerCase().includes(normalized))
+        .map((dish) => ({ dish, restaurant }))
+    ),
+  };
+}

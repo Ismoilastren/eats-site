@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { Filter, Gift, Search, SlidersHorizontal, Timer, Utensils } from 'lucide-react';
-import { categories, deliveryTimeFilters, priceLevels, promos, restaurants, type PriceLevel } from '@/data/marketplace';
+import { categories, deliveryTimeFilters, priceLevels, type PriceLevel, type Restaurant } from '@/data/marketplace';
 import { MarketplaceHeader } from '@/components/marketplace/MarketplaceHeader';
 import { RestaurantCard } from '@/components/marketplace/RestaurantCard';
 import { useMarketplace } from '@/context/MarketplaceContext';
@@ -10,7 +10,7 @@ import { useMarketplace } from '@/context/MarketplaceContext';
 type SortMode = 'recommended' | 'fastest' | 'rating' | 'delivery';
 
 export default function HomeClient() {
-  const { favorites, address, deliveryMode } = useMarketplace();
+  const { favorites, address, deliveryMode, restaurants, marketplacePromos, dataLoading, dataError } = useMarketplace();
   const [selectedCategory, setSelectedCategory] = useState('Restaurants');
   const [sortMode, setSortMode] = useState<SortMode>('recommended');
   const [freeDelivery, setFreeDelivery] = useState(false);
@@ -23,12 +23,23 @@ export default function HomeClient() {
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
+    const normalizeFilter = (value: string) => value.toLowerCase().replace(/s$/, '');
+    const selectedCategoryKey = normalizeFilter(selectedCategory);
     let list = restaurants.filter((restaurant) => {
-      const categoryMatch = selectedCategory === 'Restaurants' || restaurant.category === selectedCategory || restaurant.cuisine.includes(selectedCategory);
+      const restaurantCategories = [
+        restaurant.category,
+        ...restaurant.cuisine,
+        ...restaurant.menu.map((dish) => dish.category),
+      ].map(normalizeFilter);
+      const categoryMatch = selectedCategory === 'Restaurants' || restaurantCategories.includes(selectedCategoryKey);
       const queryMatch = !normalized ||
         restaurant.name.toLowerCase().includes(normalized) ||
         restaurant.cuisine.join(' ').toLowerCase().includes(normalized) ||
-        restaurant.menu.some((dish) => dish.name.toLowerCase().includes(normalized) || dish.category.toLowerCase().includes(normalized));
+        restaurant.menu.some((dish) =>
+          dish.name.toLowerCase().includes(normalized) ||
+          dish.description.toLowerCase().includes(normalized) ||
+          dish.category.toLowerCase().includes(normalized)
+        );
       const modeMatch = deliveryMode === 'delivery' || restaurant.supportsPickup;
       const zoneMatch = address.inZone || deliveryMode === 'pickup';
       return categoryMatch && queryMatch && modeMatch && zoneMatch;
@@ -47,7 +58,7 @@ export default function HomeClient() {
       if (sortMode === 'delivery') return a.deliveryFee - b.deliveryFee;
       return Number(b.hasDiscount) - Number(a.hasDiscount) || b.rating - a.rating;
     });
-  }, [address.inZone, deliveryMode, deliveryTime, discounts, freeDelivery, openNow, priceLevel, query, ratingOnly, selectedCategory, sortMode]);
+  }, [address.inZone, deliveryMode, deliveryTime, discounts, freeDelivery, openNow, priceLevel, query, ratingOnly, restaurants, selectedCategory, sortMode]);
 
   const recommended = filtered.filter((restaurant) => restaurant.rating >= 4.6).slice(0, 4);
   const fast = filtered.filter((restaurant) => restaurant.etaMin <= 26).slice(0, 4);
@@ -61,24 +72,32 @@ export default function HomeClient() {
         <section className="grid gap-5 lg:grid-cols-[1.4fr_0.6fr]">
           <div className="rounded-[40px] bg-gray-950 p-6 text-white md:p-10">
             <div className="max-w-2xl">
-              <p className="inline-flex rounded-full bg-yellow-300 px-4 py-2 text-sm font-black text-gray-950">Tashkent marketplace</p>
-              <h1 className="mt-5 text-5xl font-black tracking-tight md:text-7xl">Food, groceries and coffee delivered fast.</h1>
-              <p className="mt-4 text-lg font-semibold text-gray-300">Premium local marketplace for Tashkent. Address: {address.text}</p>
+              <p className="inline-flex rounded-full bg-yellow-300 px-4 py-2 text-sm font-black text-gray-950">Tashkent food delivery</p>
+              <h1 className="mt-5 text-4xl font-black tracking-tight md:text-6xl">Food delivery in Tashkent</h1>
+              <p className="mt-4 max-w-xl text-lg font-semibold text-gray-300">Order meals, groceries, coffee, and desserts from local restaurants. Track your order from checkout to delivery.</p>
+              <p className="mt-3 text-sm font-bold text-gray-400">Delivering to: {address.text}</p>
               {!address.inZone && <p className="mt-4 rounded-2xl bg-red-500/15 px-4 py-3 font-black text-red-200">This address is outside delivery zone.</p>}
             </div>
             <div className="mt-8 flex flex-wrap gap-3">
-              {promos.map((promo) => (
+              {marketplacePromos.map((promo) => (
                 <div key={promo.code} className="rounded-3xl bg-white/10 px-5 py-4">
                   <p className="font-black text-yellow-200">{promo.title}</p>
                   <p className="text-sm font-semibold text-gray-300">{promo.code}</p>
                 </div>
               ))}
+              {marketplacePromos.length === 0 && (
+                <>
+                  <div className="rounded-3xl bg-white/10 px-5 py-4 font-black text-yellow-200">21% off first order</div>
+                  <div className="rounded-3xl bg-white/10 px-5 py-4 font-black text-yellow-200">Free delivery deals</div>
+                  <div className="rounded-3xl bg-white/10 px-5 py-4 font-black text-yellow-200">Fast local delivery</div>
+                </>
+              )}
             </div>
           </div>
           <div className="grid gap-4">
             <Metric icon={<Timer size={22} />} label="Average ETA" value="24 min" />
-            <Metric icon={<Utensils size={22} />} label="Restaurants" value="25+" />
-            <Metric icon={<Gift size={22} />} label="Promo code" value="FIRST21" />
+            <Metric icon={<Utensils size={22} />} label="Restaurants" value={`${restaurants.length}+`} />
+            <Metric icon={<Gift size={22} />} label="Promo code" value={marketplacePromos[0]?.code || 'FIRST21'} />
           </div>
         </section>
 
@@ -116,34 +135,43 @@ export default function HomeClient() {
           </div>
         </section>
 
-        {favoriteRestaurants.length > 0 && <RestaurantSection title="Favorites" restaurants={favoriteRestaurants} />}
-        <RestaurantSection title="Promotions" restaurants={filtered.filter((restaurant) => restaurant.hasDiscount).slice(0, 4)} />
-        <RestaurantSection title="Recommended" restaurants={recommended} />
-        <RestaurantSection title="Fast delivery" restaurants={fast} />
-
-        <section className="mt-10">
-          <div className="mb-5 flex items-center justify-between">
-            <h2 className="text-4xl font-black">Restaurants near you</h2>
-            <SlidersHorizontal className="text-gray-400" />
+        {dataError && <div className="mt-6 rounded-[28px] bg-red-50 px-5 py-4 font-black text-red-600">{dataError}</div>}
+        {dataLoading ? (
+          <div className="mt-10 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, index) => <div key={index} className="h-80 animate-pulse rounded-[36px] bg-white" />)}
           </div>
-          {filtered.length === 0 ? (
-            <div className="rounded-[40px] bg-white p-12 text-center">
-              <Filter className="mx-auto text-gray-300" size={56} />
-              <p className="mt-4 text-2xl font-black">No restaurants found</p>
-              <p className="mt-2 font-bold text-gray-500">Change search or filters.</p>
-            </div>
-          ) : (
-            <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-              {filtered.map((restaurant) => <RestaurantCard key={restaurant.id} restaurant={restaurant} />)}
-            </div>
-          )}
-        </section>
+        ) : (
+          <>
+            {favoriteRestaurants.length > 0 && <RestaurantSection title="Favorites" restaurants={favoriteRestaurants} />}
+            <RestaurantSection title="Promotions" restaurants={filtered.filter((restaurant) => restaurant.hasDiscount).slice(0, 4)} />
+            <RestaurantSection title="Recommended" restaurants={recommended} />
+            <RestaurantSection title="Fast delivery" restaurants={fast} />
+
+            <section className="mt-10">
+              <div className="mb-5 flex items-center justify-between">
+                <h2 className="text-4xl font-black">Restaurants near you</h2>
+                <SlidersHorizontal className="text-gray-400" />
+              </div>
+              {filtered.length === 0 ? (
+                <div className="rounded-[40px] bg-white p-12 text-center">
+                  <Filter className="mx-auto text-gray-300" size={56} />
+                  <p className="mt-4 text-2xl font-black">No restaurants found</p>
+                  <p className="mt-2 font-bold text-gray-500">Change search or filters.</p>
+                </div>
+              ) : (
+                <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+                  {filtered.map((restaurant) => <RestaurantCard key={restaurant.id} restaurant={restaurant} />)}
+                </div>
+              )}
+            </section>
+          </>
+        )}
       </main>
     </div>
   );
 }
 
-function RestaurantSection({ title, restaurants: sectionRestaurants }: { title: string; restaurants: typeof restaurants }) {
+function RestaurantSection({ title, restaurants: sectionRestaurants }: { title: string; restaurants: Restaurant[] }) {
   if (sectionRestaurants.length === 0) return null;
   return (
     <section className="mt-10">

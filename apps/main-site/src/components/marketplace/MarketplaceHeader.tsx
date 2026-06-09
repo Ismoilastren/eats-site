@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { Bell, ChevronDown, LocateFixed, MapPin, Search, ShoppingCart, UserRound, X } from 'lucide-react';
-import { addressSuggestions, restaurants } from '@/data/marketplace';
+import { addressSuggestions } from '@/data/marketplace';
 import { useMarketplace } from '@/context/MarketplaceContext';
 
 export function MarketplaceHeader() {
@@ -13,14 +13,62 @@ export function MarketplaceHeader() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [name, setName] = useState(user?.name || '');
   const [phone, setPhone] = useState(user?.phone || '+998');
+  const [otp, setOtp] = useState('');
+  const [authStep, setAuthStep] = useState<'details' | 'otp'>('details');
+  const [authError, setAuthError] = useState('');
+  const [authBusy, setAuthBusy] = useState(false);
   const [addressInput, setAddressInput] = useState(address.text);
 
   useEffect(() => setAddressInput(address.text), [address.text]);
+  useEffect(() => {
+    if (!authOpen) return;
+    setName(user?.name || '');
+    setPhone(user?.phone || '+998');
+    setOtp('');
+    setAuthStep('details');
+    setAuthError('');
+  }, [authOpen, user?.name, user?.phone]);
 
   const saveAddress = (text: string) => {
     const inZone = text.toLowerCase().includes('tashkent') || text.toLowerCase().includes('toshkent');
     setAddress({ text, inZone });
     setAddressOpen(false);
+  };
+
+  const normalizePhone = (value: string) => value.replace(/[^\d+]/g, '');
+  const phoneLooksValid = (value: string) => /^\+?998\d{9}$/.test(normalizePhone(value));
+  const continueAuth = () => {
+    setAuthError('');
+    if (!name.trim()) {
+      setAuthError('Name is required.');
+      return;
+    }
+    if (!phone.trim()) {
+      setAuthError('Phone number is required.');
+      return;
+    }
+    if (!phoneLooksValid(phone)) {
+      setAuthError('Enter a valid Uzbekistan phone number, for example +998 90 123 45 67.');
+      return;
+    }
+    setAuthBusy(true);
+    window.setTimeout(() => {
+      setAuthBusy(false);
+      setAuthStep('otp');
+    }, 250);
+  };
+  const verifyAuth = () => {
+    setAuthError('');
+    if (otp.trim() !== '1111') {
+      setAuthError('Incorrect verification code. Demo code is 1111.');
+      return;
+    }
+    setAuthBusy(true);
+    window.setTimeout(() => {
+      login(name.trim(), normalizePhone(phone));
+      setAuthBusy(false);
+      setAuthOpen(false);
+    }, 250);
   };
 
   return (
@@ -95,19 +143,45 @@ export function MarketplaceHeader() {
         <div className="fixed inset-0 z-[70] bg-black/40 p-4">
           <div className="mx-auto mt-20 max-w-md rounded-[32px] bg-white p-6 shadow-2xl">
             <div className="flex items-center justify-between">
-              <h2 className="text-3xl font-black text-gray-950">{user ? 'Profile' : 'Login'}</h2>
+              <div>
+                <h2 className="text-3xl font-black text-gray-950">{user ? 'Profile' : authStep === 'otp' ? 'Enter verification code' : 'Sign in'}</h2>
+                {!user && <p className="mt-1 font-bold text-gray-500">{authStep === 'otp' ? 'Demo code: 1111' : 'Enter your name and phone number to continue.'}</p>}
+              </div>
               <button onClick={() => setAuthOpen(false)} className="rounded-full bg-gray-100 p-3"><X size={20} /></button>
             </div>
             {user ? (
-              <div className="mt-5">
+              <div className="mt-5 space-y-3">
                 <p className="rounded-2xl bg-gray-50 p-4 font-bold">{user.name}<br /><span className="text-gray-500">{user.phone}</span></p>
-                <button onClick={() => { logout(); setAuthOpen(false); }} className="mt-4 w-full rounded-2xl bg-gray-950 px-4 py-4 font-black text-white">Sign out</button>
+                <Link onClick={() => setAuthOpen(false)} href="/profile" className="block rounded-2xl bg-gray-100 px-4 py-4 font-black text-gray-950">Profile</Link>
+                <Link onClick={() => setAuthOpen(false)} href="/orders" className="block rounded-2xl bg-gray-100 px-4 py-4 font-black text-gray-950">Orders</Link>
+                <button onClick={() => { logout(); setAuthOpen(false); }} className="w-full rounded-2xl bg-gray-950 px-4 py-4 font-black text-white">Logout</button>
               </div>
             ) : (
               <div className="mt-5 space-y-3">
-                <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Name" className="w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none" />
-                <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+998 90 123 45 67" className="w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none" />
-                <button onClick={() => { login(name || 'Guest', phone || '+998'); setAuthOpen(false); }} className="w-full rounded-2xl bg-yellow-300 px-4 py-4 font-black text-gray-950">Send mock OTP</button>
+                {authStep === 'details' ? (
+                  <>
+                    <label className="block">
+                      <span className="text-sm font-black text-gray-500">Name</span>
+                      <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-yellow-300" />
+                    </label>
+                    <label className="block">
+                      <span className="text-sm font-black text-gray-500">Phone number</span>
+                      <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+998 90 123 45 67" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-yellow-300" />
+                    </label>
+                    {authError && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-black text-red-600">{authError}</p>}
+                    <button disabled={authBusy} onClick={continueAuth} className="w-full rounded-2xl bg-yellow-300 px-4 py-4 font-black text-gray-950 disabled:opacity-60">{authBusy ? 'Checking...' : 'Continue'}</button>
+                  </>
+                ) : (
+                  <>
+                    <label className="block">
+                      <span className="text-sm font-black text-gray-500">Verification code</span>
+                      <input value={otp} onChange={(event) => setOtp(event.target.value)} placeholder="1111" inputMode="numeric" maxLength={4} className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 text-center text-2xl font-black tracking-[0.4em] outline-none focus:ring-2 focus:ring-yellow-300" />
+                    </label>
+                    {authError && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-black text-red-600">{authError}</p>}
+                    <button disabled={authBusy} onClick={verifyAuth} className="w-full rounded-2xl bg-yellow-300 px-4 py-4 font-black text-gray-950 disabled:opacity-60">{authBusy ? 'Signing in...' : 'Verify and sign in'}</button>
+                    <button onClick={() => { setAuthStep('details'); setAuthError(''); }} className="w-full rounded-2xl bg-gray-100 px-4 py-4 font-black text-gray-700">Change phone number</button>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -120,6 +194,7 @@ export function MarketplaceHeader() {
 }
 
 function SearchOverlay({ onClose }: { onClose: () => void }) {
+  const { restaurants } = useMarketplace();
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
   const [recent, setRecent] = useState<string[]>([]);

@@ -1,12 +1,12 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { db, doc, getDoc, updateDoc, collection, query, where, getDocs, addDoc, deleteDoc } from '@repo/firebase-config';
+import { db, doc, getDoc, updateDoc, collection, query, where, getDocs, deleteDoc, setDoc } from '@repo/firebase-config';
 import { COLLECTIONS, Restaurant, MenuItem } from '@repo/shared-types';
 import toast from 'react-hot-toast';
-import { initializeApp, getApp, getApps, deleteApp } from 'firebase/app';
+import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
-import { setDoc } from 'firebase/firestore';
+import { buildDishPayload, buildRestaurantPayload } from '@/lib/marketplaceSchema';
 
 export default function EditRestaurantPage() {
   const router = useRouter();
@@ -54,12 +54,13 @@ export default function EditRestaurantPage() {
         
         if (docSnap.exists()) {
           const data = docSnap.data() as Restaurant;
+          const raw = data as any;
           setFormData({
             name: data.name || '',
-            cuisine: data.cuisine || '',
+            cuisine: Array.isArray(raw.cuisines) ? raw.cuisines.join(', ') : data.cuisine || '',
             location: data.address || (typeof (data as any).location === 'string' ? (data as any).location : ''),
             description: data.description || '',
-            imageUrl: data.imageUrl || '',
+            imageUrl: data.imageUrl || raw.coverImageUrl || '',
           });
           
           if (data.ownerId) {
@@ -73,15 +74,21 @@ export default function EditRestaurantPage() {
           }
 
           // Fetch Menu Items
-          const menuQuery = query(
-            collection(db, COLLECTIONS.MENU_ITEMS),
-            where('restaurantId', '==', id)
-          );
-          const menuSnap = await getDocs(menuQuery);
           const menuData: MenuItem[] = [];
-          menuSnap.forEach((d) => {
+          const dishesSnap = await getDocs(collection(db, COLLECTIONS.RESTAURANTS, id, 'dishes'));
+          dishesSnap.forEach((d) => {
             menuData.push({ id: d.id, ...d.data() } as MenuItem);
           });
+          if (menuData.length === 0) {
+            const menuQuery = query(
+              collection(db, COLLECTIONS.MENU_ITEMS),
+              where('restaurantId', '==', id)
+            );
+            const menuSnap = await getDocs(menuQuery);
+            menuSnap.forEach((d) => {
+              menuData.push({ id: d.id, ...d.data() } as MenuItem);
+            });
+          }
           setMenuItems(menuData.sort((a, b) => a.sortOrder - b.sortOrder));
         } else {
           toast.error("Restaurant not found");
@@ -133,16 +140,17 @@ export default function EditRestaurantPage() {
         });
       }
 
-      const updates: Partial<Restaurant> = {
+      const updates = buildRestaurantPayload({
+        id,
         name: formData.name,
         cuisine: formData.cuisine,
         address: formData.location,
         description: formData.description,
         imageUrl: finalImageUrl,
-      };
+      });
 
       const docRef = doc(db, COLLECTIONS.RESTAURANTS, id);
-      await updateDoc(docRef, updates);
+      await setDoc(docRef, updates, { merge: true });
 
       toast.success('Restaurant updated successfully!', { id: 'edit-restaurant' });
     } catch (error: any) {
@@ -266,21 +274,50 @@ export default function EditRestaurantPage() {
       }
 
       if (editingMenuId) {
-        const updates: Partial<MenuItem> = {
+        const updates = buildDishPayload({
+          id: editingMenuId,
+          restaurantId: id,
           name: newMenuItem.name,
           description: newMenuItem.description,
           price: parseFloat(newMenuItem.price),
           category: newMenuItem.category,
           imageUrl: finalImageUrl,
-          updatedAt: new Date()
-        };
-        const docRef = doc(db, COLLECTIONS.MENU_ITEMS, editingMenuId);
-        await updateDoc(docRef, updates);
-        
-        setMenuItems(menuItems.map(item => item.id === editingMenuId ? { ...item, ...updates } : item));
+          sortOrder: menuItems.find((item) => item.id === editingMenuId)?.sortOrder || 0,
+        });
+        await setDoc(doc(db, COLLECTIONS.MENU_ITEMS, editingMenuId), updates, { merge: true });
+        await setDoc(doc(db, COLLECTIONS.RESTAURANTS, id, 'dishes', editingMenuId), updates, { merge: true });
+
+        setMenuItems(menuItems.map(item => item.id === editingMenuId ? {
+          ...item,
+          id: editingMenuId,
+          restaurantId: id,
+          name: newMenuItem.name,
+          description: newMenuItem.description,
+          price: parseFloat(newMenuItem.price),
+          category: newMenuItem.category,
+          imageUrl: finalImageUrl,
+          isAvailable: true,
+          sortOrder: menuItems.find((menuItem) => menuItem.id === editingMenuId)?.sortOrder || 0,
+          updatedAt: new Date(),
+        } : item));
         toast.success('Menu item updated successfully!');
       } else {
-        const menuItemData: Omit<MenuItem, 'id'> = {
+        const topLevelRef = doc(collection(db, COLLECTIONS.MENU_ITEMS));
+        const menuItemData = buildDishPayload({
+          id: topLevelRef.id,
+          restaurantId: id,
+          name: newMenuItem.name,
+          description: newMenuItem.description,
+          price: parseFloat(newMenuItem.price),
+          category: newMenuItem.category,
+          imageUrl: finalImageUrl,
+          sortOrder: menuItems.length,
+        });
+
+        await setDoc(topLevelRef, menuItemData);
+        await setDoc(doc(db, COLLECTIONS.RESTAURANTS, id, 'dishes', topLevelRef.id), menuItemData);
+        setMenuItems([...menuItems, {
+          id: topLevelRef.id,
           restaurantId: id,
           name: newMenuItem.name,
           description: newMenuItem.description,
@@ -290,11 +327,8 @@ export default function EditRestaurantPage() {
           isAvailable: true,
           sortOrder: menuItems.length,
           createdAt: new Date(),
-          updatedAt: new Date()
-        };
-
-        const docRef = await addDoc(collection(db, COLLECTIONS.MENU_ITEMS), menuItemData);
-        setMenuItems([...menuItems, { id: docRef.id, ...menuItemData } as MenuItem]);
+          updatedAt: new Date(),
+        } as MenuItem]);
         toast.success('Menu item added successfully!');
       }
 
@@ -316,6 +350,7 @@ export default function EditRestaurantPage() {
     setDeleteMenuId(null);
     try {
       await deleteDoc(doc(db, COLLECTIONS.MENU_ITEMS, itemId));
+      await deleteDoc(doc(db, COLLECTIONS.RESTAURANTS, id, 'dishes', itemId));
       setMenuItems(menuItems.filter(item => item.id !== itemId));
       toast.success('Menu item deleted');
     } catch (error) {

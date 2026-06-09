@@ -1,9 +1,10 @@
 'use client';
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { db, collection, addDoc, auth, doc, setDoc, storage, ref, uploadBytes, getDownloadURL } from '@repo/firebase-config';
-import { COLLECTIONS, Restaurant } from '@repo/shared-types';
+import { db, collection, auth, doc, setDoc } from '@repo/firebase-config';
+import { COLLECTIONS } from '@repo/shared-types';
 import toast from 'react-hot-toast';
+import { buildRestaurantPayload } from '@/lib/marketplaceSchema';
 
 export default function AddRestaurantPage() {
   const router = useRouter();
@@ -60,22 +61,17 @@ export default function AddRestaurantPage() {
         });
       }
 
-      const newRestaurant: Partial<Restaurant> = {
+      const restaurantRef = doc(collection(db, COLLECTIONS.RESTAURANTS));
+      const newRestaurant = buildRestaurantPayload({
+        id: restaurantRef.id,
         name: formData.name,
         cuisine: formData.cuisine,
         address: formData.location,
-        location: { latitude: 41.311081, longitude: 69.240562 },
         description: formData.description,
-        imageUrl: finalImageUrl || 'https://via.placeholder.com/150',
-        rating: 0,
-        reviewCount: 0,
-        isActive: true,
-        deliveryFee: 0,
-        minOrderAmount: 0,
-        avgDeliveryTime: 30,
-      };
+        imageUrl: finalImageUrl,
+      });
 
-      await addDoc(collection(db, COLLECTIONS.RESTAURANTS), newRestaurant);
+      await setDoc(restaurantRef, newRestaurant);
 
       toast.success('Restaurant added successfully!', { id: 'add-restaurant' });
       router.push('/restaurants');

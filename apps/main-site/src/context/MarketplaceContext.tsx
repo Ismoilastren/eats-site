@@ -1,7 +1,17 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { DeliveryMode, Dish, Promo, promos, Restaurant, restaurants } from '@/data/marketplace';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { DeliveryMode, Dish, Promo, Restaurant } from '@/data/marketplace';
+import {
+  createOrder,
+  getOrdersByUser,
+  getPromos,
+  isFirestoreDataSource,
+  MOCK_CUSTOMER_ID,
+  subscribeRestaurants,
+  type OrderStatus,
+  type MarketplaceOrderInput,
+} from '@/services/marketplace';
 
 export type CartLine = Dish & {
   quantity: number;
@@ -15,25 +25,40 @@ export type MockUser = { name: string; phone: string };
 export type SavedAddress = { text: string; inZone: boolean };
 export type LocalOrder = {
   id: string;
+  restaurantId: string;
   restaurantName: string;
   items: CartLine[];
   address: string;
+  customerAddress: string;
   phone: string;
   name: string;
   total: number;
+  subtotal: number;
+  deliveryFee: number;
+  serviceFee: number;
+  discount: number;
+  paymentMethod: 'cash' | 'card';
+  status: OrderStatus;
   createdAt: string;
+  updatedAt?: string;
   statusIndex: number;
+  assignedCourier: { id: string; name: string; phone?: string; vehicle?: string } | null;
   courier: { name: string; vehicle: string; phone: string };
+  etaMinutes?: number;
 };
 
 type MarketplaceContextValue = {
   cart: CartLine[];
+  restaurants: Restaurant[];
   user: MockUser | null;
   address: SavedAddress;
   favorites: string[];
   orders: LocalOrder[];
   promo: Promo | null;
+  marketplacePromos: Promo[];
   deliveryMode: DeliveryMode;
+  dataLoading: boolean;
+  dataError: string | null;
   addDish: (restaurant: Restaurant, dish: Dish, quantity?: number) => void;
   updateQuantity: (dishId: string, delta: number) => void;
   removeDish: (dishId: string) => void;
@@ -45,7 +70,8 @@ type MarketplaceContextValue = {
   applyPromo: (code: string) => boolean;
   removePromo: () => void;
   setDeliveryMode: (mode: DeliveryMode) => void;
-  placeOrder: (payload: { name: string; phone: string; address: string }) => LocalOrder;
+  reloadOrders: () => Promise<void>;
+  placeOrder: (payload: { name: string; phone: string; address: string; paymentMethod?: 'cash' | 'card' }) => Promise<LocalOrder>;
   subtotal: number;
   deliveryFee: number;
   serviceFee: number;
@@ -68,12 +94,16 @@ function readStorage<T>(key: string, fallback: T): T {
 
 export function MarketplaceProvider({ children }: { children: React.ReactNode }) {
   const [cart, setCart] = useState<CartLine[]>([]);
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [user, setUser] = useState<MockUser | null>(null);
   const [address, setAddressState] = useState<SavedAddress>({ text: 'Tashkent, Amir Temur Avenue 14', inZone: true });
   const [favorites, setFavorites] = useState<string[]>([]);
   const [orders, setOrders] = useState<LocalOrder[]>([]);
   const [promo, setPromo] = useState<Promo | null>(null);
+  const [marketplacePromos, setMarketplacePromos] = useState<Promo[]>([]);
   const [deliveryMode, setDeliveryModeState] = useState<DeliveryMode>('delivery');
+  const [dataLoading, setDataLoading] = useState(true);
+  const [dataError, setDataError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -81,11 +111,52 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     setUser(readStorage<MockUser | null>('marketplace_user', null));
     setAddressState(readStorage<SavedAddress>('marketplace_address', { text: 'Tashkent, Amir Temur Avenue 14', inZone: true }));
     setFavorites(readStorage<string[]>('marketplace_favorites', []));
-    setOrders(readStorage<LocalOrder[]>('marketplace_orders', []));
+    if (!isFirestoreDataSource()) {
+      setOrders(readStorage<LocalOrder[]>('marketplace_orders', []));
+    }
     setPromo(readStorage<Promo | null>('marketplace_promo', null));
     setDeliveryModeState(readStorage<DeliveryMode>('marketplace_delivery_mode', 'delivery'));
     setLoaded(true);
   }, []);
+
+  useEffect(() => {
+    setDataLoading(true);
+    setDataError(null);
+
+    getPromos()
+      .then(setMarketplacePromos)
+      .catch((error) => setDataError(error instanceof Error ? error.message : 'Failed to load promos'));
+
+    const unsubscribe = subscribeRestaurants(
+      (restaurantRecords) => {
+        setRestaurants(restaurantRecords);
+        setDataLoading(false);
+      },
+      (error) => {
+        setDataError(error.message);
+        setRestaurants([]);
+        setDataLoading(false);
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  const reloadOrders = useCallback(async () => {
+    try {
+      const records = await getOrdersByUser(MOCK_CUSTOMER_ID);
+      setOrders(records);
+    } catch (error) {
+      setDataError(error instanceof Error ? error.message : 'Failed to load orders');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!loaded) return;
+    reloadOrders();
+  }, [loaded, reloadOrders]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -93,7 +164,9 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     localStorage.setItem('marketplace_user', JSON.stringify(user));
     localStorage.setItem('marketplace_address', JSON.stringify(address));
     localStorage.setItem('marketplace_favorites', JSON.stringify(favorites));
-    localStorage.setItem('marketplace_orders', JSON.stringify(orders));
+    if (!isFirestoreDataSource()) {
+      localStorage.setItem('marketplace_orders', JSON.stringify(orders));
+    }
     localStorage.setItem('marketplace_promo', JSON.stringify(promo));
     localStorage.setItem('marketplace_delivery_mode', JSON.stringify(deliveryMode));
   }, [address, cart, deliveryMode, favorites, loaded, orders, promo, user]);
@@ -150,45 +223,52 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
   const applyPromo = (code: string) => {
-    const found = promos.find((item) => item.code.toLowerCase() === code.trim().toLowerCase());
+    const found = marketplacePromos.find((item) => item.code.toLowerCase() === code.trim().toLowerCase());
     if (!found) return false;
     setPromo(found);
     return true;
   };
   const removePromo = () => setPromo(null);
 
-  const placeOrder = (payload: { name: string; phone: string; address: string }) => {
-    const restaurant = restaurants.find((item) => item.slug === cart[0]?.restaurantSlug);
-    const order: LocalOrder = {
-      id: `213-${Date.now().toString().slice(-6)}`,
+  const placeOrder = useCallback(async (payload: { name: string; phone: string; address: string; paymentMethod?: 'cash' | 'card' }) => {
+    const restaurant = restaurants.find((item) => item.slug === cart[0]?.restaurantSlug || item.id === cart[0]?.restaurantId);
+    const orderInput: MarketplaceOrderInput = {
+      userId: MOCK_CUSTOMER_ID,
+      restaurantId: restaurant?.id || cart[0]?.restaurantId || 'unknown',
       restaurantName: restaurant?.name || cart[0]?.restaurantName || 'Restaurant',
+      restaurantLocation: restaurant?.location,
       items: cart,
       address: payload.address,
-      phone: payload.phone,
-      name: payload.name,
+      customerName: payload.name,
+      customerPhone: payload.phone,
+      paymentMethod: payload.paymentMethod || 'cash',
+      subtotal,
+      deliveryFee,
+      serviceFee,
+      discount,
       total,
-      createdAt: new Date().toISOString(),
-      statusIndex: 0,
-      courier: {
-        name: 'Akmal R.',
-        vehicle: 'Bicycle',
-        phone: '+998 90 777 21 13',
-      },
+      promoCode: promo?.code || null,
+      etaMinutes: restaurant?.etaMax || 24,
     };
+    const order = await createOrder(orderInput);
     setOrders((current) => [order, ...current]);
     clearCart();
     setPromo(null);
     return order;
-  };
+  }, [cart, deliveryFee, discount, promo?.code, restaurants, serviceFee, subtotal, total]);
 
   const value = useMemo<MarketplaceContextValue>(() => ({
     cart,
+    restaurants,
     user,
     address,
     favorites,
     orders,
     promo,
+    marketplacePromos,
     deliveryMode,
+    dataLoading,
+    dataError,
     addDish,
     updateQuantity,
     removeDish,
@@ -200,6 +280,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     applyPromo,
     removePromo,
     setDeliveryMode,
+    reloadOrders,
     placeOrder,
     subtotal,
     deliveryFee,
@@ -207,7 +288,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     discount,
     total,
     cartCount,
-  }), [address, cart, cartCount, deliveryFee, deliveryMode, discount, favorites, orders, promo, serviceFee, subtotal, total, user]);
+  }), [address, cart, cartCount, dataError, dataLoading, deliveryFee, deliveryMode, discount, favorites, marketplacePromos, orders, placeOrder, promo, reloadOrders, restaurants, serviceFee, subtotal, total, user]);
 
   return <MarketplaceContext.Provider value={value}>{children}</MarketplaceContext.Provider>;
 }

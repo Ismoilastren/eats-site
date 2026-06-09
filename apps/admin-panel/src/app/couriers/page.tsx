@@ -417,7 +417,7 @@ export default function CouriersPage() {
                         <p className="text-emerald-600 dark:text-emerald-400 font-bold">
                           {Number(courier.totalEarnings || 0).toLocaleString('ru-RU')} UZS
                         </p>
-                        <p className="text-xs text-gray-500 dark:text-slate-500">{courier.totalDeliveries || 0} deliveries</p>
+                        <p className="text-xs text-gray-500 dark:text-slate-500">{(courier as any).deliveries || courier.totalDeliveries || 0} deliveries</p>
                       </td>
 
                       {/* Status */}

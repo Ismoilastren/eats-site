@@ -10,8 +10,8 @@ import { Toaster } from "react-hot-toast";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "2(13) - Food Delivery",
-  description: "Order food from the best restaurants in town",
+  title: "2(13) Delivery - Food delivery in Tashkent",
+  description: "Order meals, groceries, coffee, and desserts from local restaurants in Tashkent.",
 };
 
 export default function RootLayout({

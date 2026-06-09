@@ -1,0 +1,57 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isAssignedCourier() {
+      return signedIn()
+        && resource.data.assignedCourier is map
+        && resource.data.assignedCourier.id == request.auth.uid;
+    }
+
+    match /restaurants/{restaurantId} {
+      allow read: if true;
+      allow write: if isAdmin();
+
+      match /dishes/{dishId} {
+        allow read: if true;
+        allow write: if isAdmin();
+      }
+    }
+
+    match /promos/{promoId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+
+    match /orders/{orderId} {
+      allow create: if signedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.assignedCourier == null;
+
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.userId == request.auth.uid)
+        || isAssignedCourier();
+
+      allow update: if isAdmin()
+        || (signedIn() && resource.data.userId == request.auth.uid && request.resource.data.status == 'cancelled')
+        || isAssignedCourier();
+    }
+  }
+}

@@ -1,18 +1,36 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { MarketplaceHeader } from '@/components/marketplace/MarketplaceHeader';
 import { useMarketplace } from '@/context/MarketplaceContext';
 import { formatCurrencyUZS } from '@repo/shared-types';
 
 export default function OrdersPage() {
-  const { orders } = useMarketplace();
+  const { orders, reloadOrders, dataError } = useMarketplace();
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+    reloadOrders().finally(() => {
+      if (mounted) setLoading(false);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [reloadOrders]);
+
   return (
     <div className="min-h-screen bg-[#f6f6f3] text-gray-950">
       <MarketplaceHeader />
       <main className="mx-auto max-w-4xl px-4 py-8 lg:px-8">
         <h1 className="text-5xl font-black">Orders</h1>
-        {orders.length === 0 ? (
+        {dataError && <p className="mt-4 rounded-2xl bg-red-50 px-4 py-3 font-black text-red-600">{dataError}</p>}
+        {loading ? (
+          <div className="mt-8 space-y-4">
+            {Array.from({ length: 3 }).map((_, index) => <div key={index} className="h-32 animate-pulse rounded-[32px] bg-white" />)}
+          </div>
+        ) : orders.length === 0 ? (
           <div className="mt-8 rounded-[40px] bg-white p-12 text-center">
             <p className="text-3xl font-black">No orders yet</p>
             <p className="mt-2 font-bold text-gray-500">Place an order to see tracking here.</p>

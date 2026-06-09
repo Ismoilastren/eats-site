@@ -2,7 +2,7 @@
 
 import { use, useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { db, doc, onSnapshot, updateDoc, collection, query, where, getDocs, getDoc, serverTimestamp } from "@repo/firebase-config";
+import { db, doc, onSnapshot, updateDoc, collection, query, where, getDocs, getDoc, serverTimestamp, increment } from "@repo/firebase-config";
 import {
   COLLECTIONS,
   Order,
@@ -134,8 +134,30 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
       }
 
       if (nextStatus === 'cancelled') {
+        const reasons = [
+          "High demand: Courier unavailable",
+          "Restaurant out of stock",
+          "Customer requested cancellation",
+          "Delivery address unreachable"
+        ];
+        const randomReason = reasons[Math.floor(Math.random() * reasons.length)];
+
         updateData.cancelledAt = serverTimestamp();
-        updateData.cancelReason = 'Cancelled by admin';
+        updateData.cancelReason = randomReason;
+
+        const paymentType = (order as any).paymentMethod?.type;
+        const isCard = paymentType === 'CARD' || paymentType === 'SAVED_CARD' || paymentType === 'Card' || paymentType === 'Saved Card';
+        const customerId = (order as any).customerId || (order as any).customer?.uid || (order as any).customerUid;
+
+        if (isCard && customerId) {
+          const userRef = doc(db, COLLECTIONS.USERS, customerId);
+          // Atomic update to customer's wallet balance
+          await updateDoc(userRef, {
+            walletBalance: increment(Number(order.totalAmount || 0) + 10000)
+          }).catch(err => console.error("Refund failed", err));
+
+          updateData.refundStatus = "Refunded + 10,000 UZS Bonus";
+        }
       }
 
       await updateDoc(orderRef, updateData);

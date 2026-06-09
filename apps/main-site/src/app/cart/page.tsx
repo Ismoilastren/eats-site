@@ -33,13 +33,15 @@ export default function CartPage() {
   const [payment, setPayment] = useState<'cash' | 'card'>('cash');
   const [promoInput, setPromoInput] = useState('');
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const minOrder = cart[0]?.restaurantMinOrder || 0;
   const belowMinimum = cart.length > 0 && subtotal < minOrder;
   const phoneValid = /^\+?998\d{9}$/.test(phone.replace(/\s/g, ''));
 
-  const submit = () => {
+  const submit = async () => {
     if (cart.length === 0) return;
+    if (isSubmitting) return;
     if (!name.trim() || !phone.trim() || !address.text.trim()) {
       setError('Name, phone and delivery address are required.');
       return;
@@ -56,8 +58,15 @@ export default function CartPage() {
       setError(`Minimum order is ${formatCurrencyUZS(minOrder)}.`);
       return;
     }
-    const order = placeOrder({ name: name.trim(), phone: phone.trim(), address: address.text });
-    router.push(`/orders/${order.id}`);
+    setIsSubmitting(true);
+    setError('');
+    try {
+      const order = await placeOrder({ name: name.trim(), phone: phone.trim(), address: address.text, paymentMethod: payment });
+      router.push(`/orders/${order.id}`);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'Could not place order. Please try again.');
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -148,7 +157,7 @@ export default function CartPage() {
               <Row label="Total" value={formatCurrencyUZS(total)} strong />
             </div>
             {belowMinimum && <p className="mt-4 rounded-2xl bg-yellow-50 px-4 py-3 text-sm font-black text-yellow-700">Minimum order: {formatCurrencyUZS(minOrder)}</p>}
-            <button onClick={submit} disabled={cart.length === 0 || belowMinimum || !address.inZone} className="mt-6 w-full rounded-2xl bg-yellow-300 px-4 py-5 text-lg font-black text-gray-950 disabled:bg-gray-200 disabled:text-gray-400">Place order</button>
+            <button onClick={submit} disabled={cart.length === 0 || belowMinimum || !address.inZone || isSubmitting} className="mt-6 w-full rounded-2xl bg-yellow-300 px-4 py-5 text-lg font-black text-gray-950 disabled:bg-gray-200 disabled:text-gray-400">{isSubmitting ? 'Placing order...' : 'Place order'}</button>
           </aside>
         </div>
       </main>

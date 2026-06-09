@@ -315,7 +315,7 @@ export default function ActiveScreen() {
 
               transaction.update(courierRef, {
                 totalEarnings: increment(safePayout),
-                deliveries: increment(1),
+                totalDeliveries: increment(1),
                 currentOrderId: null,
                 isAvailable: true,
                 updatedAt: serverTimestamp(),

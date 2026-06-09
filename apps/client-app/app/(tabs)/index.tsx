@@ -335,7 +335,7 @@ export default function HomeScreen() {
                       <View className="flex-row items-center rounded-full bg-orange-50 px-3 py-2">
                         <Ionicons name="bicycle-outline" size={16} color="#f97316" />
                         <Text className="ml-1 text-sm font-black text-orange-600">
-                          {formatCurrencyUZS(restaurant.deliveryFee || 0)}
+                          {restaurant.deliveryFee ? formatCurrencyUZS(restaurant.deliveryFee) : '10 000 UZS'}
                         </Text>
                       </View>
                     </View>

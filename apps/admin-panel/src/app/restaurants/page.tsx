@@ -80,7 +80,11 @@ export default function RestaurantsPage() {
         </div>
       ),
     },
-    { header: 'Cuisine', accessor: 'cuisine' },
+    {
+      header: 'Cuisine',
+      accessor: 'cuisine',
+      cell: (row) => <span>{Array.isArray((row as any).cuisines) ? (row as any).cuisines.join(', ') : row.cuisine || (row as any).category || '-'}</span>,
+    },
     {
       header: 'Rating',
       accessor: 'rating',
@@ -93,7 +97,7 @@ export default function RestaurantsPage() {
     {
       header: 'Reviews',
       accessor: 'reviewCount',
-      cell: (row) => <span className="text-gray-600 dark:text-gray-400">{row.reviewCount || 0} reviews</span>,
+      cell: (row) => <span className="text-gray-600 dark:text-gray-400">{(row as any).reviewsCount ?? row.reviewCount ?? 0} reviews</span>,
     },
     {
       header: 'Likes',
@@ -111,8 +115,8 @@ export default function RestaurantsPage() {
       header: 'Status',
       accessor: 'isActive',
       cell: (row) => (
-        <Badge variant={row.isActive ? 'success' : 'error'}>
-          {row.isActive ? 'Active' : 'Inactive'}
+        <Badge variant={(row as any).status === 'inactive' || row.isActive === false ? 'error' : 'success'}>
+          {(row as any).status === 'inactive' || row.isActive === false ? 'Inactive' : 'Active'}
         </Badge>
       ),
     },
@@ -149,7 +153,8 @@ export default function RestaurantsPage() {
             searchPlaceholder="Search restaurants..."
             searchAccessor={(item, q) =>
               String(item.name || '').toLowerCase().includes(q) ||
-              String(item.cuisine || '').toLowerCase().includes(q)
+              String(item.cuisine || '').toLowerCase().includes(q) ||
+              (Array.isArray((item as any).cuisines) && (item as any).cuisines.join(' ').toLowerCase().includes(q))
             }
             onEdit={(row) => router.push(`/restaurants/edit/${row.id}`)}
             onDelete={(row) => setDeleteRestaurantId(row.id)}

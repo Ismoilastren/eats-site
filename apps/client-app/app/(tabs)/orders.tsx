@@ -250,7 +250,7 @@ export default function OrdersScreen() {
                     <Ionicons name="chevron-forward" size={22} color="#9ca3af" />
                   </View>
 
-                  {normalizedStatus === 'courier_picked_up' ? (
+                  {['picked_up', 'on_the_way'].includes(normalizedStatus) ? (
                     <View className="rounded-2xl bg-blue-50 p-4">
                       <Text className="font-black text-blue-700">Courier is on the way</Text>
                       <Text className="mt-1 text-sm font-semibold text-blue-500">Tap to open live tracking map.</Text>

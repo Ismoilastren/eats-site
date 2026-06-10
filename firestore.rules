@@ -46,7 +46,7 @@ service cloud.firestore {
     }
 
     function isUnassignedRadarOrder() {
-      return resource.data.status in ['pending', 'preparing'] &&
+      return resource.data.status == 'ready_for_pickup' &&
         resource.data.courierId == null &&
         resource.data.assignedCourier == null;
     }
@@ -91,8 +91,7 @@ service cloud.firestore {
         'on_the_way',
         'delivered',
         'cancelled',
-        'rejected',
-        'courier_picked_up'
+        'rejected'
       ];
     }
 
@@ -141,13 +140,22 @@ service cloud.firestore {
 
     function isAssignedCourierDeliveryUpdate() {
       return isAssignedCourier() &&
-        !(resource.data.status in ['delivered', 'cancelled']) &&
+        !(resource.data.status in ['delivered', 'cancelled', 'rejected']) &&
         request.resource.data.courierId == resource.data.courierId &&
         request.resource.data.assignedCourier == resource.data.assignedCourier &&
-        request.resource.data.status in ['pending', 'preparing', 'courier_picked_up', 'delivered'] &&
+        request.resource.data.status in [
+          'ready_for_pickup',
+          'picked_up',
+          'on_the_way',
+          'delivered'
+        ] &&
         (
           request.resource.data.status == resource.data.status ||
-          (resource.data.status == 'courier_picked_up' &&
+          (resource.data.status == 'ready_for_pickup' &&
+            request.resource.data.status == 'picked_up') ||
+          (resource.data.status == 'picked_up' &&
+            request.resource.data.status == 'on_the_way') ||
+          (resource.data.status == 'on_the_way' &&
             request.resource.data.status == 'delivered')
         ) &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
@@ -164,14 +172,22 @@ service cloud.firestore {
         request.resource.data.userId == resource.data.userId &&
         request.resource.data.courierId == resource.data.courierId &&
         request.resource.data.assignedCourier == resource.data.assignedCourier &&
-        request.resource.data.status in ['pending', 'preparing', 'courier_picked_up', 'cancelled'] &&
-        (request.resource.data.status != 'courier_picked_up' || hasAssignedCourierId(resource.data)) &&
+        request.resource.data.status in [
+          'pending',
+          'accepted',
+          'preparing',
+          'ready_for_pickup',
+          'cancelled',
+          'rejected'
+        ] &&
         (
           request.resource.data.status == resource.data.status ||
           (resource.data.status == 'pending' &&
+            request.resource.data.status in ['accepted', 'cancelled', 'rejected']) ||
+          (resource.data.status == 'accepted' &&
             request.resource.data.status in ['preparing', 'cancelled']) ||
           (resource.data.status == 'preparing' &&
-            request.resource.data.status in ['courier_picked_up', 'cancelled'])
+            request.resource.data.status in ['ready_for_pickup', 'cancelled'])
         ) &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'status',
@@ -288,6 +304,12 @@ service cloud.firestore {
       // Any authenticated user can read settings (like delivery fees)
       allow read: if isAuth();
       // Only admins can modify settings
+      allow write: if isAdmin();
+    }
+
+    match /settings/{document=**} {
+      // Delivery pricing is public marketplace configuration.
+      allow read: if true;
       allow write: if isAdmin();
     }
   }

@@ -10,26 +10,28 @@ interface OrderStatusTimelineProps {
 
 const STATUS_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   pending: 'receipt-outline',
-  confirmed: 'checkmark-circle-outline',
-  cooking: 'flame-outline',
-  ready: 'bag-check-outline',
+  accepted: 'checkmark-circle-outline',
+  preparing: 'flame-outline',
+  ready_for_pickup: 'bag-check-outline',
   picked_up: 'bicycle-outline',
-  delivering: 'navigate-outline',
+  on_the_way: 'navigate-outline',
   delivered: 'home-outline',
 };
 
 export default function OrderStatusTimeline({
   currentStatus,
 }: OrderStatusTimelineProps) {
-  if (currentStatus === 'cancelled') {
+  if (currentStatus === 'cancelled' || currentStatus === 'rejected') {
     return (
       <View className="items-center rounded-2xl bg-red-50 p-6">
         <View className="mb-3 h-14 w-14 items-center justify-center rounded-full bg-red-100">
           <Ionicons name="close-circle" size={32} color="#ef4444" />
         </View>
-        <Text className="text-lg font-bold text-red-600">Order Cancelled</Text>
+        <Text className="text-lg font-bold text-red-600">
+          {currentStatus === 'rejected' ? 'Order Rejected' : 'Order Cancelled'}
+        </Text>
         <Text className="mt-1 text-sm text-red-400">
-          This order has been cancelled
+          This order will not be processed
         </Text>
       </View>
     );

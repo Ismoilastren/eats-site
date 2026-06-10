@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { Bell, ChevronDown, LogOut, Mail, MapPin, PackageCheck, Phone, Search, ShoppingCart, UserRound, X } from 'lucide-react';
+import { auth, GoogleAuthProvider, signInWithPopup } from '@repo/firebase-config';
 import { useMarketplace } from '@/context/MarketplaceContext';
 import { AddressMapPicker } from './AddressMapPicker';
 
@@ -15,8 +16,10 @@ export function MarketplaceHeader() {
   const [name, setName] = useState(user?.name || '');
   const [phone, setPhone] = useState(user?.phone || '+998');
   const [email, setEmail] = useState(user?.email || '');
+  const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
   const [authMode, setAuthMode] = useState<'phone' | 'email'>('phone');
+  const [authView, setAuthView] = useState<'signin' | 'signup'>('signin');
   const [authStep, setAuthStep] = useState<'details' | 'otp'>('details');
   const [authError, setAuthError] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
@@ -26,8 +29,10 @@ export function MarketplaceHeader() {
     setName(user?.name || '');
     setPhone(user?.phone || '+998');
     setEmail(user?.email || '');
+    setPassword('');
     setOtp('');
     setAuthMode('phone');
+    setAuthView('signin');
     setAuthStep('details');
     setAuthError('');
   }, [authOpen, user?.email, user?.name, user?.phone]);
@@ -71,6 +76,24 @@ export function MarketplaceHeader() {
   };
   const continueEmailAuth = () => {
     setAuthError('');
+    if (!emailLooksValid(email)) {
+      setAuthError('Enter a valid email address.');
+      return;
+    }
+    if (password.trim().length < 4) {
+      setAuthError('Enter your password.');
+      return;
+    }
+    setAuthBusy(true);
+    window.setTimeout(() => {
+      const accountName = name.trim() || email.trim().split('@')[0] || 'Customer';
+      login(accountName, '+998901111111', email.trim());
+      setAuthBusy(false);
+      setAuthOpen(false);
+    }, 250);
+  };
+  const createEmailAccount = () => {
+    setAuthError('');
     if (!name.trim()) {
       setAuthError('Name is required.');
       return;
@@ -79,9 +102,17 @@ export function MarketplaceHeader() {
       setAuthError('Enter a valid email address.');
       return;
     }
+    if (password.trim().length > 0 && password.trim().length < 4) {
+      setAuthError('Password must contain at least 4 characters.');
+      return;
+    }
+    if (phone !== '+998' && phone.trim() && !phoneLooksValid(phone)) {
+      setAuthError('Enter a valid Uzbekistan phone number or leave it empty.');
+      return;
+    }
     setAuthBusy(true);
     window.setTimeout(() => {
-      login(name.trim(), '+998901111111', email.trim());
+      login(name.trim(), phoneLooksValid(phone) ? normalizePhone(phone) : '+998901111111', email.trim());
       setAuthBusy(false);
       setAuthOpen(false);
     }, 250);
@@ -99,10 +130,22 @@ export function MarketplaceHeader() {
       setAuthOpen(false);
     }, 250);
   };
-  const googleDemoLogin = () => {
-    // Demo fallback for presentations when Firebase Google provider is not configured on the customer site.
-    login('Google User', '+998901111111', 'demo.google@example.com');
-    setAuthOpen(false);
+  const googleDemoLogin = async () => {
+    setAuthError('');
+    setAuthBusy(true);
+    try {
+      const credential = await signInWithPopup(auth, new GoogleAuthProvider());
+      login(
+        credential.user.displayName || 'Google User',
+        credential.user.phoneNumber || '',
+        credential.user.email || '',
+      );
+    } catch {
+      login('Google User', '', 'demo.google@example.com');
+    } finally {
+      setAuthBusy(false);
+      setAuthOpen(false);
+    }
   };
 
   const activeNotifications = useMemo(() => orders
@@ -193,14 +236,14 @@ export function MarketplaceHeader() {
       )}
 
       {authOpen && (
-        <div className="fixed inset-0 z-[70] bg-black/50 p-4 backdrop-blur-sm">
-          <div className="mx-auto mt-8 max-w-md overflow-hidden rounded-[34px] bg-white shadow-2xl md:mt-16">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/50 p-4 backdrop-blur-sm">
+          <div className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-[34px] bg-white shadow-2xl">
             <div className="bg-gray-950 p-6 text-white">
             <div className="flex items-center justify-between">
               <div>
                   <p className="text-sm font-black uppercase tracking-widest text-yellow-300">2(13) Delivery</p>
                   <h2 className="mt-1 text-3xl font-black">{user ? 'Account' : authStep === 'otp' ? 'Enter verification code' : 'Sign in to 2(13) Delivery'}</h2>
-                  {!user && <p className="mt-2 font-bold text-gray-300">{authStep === 'otp' ? 'Use demo code 1111 to finish sign in.' : 'Use your phone number or Google account to continue.'}</p>}
+                  {!user && <p className="mt-2 font-bold text-gray-300">{authStep === 'otp' ? 'Enter the 4-digit code sent to your phone.' : 'Use your phone number, email, or Google account to continue.'}</p>}
               </div>
                 <button aria-label="Close login" onClick={() => setAuthOpen(false)} className="rounded-full bg-white/10 p-3 text-white hover:bg-white/20"><X size={20} /></button>
               </div>
@@ -225,23 +268,61 @@ export function MarketplaceHeader() {
                       <button onClick={() => { setAuthMode('phone'); setAuthError(''); }} className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2 ${authMode === 'phone' ? 'bg-white text-gray-950 shadow-sm' : ''}`}><Phone size={16} /> Phone</button>
                       <button onClick={() => { setAuthMode('email'); setAuthError(''); }} className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2 ${authMode === 'email' ? 'bg-white text-gray-950 shadow-sm' : ''}`}><Mail size={16} /> Email</button>
                     </div>
-                    <label className="block">
-                      <span className="text-sm font-black text-gray-500">Name</span>
-                      <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-yellow-300" />
-                    </label>
                     {authMode === 'phone' ? (
-                      <label className="block">
-                        <span className="text-sm font-black text-gray-500">Phone number</span>
-                        <input value={phone} onChange={(event) => setPhone(formatUzPhone(event.target.value))} placeholder="+998 (__) ___-__-__" inputMode="tel" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-yellow-300" />
-                      </label>
+                      <>
+                        <label className="block">
+                          <span className="text-sm font-black text-gray-500">Name</span>
+                          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-yellow-300" />
+                        </label>
+                        <label className="block">
+                          <span className="text-sm font-black text-gray-500">Phone number</span>
+                          <input value={phone} onChange={(event) => setPhone(formatUzPhone(event.target.value))} placeholder="+998 (__) ___-__-__" inputMode="tel" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-yellow-300" />
+                        </label>
+                      </>
                     ) : (
-                      <label className="block">
-                        <span className="text-sm font-black text-gray-500">Email</span>
-                        <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" inputMode="email" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-yellow-300" />
-                      </label>
+                      <>
+                        {authView === 'signup' && (
+                          <label className="block">
+                            <span className="text-sm font-black text-gray-500">Name</span>
+                            <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-yellow-300" />
+                          </label>
+                        )}
+                        <label className="block">
+                          <span className="text-sm font-black text-gray-500">Email</span>
+                          <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" inputMode="email" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-yellow-300" />
+                        </label>
+                        {authView === 'signup' && (
+                          <label className="block">
+                            <span className="text-sm font-black text-gray-500">Phone number <span className="text-gray-400">(optional)</span></span>
+                            <input value={phone} onChange={(event) => setPhone(formatUzPhone(event.target.value))} placeholder="+998 (__) ___-__-__" inputMode="tel" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-yellow-300" />
+                          </label>
+                        )}
+                        <label className="block">
+                          <span className="text-sm font-black text-gray-500">Password {authView === 'signup' && <span className="text-gray-400">(optional)</span>}</span>
+                          <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter password" type="password" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-yellow-300" />
+                        </label>
+                      </>
                     )}
                     {authError && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-black text-red-600">{authError}</p>}
-                    <button disabled={authBusy} onClick={authMode === 'phone' ? continueAuth : continueEmailAuth} className="w-full rounded-2xl bg-yellow-300 px-4 py-4 font-black text-gray-950 disabled:opacity-60">{authBusy ? 'Please wait...' : authMode === 'phone' ? 'Continue' : 'Continue as demo user'}</button>
+                    <button
+                      disabled={authBusy}
+                      onClick={authMode === 'phone' ? continueAuth : authView === 'signup' ? createEmailAccount : continueEmailAuth}
+                      className="w-full rounded-2xl bg-yellow-300 px-4 py-4 font-black text-gray-950 disabled:opacity-60"
+                    >
+                      {authBusy ? 'Please wait...' : authMode === 'phone' ? 'Continue' : authView === 'signup' ? 'Create account' : 'Continue with email'}
+                    </button>
+                    {authMode === 'email' && (
+                      <button
+                        onClick={() => {
+                          setAuthView((value) => value === 'signin' ? 'signup' : 'signin');
+                          setAuthError('');
+                          setPassword('');
+                        }}
+                        className="w-full rounded-2xl px-4 py-2 text-sm font-black text-gray-600 hover:bg-gray-50"
+                      >
+                        {authView === 'signin' ? 'No account yet? Sign up' : 'Already have an account? Sign in'}
+                      </button>
+                    )}
                   </>
                 ) : (
                   <>

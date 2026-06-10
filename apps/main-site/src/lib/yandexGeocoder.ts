@@ -2,12 +2,15 @@
 
 import { TASHKENT_CENTER } from './yandexMaps';
 
-export type GeocodeResult = {
+export type AddressResult = {
   title: string;
-  address: string;
+  subtitle: string;
+  fullAddress: string;
   lat: number;
   lng: number;
 };
+
+export type GeocodeResult = AddressResult;
 
 type YandexGeocoderResponse = {
   response?: {
@@ -31,20 +34,21 @@ type YandexGeoObject = {
   metaDataProperty?: { GeocoderMetaData?: { text?: string } };
 };
 
-const cache = new Map<string, GeocodeResult[]>();
+const cache = new Map<string, AddressResult[]>();
 
 function apiKey() {
   return process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY || '';
 }
 
-function parseResult(geoObject?: YandexGeoObject): GeocodeResult | null {
+function parseResult(geoObject?: YandexGeoObject): AddressResult | null {
   const [lng, lat] = (geoObject?.Point?.pos || '').split(' ').map(Number);
   if (!geoObject?.name || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   const description = geoObject.description || 'Tashkent';
-  const address = `${geoObject.name}${description.toLowerCase().includes('tashkent') ? ', Tashkent' : ''}`;
+  const fullAddress = `${geoObject.name}${description.toLowerCase().includes('tashkent') ? ', Tashkent' : ''}`;
   return {
     title: geoObject.name,
-    address,
+    subtitle: 'Tashkent delivery area',
+    fullAddress,
     lat,
     lng,
   };
@@ -60,7 +64,7 @@ async function requestGeocoder(params: URLSearchParams, cacheKey: string) {
     const data = await response.json() as YandexGeocoderResponse;
     const results = (data.response?.GeoObjectCollection?.featureMember || [])
       .map((item) => parseResult(item.GeoObject))
-      .filter((item): item is GeocodeResult => Boolean(item));
+      .filter((item): item is AddressResult => Boolean(item));
     cache.set(cacheKey, results);
     return results;
   } catch {
@@ -68,7 +72,7 @@ async function requestGeocoder(params: URLSearchParams, cacheKey: string) {
   }
 }
 
-export async function geocodeAddress(query: string): Promise<GeocodeResult[]> {
+export async function geocodeAddress(query: string): Promise<AddressResult[]> {
   const normalized = query.trim();
   if (normalized.length < 3 || !apiKey()) return [];
 
@@ -85,7 +89,7 @@ export async function geocodeAddress(query: string): Promise<GeocodeResult[]> {
   return requestGeocoder(params, `search:${normalized.toLowerCase()}`);
 }
 
-export async function reverseGeocode(lat: number, lng: number): Promise<GeocodeResult | null> {
+export async function reverseGeocode(lat: number, lng: number): Promise<AddressResult | null> {
   if (!apiKey()) return null;
 
   const params = new URLSearchParams({
@@ -99,7 +103,8 @@ export async function reverseGeocode(lat: number, lng: number): Promise<GeocodeR
   const results = await requestGeocoder(params, `reverse:${lat.toFixed(5)},${lng.toFixed(5)}`);
   return results[0] || {
     title: 'Selected point',
-    address: 'Selected point, Tashkent',
+    subtitle: 'Tashkent delivery area',
+    fullAddress: 'Selected point, Tashkent',
     lat: lat || TASHKENT_CENTER.lat,
     lng: lng || TASHKENT_CENTER.lng,
   };

@@ -55,7 +55,7 @@ export const useDeliveryStore = create<DeliveryState>()((set, get) => ({
     const ordersRef = collection(db, COLLECTIONS.ORDERS);
     const q = query(
       ordersRef,
-      where('status', '==', 'preparing'),
+      where('status', '==', 'ready_for_pickup'),
       where('assignedCourier', '==', null),
       limit(PAGE_SIZE)
     );
@@ -66,7 +66,7 @@ export const useDeliveryStore = create<DeliveryState>()((set, get) => ({
         const deliveries: Order[] = [];
         snapshot.forEach((docSnap) => {
           const data = docSnap.data();
-          if (normalizeOrderStatus(data.status) === 'preparing' && !data.courierId && !data.assignedCourier) {
+          if (normalizeOrderStatus(data.status) === 'ready_for_pickup' && !data.courierId && !data.assignedCourier) {
             deliveries.push({ id: docSnap.id, ...data } as Order);
           }
         });
@@ -127,7 +127,7 @@ export const useDeliveryStore = create<DeliveryState>()((set, get) => ({
 
         const orderData = orderSnap.data();
         const status = normalizeOrderStatus(orderData.status);
-        if (status !== 'preparing' || orderData.courierId || orderData.assignedCourier) {
+        if (status !== 'ready_for_pickup' || orderData.courierId || orderData.assignedCourier) {
           throw new Error('Order is no longer available');
         }
 
@@ -208,7 +208,7 @@ export const useDeliveryStore = create<DeliveryState>()((set, get) => ({
         if (normalizeOrderStatus(orderData.status) === 'delivered') {
           throw new Error('Order was already delivered');
         }
-        if (normalizeOrderStatus(orderData.status) !== 'courier_picked_up') {
+        if (normalizeOrderStatus(orderData.status) !== 'on_the_way') {
           throw new Error('Order is not ready to be delivered');
         }
 
@@ -224,6 +224,7 @@ export const useDeliveryStore = create<DeliveryState>()((set, get) => ({
         transaction.update(courierRef, {
           totalEarnings: increment(safePayout),
           totalDeliveries: increment(1),
+          deliveries: increment(1),
           currentOrderId: null,
           isAvailable: true,
           updatedAt: serverTimestamp(),

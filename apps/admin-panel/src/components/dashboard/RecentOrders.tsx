@@ -44,7 +44,9 @@ export function RecentOrders() {
   const getStatusVariant = (status: string): 'success' | 'warning' | 'error' | 'info' => {
     switch (status) {
       case 'delivered': return 'success';
-      case 'courier_picked_up': return 'info';
+      case 'picked_up':
+      case 'on_the_way':
+        return 'info';
       case 'preparing': return 'warning';
       case 'pending': return 'warning';
       case 'cancelled': return 'error';

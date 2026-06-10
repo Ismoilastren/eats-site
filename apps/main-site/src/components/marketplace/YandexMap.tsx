@@ -61,7 +61,7 @@ export function YandexMap({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<YMapInstance | null>(null);
   const [status, setStatus] = useState<'not_loaded' | 'loading' | 'loaded' | 'error'>('not_loaded');
-  const [error, setError] = useState('');
+  const [, setError] = useState('');
   const [zoom, setZoom] = useState(13);
   const mapCenter = points[0] || center;
   const signature = useMemo(() => JSON.stringify({ center, points, line, interactive, dark, zoom }), [center, dark, interactive, line, points, zoom]);
@@ -156,7 +156,9 @@ export function YandexMap({
               <MapPin size={26} />
             </div>
             <p className="mt-4 text-xl font-black">{fallbackLabel}</p>
-            <p className="mt-2 text-sm font-bold text-gray-400">{error || 'Enter the address manually and continue checkout.'}</p>
+            <p className="mt-2 text-sm font-bold text-gray-400">
+              Enter the address manually and continue checkout.
+            </p>
           </div>
         </div>
       )}

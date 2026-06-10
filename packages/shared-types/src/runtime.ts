@@ -17,29 +17,33 @@ export type NormalizedCoordinate = {
   speed?: number;
 };
 
-export const TERMINAL_ORDER_STATUSES: OrderStatus[] = ['delivered', 'cancelled'];
-export const COURIER_RADAR_STATUSES: OrderStatus[] = ['preparing'];
+export const TERMINAL_ORDER_STATUSES: OrderStatus[] = ['delivered', 'cancelled', 'rejected'];
+export const COURIER_RADAR_STATUSES: OrderStatus[] = ['ready_for_pickup'];
 export const ACTIVE_COURIER_STATUSES: OrderStatus[] = [
-  'pending',
-  'preparing',
-  'courier_picked_up',
+  'ready_for_pickup',
+  'picked_up',
+  'on_the_way',
 ];
 
 const LEGACY_STATUS_MAP: Record<string, OrderStatus> = {
   pending: 'pending',
-  confirmed: 'pending',
+  confirmed: 'accepted',
+  accepted: 'accepted',
   preparing: 'preparing',
   cooking: 'preparing',
-  ready: 'preparing',
-  picked_up: 'courier_picked_up',
-  courier_picked_up: 'courier_picked_up',
-  'courier picked up': 'courier_picked_up',
-  delivering: 'courier_picked_up',
-  'on the way': 'courier_picked_up',
+  ready: 'ready_for_pickup',
+  ready_for_pickup: 'ready_for_pickup',
+  picked_up: 'picked_up',
+  courier_picked_up: 'picked_up',
+  'courier picked up': 'picked_up',
+  delivering: 'on_the_way',
+  on_the_way: 'on_the_way',
+  'on the way': 'on_the_way',
   delivered: 'delivered',
   completed: 'delivered',
   cancelled: 'cancelled',
   canceled: 'cancelled',
+  rejected: 'rejected',
 };
 
 export function normalizeOrderStatus(status?: string | null): OrderStatus {

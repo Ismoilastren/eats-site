@@ -42,11 +42,17 @@ export default function CourierPage() {
 
   useEffect(() => {
     refreshAvailable();
-    const unsubscribe = subscribeToOrders((records) => {
-      setOrders(records);
-      setAvailable(records.filter((order) => order.status === 'ready_for_pickup' && !order.assignedCourier));
-      setLoading(false);
-    });
+    const unsubscribe = subscribeToOrders(
+      (records) => {
+        setOrders(records);
+        setAvailable(records.filter((order) => order.status === 'ready_for_pickup' && !order.assignedCourier));
+        setLoading(false);
+      },
+      (subscriptionError) => {
+        setError(subscriptionError.message);
+        setLoading(false);
+      },
+    );
     return unsubscribe;
   }, []);
 

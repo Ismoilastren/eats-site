@@ -6,7 +6,6 @@ import {
   getDoc,
   getDocs,
   onSnapshot,
-  orderBy,
   query,
   serverTimestamp,
   setDoc,
@@ -230,9 +229,16 @@ export async function getAllOrders(): Promise<LocalOrder[]> {
     return sortOrdersByCreatedAt(readMockOrders());
   }
 
-  const ordersQuery = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
-  const snapshot = await getDocs(ordersQuery);
-  return snapshot.docs.map((orderDoc) => mapFirestoreOrder(orderDoc.data(), orderDoc.id));
+  const snapshot = await getDocs(collection(db, 'orders'));
+  return sortOrdersByCreatedAt(
+    snapshot.docs.flatMap((orderDoc) => {
+      try {
+        return [mapFirestoreOrder(orderDoc.data(), orderDoc.id)];
+      } catch {
+        return [];
+      }
+    }),
+  );
 }
 
 export async function getOrdersByRestaurant(restaurantId: string): Promise<LocalOrder[]> {
@@ -319,7 +325,10 @@ export function subscribeToOrder(orderId: string, onChange: (order: LocalOrder |
   });
 }
 
-export function subscribeToOrders(onChange: (orders: LocalOrder[]) => void): Unsubscribe {
+export function subscribeToOrders(
+  onChange: (orders: LocalOrder[]) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
   if (!isFirestoreDataSource()) {
     const refresh = () => {
       onChange(sortOrdersByCreatedAt(readMockOrders()));
@@ -333,8 +342,18 @@ export function subscribeToOrders(onChange: (orders: LocalOrder[]) => void): Uns
     };
   }
 
-  const ordersQuery = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
-  return onSnapshot(ordersQuery, (snapshot) => {
-    onChange(snapshot.docs.map((orderDoc) => mapFirestoreOrder(orderDoc.data(), orderDoc.id)));
-  });
+  return onSnapshot(
+    collection(db, 'orders'),
+    (snapshot) => {
+      const orders = snapshot.docs.flatMap((orderDoc) => {
+        try {
+          return [mapFirestoreOrder(orderDoc.data(), orderDoc.id)];
+        } catch {
+          return [];
+        }
+      });
+      onChange(sortOrdersByCreatedAt(orders));
+    },
+    (error) => onError?.(error),
+  );
 }

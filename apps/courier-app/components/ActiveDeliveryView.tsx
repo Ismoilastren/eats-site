@@ -23,13 +23,14 @@ interface ActiveDeliveryViewProps {
 
 function getStatusStep(status: OrderStatus): number {
   switch (status) {
-    case 'courier_picked_up':
+    case 'ready_for_pickup':
+      return 0;
+    case 'picked_up':
+      return 1;
+    case 'on_the_way':
       return 2;
     case 'delivered':
       return 3;
-    case 'preparing':
-    case 'pending':
-      return 1;
     default:
       return 0;
   }
@@ -39,7 +40,19 @@ function getNextAction(
   status: OrderStatus
 ): { label: string; nextStatus: OrderStatus; icon: string } | null {
   switch (status) {
-    case 'courier_picked_up':
+    case 'ready_for_pickup':
+      return {
+        label: 'Mark as Picked Up',
+        nextStatus: 'picked_up',
+        icon: 'cube-outline',
+      };
+    case 'picked_up':
+      return {
+        label: 'Start Delivery',
+        nextStatus: 'on_the_way',
+        icon: 'navigate-outline',
+      };
+    case 'on_the_way':
       return {
         label: 'Mark as Delivered',
         nextStatus: 'delivered',
@@ -119,7 +132,7 @@ export default function ActiveDeliveryView({
     { label: 'Delivered', icon: 'checkmark-done-outline' as const },
   ];
 
-  const isWaitingForKitchen = ['pending', 'preparing'].includes(normalizedStatus);
+  const isWaitingForKitchen = ['pending', 'accepted', 'preparing'].includes(normalizedStatus);
 
   return (
     <View className="flex-1 pb-10">
@@ -154,7 +167,7 @@ export default function ActiveDeliveryView({
               </Text>
             </Pressable>
           )}
-          {normalizedStatus === 'courier_picked_up' && (
+          {['picked_up', 'on_the_way'].includes(normalizedStatus) && (
             <Pressable
               onPress={() =>
                 handleNavigate(

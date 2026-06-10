@@ -45,7 +45,9 @@ const statusIcon = (status: string): any => {
   switch (normalizeOrderStatus(status)) {
     case 'pending': return 'receipt-outline';
     case 'preparing': return 'restaurant-outline';
-    case 'courier_picked_up': return 'bicycle-outline';
+    case 'picked_up':
+    case 'on_the_way':
+      return 'bicycle-outline';
     case 'delivered': return 'checkmark-circle-outline';
     default: return 'ellipse-outline';
   }
@@ -509,11 +511,24 @@ export default function NativeOrderTrackingScreen() {
   const vehicleType = getCourierVehicleType(null, order.assignedCourier);
   const vehicleIcon: any = vehicleType === 'car' ? 'car-outline' : vehicleType === 'foot' ? 'walk-outline' : vehicleType === 'motorcycle' ? 'speedometer-outline' : 'bicycle-outline';
   const courierPhone = order.assignedCourier?.phone || (order as any).courierPhone || (order as any).courier?.phone;
+  const assignedCourierDetails = order.assignedCourier as unknown as {
+    vehicle?: { model?: string; color?: string; plate?: string } | string;
+    vehicleModel?: string;
+    vehicleColor?: string;
+    vehiclePlate?: string;
+    carModel?: string;
+    carColor?: string;
+    carNumber?: string;
+  } | null;
+  const structuredVehicle =
+    assignedCourierDetails?.vehicle && typeof assignedCourierDetails.vehicle === 'object'
+      ? assignedCourierDetails.vehicle
+      : null;
 
   // Vehicle detail strings (with graceful fallback)
-  const vehicleName = order.assignedCourier?.vehicle?.model || order.assignedCourier?.vehicleModel || order.assignedCourier?.carModel || 'Car';
-  const vehicleColor = order.assignedCourier?.vehicle?.color || order.assignedCourier?.vehicleColor || order.assignedCourier?.carColor || '';
-  const vehiclePlate = order.assignedCourier?.vehicle?.plate || order.assignedCourier?.vehiclePlate || order.assignedCourier?.carNumber || '';
+  const vehicleName = structuredVehicle?.model || assignedCourierDetails?.vehicleModel || assignedCourierDetails?.carModel || 'Car';
+  const vehicleColor = structuredVehicle?.color || assignedCourierDetails?.vehicleColor || assignedCourierDetails?.carColor || '';
+  const vehiclePlate = structuredVehicle?.plate || assignedCourierDetails?.vehiclePlate || assignedCourierDetails?.carNumber || '';
   const vehicleDetails = [vehicleName, vehicleColor, vehiclePlate].filter(Boolean).join(' • ');
 
   // ── DERIVED STATE: if cancelled → show OrderCancelledView ──

@@ -4,10 +4,14 @@
 
 export type OrderStatus =
   | 'pending'
+  | 'accepted'
   | 'preparing'
-  | 'courier_picked_up'
+  | 'ready_for_pickup'
+  | 'picked_up'
+  | 'on_the_way'
   | 'delivered'
-  | 'cancelled';
+  | 'cancelled'
+  | 'rejected';
 
 export interface OrderItem {
   id: string;
@@ -78,23 +82,34 @@ export interface Order {
 
 export const ORDER_STATUS_FLOW: OrderStatus[] = [
   'pending',
+  'accepted',
   'preparing',
-  'courier_picked_up',
+  'ready_for_pickup',
+  'picked_up',
+  'on_the_way',
   'delivered',
 ];
 
 export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   pending: 'Pending',
+  accepted: 'Accepted',
   preparing: 'Preparing',
-  courier_picked_up: 'Courier Picked Up',
+  ready_for_pickup: 'Ready for Pickup',
+  picked_up: 'Picked Up',
+  on_the_way: 'On the Way',
   delivered: 'Delivered',
   cancelled: 'Cancelled',
+  rejected: 'Rejected',
 };
 
 export const ORDER_STATUS_COLORS: Record<OrderStatus, string> = {
   pending: '#f79009',
+  accepted: '#7c3aed',
   preparing: '#465fff',
-  courier_picked_up: '#12b76a',
+  ready_for_pickup: '#9333ea',
+  picked_up: '#0ea5e9',
+  on_the_way: '#12b76a',
   delivered: '#12b76a',
   cancelled: '#f04438',
+  rejected: '#b42318',
 };

@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Dimensions, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { db, collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp } from '@repo/firebase-config';
-import { COLLECTIONS, hasAssignedCourier, Order, OrderStatus, ORDER_STATUS_LABELS } from '@repo/shared-types';
+import { COLLECTIONS, Order, OrderStatus, ORDER_STATUS_LABELS } from '@repo/shared-types';
 import { useAuthStore } from '../../stores/authStore';
 
 const { width } = Dimensions.get('window');
@@ -23,7 +23,7 @@ export default function KitchenDisplayDashboard() {
     const q = query(
       collection(db, COLLECTIONS.ORDERS),
       where('restaurantId', '==', restaurant.id),
-      where('status', 'in', ['pending', 'preparing', 'courier_picked_up'])
+      where('status', 'in', ['pending', 'accepted', 'preparing', 'ready_for_pickup'])
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -35,7 +35,12 @@ export default function KitchenDisplayDashboard() {
         if (orderData.status === 'pending') pendingCount++;
       });
       
-      const statusWeight: Record<string, number> = { pending: 1, preparing: 2, courier_picked_up: 3 };
+      const statusWeight: Record<string, number> = {
+        pending: 1,
+        accepted: 2,
+        preparing: 3,
+        ready_for_pickup: 4,
+      };
       data.sort((a, b) => (statusWeight[a.status] || 99) - (statusWeight[b.status] || 99));
       
       setOrders(data);
@@ -52,12 +57,7 @@ export default function KitchenDisplayDashboard() {
     return () => unsubscribe();
   }, [restaurant?.id]);
 
-  const updateStatus = async (orderId: string, newStatus: OrderStatus, orderObj?: Order) => {
-    if (newStatus === 'courier_picked_up' && orderObj && !hasAssignedCourier(orderObj)) {
-      Alert.alert('Action Denied', 'You cannot hand over the food. No courier has accepted this delivery yet.');
-      return;
-    }
-
+  const updateStatus = async (orderId: string, newStatus: OrderStatus) => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       const orderRef = doc(db, COLLECTIONS.ORDERS, orderId);
@@ -73,15 +73,17 @@ export default function KitchenDisplayDashboard() {
   const getStatusConfig = (status: string) => {
     switch (status) {
       case 'pending': return { border: 'border-rose-500', bg: 'bg-rose-500/10', text: 'text-rose-400' };
+      case 'accepted': return { border: 'border-violet-500', bg: 'bg-violet-500/10', text: 'text-violet-400' };
       case 'preparing': return { border: 'border-amber-500', bg: 'bg-amber-500/10', text: 'text-amber-400' };
-      case 'courier_picked_up': return { border: 'border-blue-500', bg: 'bg-blue-500/10', text: 'text-blue-400' };
+      case 'ready_for_pickup': return { border: 'border-emerald-500', bg: 'bg-emerald-500/10', text: 'text-emerald-400' };
       default: return { border: 'border-gray-500', bg: 'bg-gray-800', text: 'text-gray-300' };
     }
   };
 
   const getNextStatusAction = (order: Order) => {
-    if (order.status === 'pending') return { label: 'ACCEPT & PREPARE', next: 'preparing', color: 'bg-gradient-to-r from-amber-500 to-orange-500', solid: 'bg-amber-500' };
-    if (order.status === 'preparing') return { label: 'HAND TO COURIER', next: 'courier_picked_up', color: 'bg-gradient-to-r from-emerald-400 to-emerald-600', solid: 'bg-emerald-500' };
+    if (order.status === 'pending') return { label: 'ACCEPT ORDER', next: 'accepted' as OrderStatus, solid: 'bg-violet-500' };
+    if (order.status === 'accepted') return { label: 'START PREPARING', next: 'preparing' as OrderStatus, solid: 'bg-amber-500' };
+    if (order.status === 'preparing') return { label: 'READY FOR PICKUP', next: 'ready_for_pickup' as OrderStatus, solid: 'bg-emerald-500' };
     return null;
   };
 
@@ -168,44 +170,22 @@ export default function KitchenDisplayDashboard() {
                       <Ionicons name="list" size={24} color="#9CA3AF" />
                     </TouchableOpacity>
 
-                    {order.status === 'courier_picked_up' ? (
-                      <View className="h-14 rounded-xl flex-1 ml-3 px-3 justify-center bg-blue-500/10 border border-blue-500/30">
+                    {order.status === 'ready_for_pickup' ? (
+                      <View className="h-14 rounded-xl flex-1 ml-3 px-3 justify-center bg-emerald-500/10 border border-emerald-500/30">
                         <View className="flex-row items-center mb-1">
-                          <View className="w-2 h-2 rounded-full bg-blue-500 mr-2" style={{ opacity: 0.8 }} />
-                          <Text className="font-black text-blue-400 text-xs tracking-widest uppercase">Courier En Route to Customer</Text>
+                          <View className="w-2 h-2 rounded-full bg-emerald-500 mr-2" style={{ opacity: 0.8 }} />
+                          <Text className="font-black text-emerald-400 text-xs tracking-widest uppercase">Waiting for courier pickup</Text>
                         </View>
-                        {order.courierLocation || order.courier?.location ? (
-                          <Text className="font-bold text-gray-300 text-xs font-mono">
-                            GPS: {((order.courierLocation as any)?.latitude ?? (order.courier as any)?.location?.lat)?.toFixed(5)}, {((order.courierLocation as any)?.longitude ?? (order.courier as any)?.location?.lng)?.toFixed(5)}
-                          </Text>
-                        ) : (
-                          <Text className="font-bold text-gray-500 text-xs">Waiting for GPS signal...</Text>
-                        )}
-                      </View>
-                    ) : order.status === 'pending' ? (
-                      <TouchableOpacity 
-                        onPress={() => updateStatus(order.id, 'preparing', order)}
-                        className="bg-orange-500 h-14 rounded-xl flex-1 ml-3 items-center justify-center shadow-md"
-                      >
-                        <Text className="text-white font-black uppercase tracking-widest text-base">Accept & Prepare</Text>
-                      </TouchableOpacity>
-                    ) : order.status === 'preparing' ? (
-                      <TouchableOpacity 
-                        onPress={() => updateStatus(order.id, 'courier_picked_up', order)}
-                        disabled={!hasAssignedCourier(order)}
-                        className={`h-14 rounded-xl flex-1 ml-3 items-center flex-row justify-center shadow-md ${!hasAssignedCourier(order) ? 'bg-slate-700' : 'bg-emerald-500'}`}
-                      >
-                        <Ionicons 
-                            name={!hasAssignedCourier(order) ? "time-outline" : "checkmark-circle"} 
-                            size={20} 
-                            color="white" 
-                            style={{ marginRight: 8 }} 
-                        />
-                        <Text className="text-white font-black uppercase tracking-widest text-sm" numberOfLines={1}>
-                            {!hasAssignedCourier(order) 
-                                ? 'Wait for Courier...' 
-                                : `Hand to ${order.assignedCourier?.name || order.courierName || 'Courier'}`}
+                        <Text className="font-bold text-gray-400 text-xs">
+                          {order.assignedCourier?.name ? `Assigned to ${order.assignedCourier.name}` : 'Visible on courier radar'}
                         </Text>
+                      </View>
+                    ) : action ? (
+                      <TouchableOpacity 
+                        onPress={() => updateStatus(order.id, action.next)}
+                        className={`${action.solid} h-14 rounded-xl flex-1 ml-3 items-center justify-center shadow-md`}
+                      >
+                        <Text className="text-white font-black uppercase tracking-widest text-sm">{action.label}</Text>
                       </TouchableOpacity>
                     ) : (
                       <View className="h-14 rounded-xl flex-1 ml-3 items-center justify-center bg-gray-700 border border-gray-600">

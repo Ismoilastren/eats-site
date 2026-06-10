@@ -78,7 +78,7 @@ export default function ActiveDeliveryScreen() {
   }, [order?.status, id]);
 
   const markDelivered = async () => {
-    if (!order || normalizeOrderStatus(order.status) !== 'courier_picked_up') return;
+    if (!order || normalizeOrderStatus(order.status) !== 'on_the_way') return;
     try {
       const orderRef = doc(db, COLLECTIONS.ORDERS, id);
       const assignedCourierId = order.assignedCourier?.id || order.courierId;
@@ -93,7 +93,7 @@ export default function ActiveDeliveryScreen() {
         if (normalizeOrderStatus(orderData.status) === 'delivered') {
           throw new Error('Order was already delivered');
         }
-        if (normalizeOrderStatus(orderData.status) !== 'courier_picked_up') {
+        if (normalizeOrderStatus(orderData.status) !== 'on_the_way') {
           throw new Error('Order is not ready to be delivered');
         }
 
@@ -109,6 +109,7 @@ export default function ActiveDeliveryScreen() {
         transaction.update(courierRef, {
           totalEarnings: increment(safePayout),
           totalDeliveries: increment(1),
+          deliveries: increment(1),
           currentOrderId: null,
           isAvailable: true,
           updatedAt: serverTimestamp(),
@@ -121,6 +122,31 @@ export default function ActiveDeliveryScreen() {
     }
   };
 
+  const advanceStatus = async () => {
+    if (!order) return;
+    const currentStatus = normalizeOrderStatus(order.status);
+    if (currentStatus === 'on_the_way') {
+      await markDelivered();
+      return;
+    }
+    const nextStatus =
+      currentStatus === 'ready_for_pickup'
+        ? 'picked_up'
+        : currentStatus === 'picked_up'
+          ? 'on_the_way'
+          : null;
+    if (!nextStatus) return;
+
+    try {
+      await updateDoc(doc(db, COLLECTIONS.ORDERS, id), {
+        status: nextStatus,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error('Failed to update delivery status', error);
+    }
+  };
+
   if (!order) {
     return (
       <View className="flex-1 bg-gray-50 items-center justify-center">
@@ -129,7 +155,15 @@ export default function ActiveDeliveryScreen() {
     );
   }
   const normalizedStatus = normalizeOrderStatus(order.status);
-  const canDeliver = normalizedStatus === 'courier_picked_up';
+  const canAdvance = ['ready_for_pickup', 'picked_up', 'on_the_way'].includes(normalizedStatus);
+  const actionLabel =
+    normalizedStatus === 'ready_for_pickup'
+      ? 'PICKED UP'
+      : normalizedStatus === 'picked_up'
+        ? 'START DELIVERY'
+        : normalizedStatus === 'on_the_way'
+          ? 'DELIVERED'
+          : 'WAITING';
 
   return (
     <SafeAreaView className="flex-1 bg-gray-50">
@@ -174,13 +208,13 @@ export default function ActiveDeliveryScreen() {
 
         <View className="flex-1 justify-end pb-8">
            <TouchableOpacity 
-             onPress={markDelivered}
-             disabled={!canDeliver}
-             className={`${canDeliver ? 'bg-green-500 border-green-700' : 'bg-gray-400 border-gray-600'} p-6 rounded-3xl shadow-xl items-center justify-center flex-row border-b-4`}
+             onPress={advanceStatus}
+             disabled={!canAdvance}
+             className={`${canAdvance ? 'bg-green-500 border-green-700' : 'bg-gray-400 border-gray-600'} p-6 rounded-3xl shadow-xl items-center justify-center flex-row border-b-4`}
            >
              <Ionicons name="checkmark-done-circle" size={36} color="white" />
              <Text className="text-white font-black text-3xl uppercase tracking-widest ml-4">
-               {canDeliver ? 'DELIVERED' : 'WAITING'}
+               {actionLabel}
              </Text>
            </TouchableOpacity>
         </View>

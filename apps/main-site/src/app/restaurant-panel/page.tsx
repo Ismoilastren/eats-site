@@ -33,10 +33,16 @@ export default function RestaurantPanelPage() {
 
   useEffect(() => {
     loadRestaurants();
-    const unsubscribe = subscribeToOrders((records) => {
-      setOrders(records);
-      setLoading(false);
-    });
+    const unsubscribe = subscribeToOrders(
+      (records) => {
+        setOrders(records);
+        setLoading(false);
+      },
+      (subscriptionError) => {
+        setError(subscriptionError.message);
+        setLoading(false);
+      },
+    );
     return unsubscribe;
   }, [loadRestaurants]);
 

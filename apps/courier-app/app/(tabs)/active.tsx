@@ -110,9 +110,15 @@ const getStatusColor = (status?: string) => {
   switch (normalizeOrderStatus(status)) {
     case 'pending':
       return '#f59e0b';
+    case 'accepted':
+      return '#8b5cf6';
     case 'preparing':
       return '#3b82f6';
-    case 'courier_picked_up':
+    case 'ready_for_pickup':
+      return '#a855f7';
+    case 'picked_up':
+      return '#0ea5e9';
+    case 'on_the_way':
       return '#10b981';
     default:
       return '#64748b';
@@ -123,10 +129,16 @@ const getStatusLabel = (status?: string) => {
   switch (normalizeOrderStatus(status)) {
     case 'pending':
       return 'WAITING FOR RESTAURANT';
+    case 'accepted':
+      return 'ORDER ACCEPTED';
     case 'preparing':
       return 'RESTAURANT IS COOKING';
-    case 'courier_picked_up':
-      return 'COURIER PICKED UP';
+    case 'ready_for_pickup':
+      return 'READY FOR PICKUP';
+    case 'picked_up':
+      return 'ORDER PICKED UP';
+    case 'on_the_way':
+      return 'ON THE WAY';
     default:
       return (status || 'unknown').toUpperCase();
   }
@@ -297,7 +309,7 @@ export default function ActiveScreen() {
               if (normalizeOrderStatus(orderData.status) === 'delivered') {
                 throw new Error('Order was already delivered');
               }
-              if (normalizeOrderStatus(orderData.status) !== 'courier_picked_up') {
+              if (normalizeOrderStatus(orderData.status) !== 'on_the_way') {
                 throw new Error('Order is not ready to be delivered');
               }
               if (orderData.assignedCourier?.id !== courierId) {
@@ -316,6 +328,7 @@ export default function ActiveScreen() {
               transaction.update(courierRef, {
                 totalEarnings: increment(safePayout),
                 totalDeliveries: increment(1),
+                deliveries: increment(1),
                 currentOrderId: null,
                 isAvailable: true,
                 updatedAt: serverTimestamp(),
@@ -335,6 +348,35 @@ export default function ActiveScreen() {
         },
       },
     ]);
+  };
+
+  const updateDeliveryProgress = async (
+    order: OrderDoc,
+    nextStatus: 'picked_up' | 'on_the_way'
+  ) => {
+    if (deliveringId || !courierId) return;
+    const currentStatus = normalizeOrderStatus(order.status);
+    const validTransition =
+      (currentStatus === 'ready_for_pickup' && nextStatus === 'picked_up') ||
+      (currentStatus === 'picked_up' && nextStatus === 'on_the_way');
+
+    if (!validTransition || order.assignedCourier?.id !== courierId) {
+      Alert.alert('Unable to update', 'This delivery is no longer in the expected state.');
+      return;
+    }
+
+    setDeliveringId(order.id);
+    try {
+      await updateDoc(doc(db, 'orders', order.id), {
+        status: nextStatus,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (error) {
+      console.error('Failed to update delivery progress:', error);
+      Alert.alert('Error', 'Failed to update delivery status.');
+    } finally {
+      setDeliveringId(null);
+    }
   };
 
   if (isBooting) {
@@ -388,7 +430,14 @@ export default function ActiveScreen() {
         ) : (
           activeOrders.map((order) => {
             const normalizedStatus = normalizeOrderStatus(order.status);
-            const isPickedUp = normalizedStatus === 'courier_picked_up';
+            const nextAction =
+              normalizedStatus === 'ready_for_pickup'
+                ? { label: 'MARK AS PICKED UP', status: 'picked_up' as const, icon: 'cube' as const }
+                : normalizedStatus === 'picked_up'
+                  ? { label: 'START DELIVERY', status: 'on_the_way' as const, icon: 'navigate' as const }
+                  : normalizedStatus === 'on_the_way'
+                    ? { label: 'MARK AS DELIVERED', status: 'delivered' as const, icon: 'checkmark-circle' as const }
+                    : null;
             const vehicleType =
               order.assignedCourier?.vehicleType ||
               order.assignedCourier?.vehicle ||
@@ -527,9 +576,15 @@ export default function ActiveScreen() {
                   </TouchableOpacity>
                 </View>
 
-                {isPickedUp ? (
+                {nextAction ? (
                   <TouchableOpacity
-                    onPress={() => markDelivered(order.id)}
+                    onPress={() => {
+                      if (nextAction.status === 'delivered') {
+                        markDelivered(order.id);
+                      } else {
+                        updateDeliveryProgress(order, nextAction.status);
+                      }
+                    }}
                     disabled={deliveringId === order.id}
                     activeOpacity={0.85}
                     style={styles.deliverButton}
@@ -538,8 +593,8 @@ export default function ActiveScreen() {
                       <ActivityIndicator color="white" />
                     ) : (
                       <>
-                        <Ionicons name="checkmark-circle" size={24} color="white" />
-                        <Text style={styles.deliverButtonText}>MARK AS DELIVERED</Text>
+                        <Ionicons name={nextAction.icon} size={24} color="white" />
+                        <Text style={styles.deliverButtonText}>{nextAction.label}</Text>
                       </>
                     )}
                   </TouchableOpacity>
@@ -547,7 +602,7 @@ export default function ActiveScreen() {
                   <View style={styles.waitingBlock}>
                     <Ionicons name="time" size={20} color="#f59e0b" />
                     <Text style={styles.waitingText}>
-                      Waiting for kitchen pickup confirmation.
+                      Waiting for the next delivery step.
                     </Text>
                   </View>
                 )}

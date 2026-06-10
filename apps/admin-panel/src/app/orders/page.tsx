@@ -84,7 +84,7 @@ export default function OrdersPage() {
 
     const currentStatus = normalizeOrderStatus(order.status);
     const nextStatus = normalizeOrderStatus(newStatus);
-    const courierRequiredStatuses: OrderStatus[] = ['courier_picked_up', 'delivered'];
+    const courierRequiredStatuses: OrderStatus[] = ['picked_up', 'on_the_way', 'delivered'];
 
     if (courierRequiredStatuses.includes(nextStatus) && !hasAssignedCourier(order)) {
         toast.error(`Stop! You must assign a courier before changing status to "${ORDER_STATUS_LABELS[newStatus] || newStatus}".`);
@@ -222,7 +222,7 @@ export default function OrdersPage() {
           }}
         >
           {status === 'delivered' && <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>}
-          {status === 'courier_picked_up' && <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>}
+          {['picked_up', 'on_the_way'].includes(status) && <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>}
           {status === 'preparing' && <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 14v6m-3-3h6M6 10h2a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v2a2 2 0 002 2zm10 0h2a2 2 0 002-2V6a2 2 0 00-2-2h-2a2 2 0 00-2 2v2a2 2 0 002 2zM6 20h2a2 2 0 002-2v-2a2 2 0 00-2-2H6a2 2 0 00-2 2v2a2 2 0 002 2z"></path></svg>}
           {ORDER_STATUS_LABELS[status] || status}
         </span>

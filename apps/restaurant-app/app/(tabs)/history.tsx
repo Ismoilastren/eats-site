@@ -31,7 +31,7 @@ export default function HistoryScreen() {
     const q = query(
       collection(db, COLLECTIONS.ORDERS),
       where('restaurantId', '==', restaurant.id),
-      where('status', 'in', ['courier_picked_up', 'delivered', 'cancelled'])
+      where('status', 'in', ['picked_up', 'on_the_way', 'delivered', 'cancelled', 'rejected'])
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -53,8 +53,8 @@ export default function HistoryScreen() {
   const filteredOrders = orders.filter(o => {
     const status = normalizeOrderStatus(o.status);
     if (filter === 'all') return true;
-    if (filter === 'completed') return ['courier_picked_up', 'delivered'].includes(status);
-    if (filter === 'cancelled') return status === 'cancelled';
+    if (filter === 'completed') return ['picked_up', 'on_the_way', 'delivered'].includes(status);
+    if (filter === 'cancelled') return ['cancelled', 'rejected'].includes(status);
     return true;
   });
 
@@ -107,7 +107,11 @@ export default function HistoryScreen() {
                 </Text>
                 <View className={`px-3 py-1.5 rounded-lg border ${normalizeOrderStatus(item.status) === 'cancelled' ? 'bg-rose-500/10 border-rose-500' : 'bg-emerald-500/10 border-emerald-500'}`}>
                   <Text className={`text-[10px] font-black uppercase tracking-widest ${normalizeOrderStatus(item.status) === 'cancelled' ? 'text-rose-400' : 'text-emerald-400'}`}>
-                    {normalizeOrderStatus(item.status) === 'cancelled' ? 'CANCELLED' : normalizeOrderStatus(item.status) === 'courier_picked_up' ? 'HANDED OVER' : 'COMPLETED'}
+                    {['cancelled', 'rejected'].includes(normalizeOrderStatus(item.status))
+                      ? normalizeOrderStatus(item.status).toUpperCase()
+                      : ['picked_up', 'on_the_way'].includes(normalizeOrderStatus(item.status))
+                        ? 'HANDED OVER'
+                        : 'COMPLETED'}
                   </Text>
                 </View>
               </View>

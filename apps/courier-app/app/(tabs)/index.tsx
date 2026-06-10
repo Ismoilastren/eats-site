@@ -88,7 +88,7 @@ export default function RadarScreen() {
     setIsLoadingOrders(true);
     const q = query(
       collection(db, 'orders'),
-      where('status', '==', 'preparing'),
+      where('status', '==', 'ready_for_pickup'),
       where('assignedCourier', '==', null)
     );
 
@@ -98,7 +98,7 @@ export default function RadarScreen() {
         const data = d.data();
         const status = normalizeOrderStatus(data.status);
         const hasCourier = data.courierId || data.assignedCourier;
-        if (status === 'preparing' && !hasCourier) {
+        if (status === 'ready_for_pickup' && !hasCourier) {
           result.push({ id: d.id, ...data } as OrderDoc);
         }
       });
@@ -142,7 +142,7 @@ export default function RadarScreen() {
 
         const orderData = orderSnap.data();
         const status = normalizeOrderStatus(orderData.status);
-        if (status !== 'preparing' || orderData.assignedCourier || orderData.courierId) {
+        if (status !== 'ready_for_pickup' || orderData.assignedCourier || orderData.courierId) {
           throw new Error('This order was already accepted or cancelled.');
         }
 

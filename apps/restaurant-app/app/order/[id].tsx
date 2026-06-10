@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, SafeAreaView, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, SafeAreaView, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { db, doc, onSnapshot, updateDoc, serverTimestamp } from '@repo/firebase-config';
-import { COLLECTIONS, formatCurrencyUZS, hasAssignedCourier, Order, OrderStatus, ORDER_STATUS_LABELS } from '@repo/shared-types';
+import { COLLECTIONS, formatCurrencyUZS, Order, OrderStatus, ORDER_STATUS_LABELS } from '@repo/shared-types';
 
 export default function OrderDetailsModal() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -24,10 +24,6 @@ export default function OrderDetailsModal() {
 
   const updateStatus = async (newStatus: OrderStatus) => {
     if (!order) return;
-    if (newStatus === 'courier_picked_up' && !hasAssignedCourier(order)) {
-      Alert.alert('Action Denied', 'You cannot hand over the food until a courier accepts this delivery.');
-      return;
-    }
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
       const orderRef = doc(db, COLLECTIONS.ORDERS, order.id);
@@ -35,7 +31,7 @@ export default function OrderDetailsModal() {
         status: newStatus,
         updatedAt: serverTimestamp(),
       });
-      if (newStatus === 'courier_picked_up') {
+      if (newStatus === 'ready_for_pickup') {
         router.back();
       }
     } catch (e) {
@@ -54,16 +50,18 @@ export default function OrderDetailsModal() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'pending': return 'text-red-500 bg-red-100 border-red-500';
+      case 'accepted': return 'text-violet-600 bg-violet-100 border-violet-500';
       case 'preparing': return 'text-orange-500 bg-orange-100 border-orange-500';
-      case 'courier_picked_up': return 'text-green-600 bg-green-100 border-green-500';
+      case 'ready_for_pickup': return 'text-green-600 bg-green-100 border-green-500';
       case 'cancelled': return 'text-red-600 bg-red-100 border-red-500';
       default: return 'text-gray-500 bg-gray-100 border-gray-500';
     }
   };
 
   const getNextStatusAction = () => {
-    if (order.status === 'pending') return { label: 'ACCEPT & PREPARE', next: 'preparing', color: 'bg-amber-500' };
-    if (order.status === 'preparing') return { label: 'HAND TO COURIER', next: 'courier_picked_up', color: 'bg-emerald-500' };
+    if (order.status === 'pending') return { label: 'ACCEPT ORDER', next: 'accepted', color: 'bg-violet-500' };
+    if (order.status === 'accepted') return { label: 'START PREPARING', next: 'preparing', color: 'bg-amber-500' };
+    if (order.status === 'preparing') return { label: 'READY FOR PICKUP', next: 'ready_for_pickup', color: 'bg-emerald-500' };
     return null;
   };
 
@@ -134,8 +132,7 @@ export default function OrderDetailsModal() {
             {action ? (
               <TouchableOpacity 
                 onPress={() => updateStatus(action.next as OrderStatus)}
-                disabled={action.next === 'courier_picked_up' && !hasAssignedCourier(order)}
-                className={`p-5 rounded-2xl items-center justify-center shadow-xl flex-row ${action.next === 'courier_picked_up' && !hasAssignedCourier(order) ? 'bg-gray-600' : action.color}`}
+                className={`p-5 rounded-2xl items-center justify-center shadow-xl flex-row ${action.color}`}
               >
                 <Ionicons name="checkmark-done-circle" size={24} color="#fff" />
                 <Text className="text-white font-black text-xl uppercase tracking-widest ml-2 text-center">

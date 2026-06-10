@@ -13,11 +13,17 @@ export const SettingsProvider = ({ children }: { children: React.ReactNode }) =>
   });
 
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, "settings", "global"), (docSnap) => {
-      if (docSnap.exists()) {
-        setSettings(prev => ({ ...prev, ...docSnap.data() }));
-      }
-    });
+    const unsub = onSnapshot(
+      doc(db, "settings", "global"),
+      (docSnap) => {
+        if (docSnap.exists()) {
+          setSettings(prev => ({ ...prev, ...docSnap.data() }));
+        }
+      },
+      () => {
+        // Keep the zero-fee fallback when production rules are not deployed yet.
+      },
+    );
     return () => unsub();
   }, []);
 

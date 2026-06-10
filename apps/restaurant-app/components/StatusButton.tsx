@@ -1,7 +1,7 @@
 import React from 'react';
 import { TouchableOpacity, Text, ActivityIndicator, Alert } from 'react-native';
 import { db, doc, updateDoc, serverTimestamp } from '@repo/firebase-config';
-import { COLLECTIONS, hasAssignedCourier, Order } from '@repo/shared-types';
+import { COLLECTIONS, Order } from '@repo/shared-types';
 import { useOrderStore } from '../stores/orderStore';
 
 interface StatusButtonProps {
@@ -15,14 +15,14 @@ export default function StatusButton({ order }: StatusButtonProps) {
   const getButtonConfig = () => {
     switch (order.status) {
       case 'pending':
-        return { text: 'Accept & Prepare', bg: 'bg-green-500', nextStatus: 'preparing' as const };
+        return { text: 'Accept Order', bg: 'bg-violet-500', nextStatus: 'accepted' as const };
+      case 'accepted':
+        return { text: 'Start Preparing', bg: 'bg-amber-500', nextStatus: 'preparing' as const };
       case 'preparing':
         return {
-          text: hasAssignedCourier(order)
-            ? `Hand to ${order.assignedCourier?.name || order.courierName || 'Courier'}`
-            : 'Waiting for Courier',
-          bg: hasAssignedCourier(order) ? 'bg-blue-500' : 'bg-gray-500',
-          nextStatus: 'courier_picked_up' as const,
+          text: 'Ready for Pickup',
+          bg: 'bg-emerald-500',
+          nextStatus: 'ready_for_pickup' as const,
         };
       default:
         return null;
@@ -33,11 +33,6 @@ export default function StatusButton({ order }: StatusButtonProps) {
   if (!config) return null;
 
   const handlePress = async () => {
-    if (config.nextStatus === 'courier_picked_up' && !hasAssignedCourier(order)) {
-      Alert.alert('Action Denied', 'No courier has accepted this delivery yet.');
-      return;
-    }
-
     try {
       setLoading(true);
       const orderRef = doc(db, COLLECTIONS.ORDERS, order.id);
@@ -57,7 +52,7 @@ export default function StatusButton({ order }: StatusButtonProps) {
   return (
     <TouchableOpacity
       onPress={handlePress}
-      disabled={loading || (config.nextStatus === 'courier_picked_up' && !hasAssignedCourier(order))}
+      disabled={loading}
       className={`${config.bg} py-3 px-4 rounded-xl flex-row justify-center items-center`}
     >
       {loading ? (

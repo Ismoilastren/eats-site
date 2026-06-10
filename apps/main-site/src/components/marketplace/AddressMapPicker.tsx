@@ -95,7 +95,7 @@ export function AddressMapPicker({
     setSearchingAddress(true);
     geocodeAddress(geocodeQuery)
       .then((items) => {
-        if (!cancelled) setGeocodedSuggestions(items.map((item) => ({ ...normalizeAddress(item.address, { lat: item.lat, lng: item.lng }), label: item.address })));
+        if (!cancelled) setGeocodedSuggestions(items.map((item) => ({ ...normalizeAddress(item.fullAddress, { lat: item.lat, lng: item.lng }), label: item.fullAddress })));
       })
       .catch(() => {
         if (!cancelled) setGeocodedSuggestions([]);
@@ -132,7 +132,7 @@ export function AddressMapPicker({
         setDetectingAddress(true);
         reverseGeocode(coords.lat, coords.lng)
           .then((result) => {
-            setSelected(normalizeAddress(result?.address || 'Current location', coords));
+            setSelected(normalizeAddress(result?.fullAddress || 'Current location', coords));
           })
           .catch(() => undefined)
           .finally(() => setDetectingAddress(false));
@@ -165,8 +165,8 @@ export function AddressMapPicker({
     window.setTimeout(() => {
       reverseGeocode(coords.lat, coords.lng)
         .then((result) => {
-          if (!result?.address) return;
-          setSelected((current) => ({ ...current, text: result.address, ...coords }));
+          if (!result?.fullAddress) return;
+          setSelected((current) => ({ ...current, text: result.fullAddress, ...coords }));
         })
         .catch(() => undefined)
         .finally(() => setDetectingAddress(false));

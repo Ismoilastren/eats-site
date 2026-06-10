@@ -101,11 +101,15 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
     const currentStatus = normalizeOrderStatus(order.status);
     const nextStatus = normalizeOrderStatus(newStatus);
     const allowedTransitions: Record<OrderStatus, OrderStatus[]> = {
-      pending: ['preparing', 'cancelled'],
-      preparing: ['courier_picked_up', 'cancelled'],
-      courier_picked_up: ['delivered', 'cancelled'],
+      pending: ['accepted', 'cancelled', 'rejected'],
+      accepted: ['preparing', 'cancelled'],
+      preparing: ['ready_for_pickup', 'cancelled'],
+      ready_for_pickup: ['picked_up', 'cancelled'],
+      picked_up: ['on_the_way', 'cancelled'],
+      on_the_way: ['delivered', 'cancelled'],
       delivered: [],
       cancelled: [],
+      rejected: [],
     };
 
     if (nextStatus === currentStatus) return;
@@ -115,7 +119,7 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
       return;
     }
 
-    if (['courier_picked_up', 'delivered'].includes(nextStatus) && !hasAssignedCourier(order)) {
+    if (['picked_up', 'on_the_way', 'delivered'].includes(nextStatus) && !hasAssignedCourier(order)) {
       toast.error("Action blocked: assign a courier before handoff or delivery.");
       return;
     }
@@ -227,9 +231,12 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
     switch (status) {
       case 'pending': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
       case 'preparing': return 'bg-indigo-100 text-indigo-800 border-indigo-200';
-      case 'courier_picked_up': return 'bg-orange-100 text-orange-800 border-orange-200';
+      case 'ready_for_pickup': return 'bg-purple-100 text-purple-800 border-purple-200';
+      case 'picked_up': return 'bg-sky-100 text-sky-800 border-sky-200';
+      case 'on_the_way': return 'bg-orange-100 text-orange-800 border-orange-200';
       case 'delivered': return 'bg-green-100 text-green-800 border-green-200';
       case 'cancelled': return 'bg-red-100 text-red-800 border-red-200';
+      case 'rejected': return 'bg-red-100 text-red-800 border-red-200';
       default: return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
@@ -416,10 +423,14 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
                   className="w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 font-medium text-gray-900 dark:text-white disabled:opacity-50"
                 >
                   <option value="pending">Pending</option>
+                  <option value="accepted">Accepted</option>
                   <option value="preparing">Preparing</option>
-                  <option value="courier_picked_up">Courier Picked Up</option>
+                  <option value="ready_for_pickup">Ready for Pickup</option>
+                  <option value="picked_up">Picked Up</option>
+                  <option value="on_the_way">On the Way</option>
                   <option value="delivered">Delivered</option>
                   <option value="cancelled">Cancelled</option>
+                  <option value="rejected">Rejected</option>
                 </select>
               </>
             )}

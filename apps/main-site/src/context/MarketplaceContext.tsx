@@ -26,6 +26,8 @@ export type MockUser = { name: string; phone: string; email?: string };
 export type SavedAddress = { text: string; inZone: boolean; lat?: number; lng?: number };
 export type LocalOrder = {
   id: string;
+  userId?: string;
+  customerEmail?: string;
   restaurantId: string;
   restaurantName: string;
   items: CartLine[];

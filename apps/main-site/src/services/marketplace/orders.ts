@@ -47,6 +47,12 @@ export type MarketplaceOrderInput = {
   etaMinutes?: number;
 };
 
+export type CustomerOrderIdentity = {
+  userId?: string | null;
+  emails?: Array<string | null | undefined>;
+  phones?: Array<string | null | undefined>;
+};
+
 function dateFromFirestore(value: unknown): string {
   if (value && typeof value === 'object' && 'toDate' in value && typeof value.toDate === 'function') {
     return value.toDate().toISOString();
@@ -102,6 +108,8 @@ function mapFirestoreOrder(data: DocumentData, id: string): LocalOrder {
 
   return {
     id: String(data.id || id),
+    userId: data.userId ? String(data.userId) : undefined,
+    customerEmail: data.customerEmail ? String(data.customerEmail) : undefined,
     restaurantId: String(data.restaurantId || data.items?.[0]?.restaurantId || 'unknown'),
     restaurantName: String(data.restaurantName || 'Restaurant'),
     items: Array.isArray(data.items) ? data.items : [],
@@ -133,6 +141,7 @@ export async function createOrder(orderInput: MarketplaceOrderInput): Promise<Lo
   if (!isFirestoreDataSource()) {
     return {
       id: `213-${Date.now().toString().slice(-6)}`,
+      userId: orderInput.userId || MOCK_CUSTOMER_ID,
       restaurantId: orderInput.restaurantId,
       restaurantName: orderInput.restaurantName,
       items: orderInput.items,
@@ -216,6 +225,70 @@ export async function getOrdersByUser(userId: string): Promise<LocalOrder[]> {
   const ordersQuery = query(collection(db, 'orders'), where('userId', '==', userId || MOCK_CUSTOMER_ID));
   const snapshot = await getDocs(ordersQuery);
   return sortOrdersByCreatedAt(snapshot.docs.map((orderDoc) => mapFirestoreOrder(orderDoc.data(), orderDoc.id)));
+}
+
+function normalizePhone(value: string | null | undefined): string {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function uniqueValues(values: Array<string | null | undefined>): string[] {
+  return [...new Set(values.map((value) => String(value || '').trim()).filter(Boolean))];
+}
+
+export async function getOrdersForCustomer(identity: CustomerOrderIdentity): Promise<LocalOrder[]> {
+  const emails = uniqueValues(identity.emails || []).map((email) => email.toLowerCase());
+  const phones = uniqueValues(identity.phones || []);
+  const normalizedPhones = phones.map(normalizePhone).filter(Boolean);
+
+  if (!isFirestoreDataSource()) {
+    const orders = sortOrdersByCreatedAt(readMockOrders());
+    const matching = orders.filter((order) => {
+      const userMatches = Boolean(identity.userId && order.userId === identity.userId);
+      const emailMatches = Boolean(order.customerEmail && emails.includes(order.customerEmail.toLowerCase()));
+      const phoneMatches = normalizedPhones.includes(normalizePhone(order.phone));
+      return userMatches || emailMatches || phoneMatches;
+    });
+
+    // Browser-local orders are the safe demo fallback when older records lack identity fields.
+    return matching.length > 0 ? matching : orders;
+  }
+
+  const queries = [
+    ...(identity.userId
+      ? [query(collection(db, 'orders'), where('userId', '==', identity.userId))]
+      : []),
+    ...emails.map((email) => query(collection(db, 'orders'), where('customerEmail', '==', email))),
+    ...phones.map((phone) => query(collection(db, 'orders'), where('customerPhone', '==', phone))),
+  ];
+
+  const snapshots = await Promise.all(queries.map(async (ordersQuery) => {
+    try {
+      return await getDocs(ordersQuery);
+    } catch {
+      return null;
+    }
+  }));
+
+  const records = new Map<string, LocalOrder>();
+  snapshots.forEach((snapshot) => {
+    snapshot?.docs.forEach((orderDoc) => {
+      records.set(orderDoc.id, mapFirestoreOrder(orderDoc.data(), orderDoc.id));
+    });
+  });
+
+  if (records.size === 0 && normalizedPhones.length > 0) {
+    // Legacy demo fallback: only retain mock-customer orders matching this customer's phone.
+    const fallbackQuery = query(collection(db, 'orders'), where('userId', '==', MOCK_CUSTOMER_ID));
+    const fallbackSnapshot = await getDocs(fallbackQuery);
+    fallbackSnapshot.docs.forEach((orderDoc) => {
+      const order = mapFirestoreOrder(orderDoc.data(), orderDoc.id);
+      if (normalizedPhones.includes(normalizePhone(order.phone))) {
+        records.set(orderDoc.id, order);
+      }
+    });
+  }
+
+  return sortOrdersByCreatedAt([...records.values()]);
 }
 
 export async function getOrderById(orderId: string): Promise<LocalOrder | null> {

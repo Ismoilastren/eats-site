@@ -1,14 +1,22 @@
 'use client';
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { 
-  auth, db, doc, getDoc, updateDoc, setDoc, addDoc, deleteDoc, collection, query, where, orderBy, limit, getDocs, signOut, onAuthStateChanged, onSnapshot, updateProfile, writeBatch
+  auth, db, doc, getDoc, setDoc, addDoc, deleteDoc, collection, query, where, getDocs, signOut, onAuthStateChanged, onSnapshot, updateProfile, writeBatch
 } from "@repo/firebase-config";
-import { COLLECTIONS, formatCurrencyUZS, formatFirestoreDate, normalizeOrderStatus, Order } from "@repo/shared-types";
+import { COLLECTIONS } from "@repo/shared-types";
 import { LogOut, User as UserIcon, Mail, Phone, Package, Clock, ChevronRight, Edit2, Check, X, Loader2, CreditCard, Plus, Trash2, MapPin } from "lucide-react";
 import toast from 'react-hot-toast';
 import Link from 'next/link';
+import { useMarketplace, type LocalOrder } from '@/context/MarketplaceContext';
+import { getOrdersForCustomer } from '@/services/marketplace';
+import {
+  formatOrderDate,
+  formatOrderTotalSafe,
+  getCustomerOrderStatus,
+  isValidRecentOrderTotal,
+} from '@/lib/orderDisplay';
 
 const getCardBrand = (number: string) => {
   if (!number) return 'Unknown';
@@ -33,10 +41,11 @@ const getBrandColor = (brand: string) => {
 
 export default function ProfilePage() {
   const router = useRouter();
+  const { user: marketplaceUser } = useMarketplace();
   
   const [user, setUser] = useState<any>(null);
   const [profileData, setProfileData] = useState<any>(null);
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [orders, setOrders] = useState<LocalOrder[]>([]);
   
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isDataLoading, setIsDataLoading] = useState(true);
@@ -96,9 +105,11 @@ export default function ProfilePage() {
       if (!user) return;
       
       try {
+        let storedProfile: Record<string, unknown> = {};
         const userDoc = await getDoc(doc(db, COLLECTIONS.USERS, user.uid));
         if (userDoc.exists()) {
           const data = userDoc.data();
+          storedProfile = data;
           setProfileData(data);
           setEditForm({
             fullName: data.fullName || user.displayName || "",
@@ -106,26 +117,15 @@ export default function ProfilePage() {
           });
         }
 
-        const ordersQuery = query(
-          collection(db, COLLECTIONS.ORDERS), 
-          where('userId', '==', user.uid), 
-          limit(50)
-        );
-        
-        const ordersSnapshot = await getDocs(ordersQuery);
-        const fetchedOrders: Order[] = [];
-        ordersSnapshot.forEach((doc) => {
-          fetchedOrders.push({ id: doc.id, ...doc.data() } as Order);
+        const fetchedOrders = await getOrdersForCustomer({
+          userId: user.uid,
+          emails: [user.email, marketplaceUser?.email],
+          phones: [
+            typeof storedProfile.phone === 'string' ? storedProfile.phone : null,
+            marketplaceUser?.phone,
+          ],
         });
-        
-        // Sort in JavaScript to avoid Firestore Composite Index requirements
-        fetchedOrders.sort((a, b) => {
-          const timeA = a.createdAt ? (a.createdAt as any).seconds || 0 : 0;
-          const timeB = b.createdAt ? (b.createdAt as any).seconds || 0 : 0;
-          return timeB - timeA;
-        });
-        
-        setOrders(fetchedOrders.slice(0, 21));
+        setOrders(fetchedOrders);
 
         const pmQuery = query(collection(db, COLLECTIONS.USERS, user.uid, 'paymentMethods'));
         const pmSnapshot = await getDocs(pmQuery);
@@ -142,7 +142,12 @@ export default function ProfilePage() {
     if (!isAuthLoading && user) {
       fetchData();
     }
-  }, [user, isAuthLoading]);
+  }, [user, isAuthLoading, marketplaceUser?.email, marketplaceUser?.phone]);
+
+  const recentOrders = useMemo(
+    () => orders.filter((order) => isValidRecentOrderTotal(order.total)).slice(0, 3),
+    [orders],
+  );
 
   const handleSignOut = async () => {
     try {
@@ -390,18 +395,6 @@ export default function ProfilePage() {
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (normalizeOrderStatus(status)) {
-      case 'pending': return 'bg-yellow-100 text-yellow-800';
-      case 'preparing': return 'bg-indigo-100 text-indigo-800';
-      case 'picked_up': return 'bg-blue-100 text-blue-800';
-      case 'on_the_way': return 'bg-emerald-100 text-emerald-800';
-      case 'delivered': return 'bg-green-100 text-green-800';
-      case 'cancelled': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
   if (isAuthLoading) {
     return (
       <div className="min-h-screen bg-gray-50 pt-28 pb-20 flex items-center justify-center">
@@ -619,14 +612,19 @@ export default function ProfilePage() {
 
           </div>
           
-          {/* SECTION B: Order History */}
+          {/* SECTION B: Recent orders */}
           <div className="lg:col-span-2">
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 min-h-[400px]">
+            <div className="h-fit bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
               <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-100">
                 <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
                   <Package className="text-primary" />
-                  Order History
+                  Recent orders
                 </h2>
+                {orders.length > recentOrders.length && (
+                  <Link href="/orders" className="text-sm font-bold text-primary hover:text-primary/80">
+                    View all orders
+                  </Link>
+                )}
               </div>
               
               {isDataLoading ? (
@@ -635,13 +633,13 @@ export default function ProfilePage() {
                     <div key={i} className="animate-pulse bg-gray-50 h-24 rounded-xl border border-gray-100 w-full"></div>
                   ))}
                 </div>
-              ) : orders.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 text-center">
+              ) : recentOrders.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
                   <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-4">
                     <Package size={32} className="text-gray-300" />
                   </div>
                   <h3 className="text-lg font-bold text-gray-900 mb-1">No orders yet</h3>
-                  <p className="text-gray-500 max-w-sm">Looks like you haven't placed any orders. Let's find some delicious food for you!</p>
+                  <p className="text-gray-500 max-w-sm">Your recent orders will appear here.</p>
                   <button 
                     onClick={() => router.push('/')}
                     className="mt-6 px-6 py-2.5 bg-primary text-white font-medium rounded-xl shadow-md shadow-primary/20 hover:bg-primary/90 transition-colors border-none cursor-pointer"
@@ -651,31 +649,36 @@ export default function ProfilePage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {orders.map((order) => (
-                    <div key={order.id} className="border border-gray-100 rounded-xl p-4 hover:border-primary/30 transition-colors group cursor-pointer">
+                  {recentOrders.map((order) => {
+                    const orderStatus = getCustomerOrderStatus(order.status);
+                    return (
+                    <div key={order.id} className="border border-gray-100 rounded-xl p-4 hover:border-primary/30 transition-colors group">
                       <div className="flex justify-between items-start mb-3">
-                        <div>
+                        <div className="min-w-0">
                           <p className="text-sm text-gray-500 mb-1 font-medium flex items-center gap-1.5">
                             <Clock size={14} />
-                            {formatFirestoreDate(order.createdAt)}
+                            {formatOrderDate(order.createdAt)}
                           </p>
                           <h4 className="font-bold text-gray-900">Order #{order.id.substring(0, 8).toUpperCase()}</h4>
+                          <p className="mt-1 truncate text-sm font-medium text-gray-500">
+                            {order.restaurantName || 'Restaurant'}
+                          </p>
                         </div>
-                        <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${getStatusColor(order.status)}`}>
-                          {normalizeOrderStatus(order.status).replace('_', ' ')}
+                        <span className={`shrink-0 px-3 py-1 rounded-full text-xs font-bold ${orderStatus.className}`}>
+                          {orderStatus.label}
                         </span>
                       </div>
                       
                       <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-50">
                         <p className="font-medium text-gray-700">
-                          {formatCurrencyUZS(order.totalAmount)}
+                          {formatOrderTotalSafe(order.total)}
                         </p>
                         <Link href={`/orders/${order.id}`} className="flex items-center gap-1 text-primary text-sm font-bold group-hover:translate-x-1 transition-transform no-underline">
                           View Details <ChevronRight size={16} />
                         </Link>
                       </div>
                     </div>
-                  ))}
+                  )})}
                 </div>
               )}
             </div>

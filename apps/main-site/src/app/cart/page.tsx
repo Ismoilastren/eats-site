@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowLeft, CreditCard, MapPin, Minus, Plus, Ticket, Trash2, Wallet } from 'lucide-react';
 import { formatCurrencyUZS } from '@repo/shared-types';
 import { AddressMapPicker } from '@/components/marketplace/AddressMapPicker';
@@ -47,9 +47,20 @@ export default function CartPage() {
     ? 'Detected location, Tashkent'
     : address.text.replace(/^Tashkent,\s*/i, '') || 'No address selected';
 
+  useEffect(() => {
+    if (!user) return;
+    setName(user.name || '');
+    setPhone(user.phone || '+998');
+  }, [user]);
+
   const submit = async () => {
     if (cart.length === 0) return;
     if (isSubmitting) return;
+    if (!user) {
+      setError('Sign in before placing your order.');
+      window.dispatchEvent(new Event('marketplace:open-auth'));
+      return;
+    }
     if (!name.trim() || !phone.trim() || !address.text.trim()) {
       setError('Name, phone and delivery address are required.');
       return;

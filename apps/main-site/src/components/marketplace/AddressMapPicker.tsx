@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, LocateFixed, MapPin, Navigation, Search, X } from 'lucide-react';
 import { TASHKENT_CENTER } from '@/lib/yandexMaps';
+import { geocodeAddress, reverseGeocode } from '@/lib/yandexGeocoder';
 import { YandexMap } from './YandexMap';
 import type { SavedAddress } from '@/context/MarketplaceContext';
 
@@ -67,64 +68,6 @@ export function AddressMapPicker({
   const [selectedMeta, setSelectedMeta] = useState<SelectedMeta>(initialAddress.text === 'Current location' ? 'current' : 'preset');
   const [error, setError] = useState('');
 
-  const reverseGeocode = useCallback(async (coords: { lat: number; lng: number }) => {
-    const apiKey = process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY;
-    if (!apiKey) return null;
-    const params = new URLSearchParams({
-      apikey: apiKey,
-      format: 'json',
-      lang: 'en_US',
-      geocode: `${coords.lng},${coords.lat}`,
-      results: '1',
-    });
-    const response = await fetch(`https://geocode-maps.yandex.ru/1.x/?${params.toString()}`);
-    if (!response.ok) return null;
-    const data = await response.json() as {
-      response?: {
-        GeoObjectCollection?: {
-          featureMember?: Array<{ GeoObject?: { name?: string; description?: string; metaDataProperty?: { GeocoderMetaData?: { text?: string } } } }>;
-        };
-      };
-    };
-    const geoObject = data.response?.GeoObjectCollection?.featureMember?.[0]?.GeoObject;
-    const title = geoObject?.name || geoObject?.metaDataProperty?.GeocoderMetaData?.text;
-    if (!title) return null;
-    const description = geoObject?.description || 'Tashkent';
-    return `${title}${description.toLowerCase().includes('tashkent') ? ', Tashkent' : ''}`;
-  }, []);
-
-  const geocodeSearch = useCallback(async (value: string) => {
-    const apiKey = process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY;
-    if (!apiKey || value.trim().length < 3) return [];
-    const params = new URLSearchParams({
-      apikey: apiKey,
-      format: 'json',
-      lang: 'en_US',
-      geocode: `${value.trim()}, Tashkent`,
-      bbox: '69.1200,41.1900~69.4200,41.4200',
-      rspn: '1',
-      results: '4',
-    });
-    const response = await fetch(`https://geocode-maps.yandex.ru/1.x/?${params.toString()}`);
-    if (!response.ok) return [];
-    const data = await response.json() as {
-      response?: {
-        GeoObjectCollection?: {
-          featureMember?: Array<{ GeoObject?: { name?: string; description?: string; Point?: { pos?: string } } }>;
-        };
-      };
-    };
-    return (data.response?.GeoObjectCollection?.featureMember || [])
-      .map((item) => {
-        const geoObject = item.GeoObject;
-        const [lng, lat] = (geoObject?.Point?.pos || '').split(' ').map(Number);
-        if (!geoObject?.name || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-        const label = `${geoObject.name}${geoObject.description?.toLowerCase().includes('tashkent') ? ', Tashkent' : ''}`;
-        return { ...normalizeAddress(label, { lat, lng }), label };
-      })
-      .filter((item): item is AddressOption => Boolean(item));
-  }, []);
-
   const suggestions: AddressOption[] = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     const localSuggestions = primarySuggestions
@@ -150,9 +93,9 @@ export function AddressMapPicker({
     let cancelled = false;
     if (!geocodeQuery) return;
     setSearchingAddress(true);
-    geocodeSearch(geocodeQuery)
+    geocodeAddress(geocodeQuery)
       .then((items) => {
-        if (!cancelled) setGeocodedSuggestions(items);
+        if (!cancelled) setGeocodedSuggestions(items.map((item) => ({ ...normalizeAddress(item.address, { lat: item.lat, lng: item.lng }), label: item.address })));
       })
       .catch(() => {
         if (!cancelled) setGeocodedSuggestions([]);
@@ -163,7 +106,7 @@ export function AddressMapPicker({
     return () => {
       cancelled = true;
     };
-  }, [geocodeQuery, geocodeSearch]);
+  }, [geocodeQuery]);
 
   const selectAddress = (item: AddressOption) => {
     const next = normalizeAddress(item.label, { lat: item.lat || TASHKENT_CENTER.lat, lng: item.lng || TASHKENT_CENTER.lng });
@@ -181,10 +124,18 @@ export function AddressMapPicker({
     }
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const next = normalizeAddress('Current location', { lat: position.coords.latitude, lng: position.coords.longitude });
+        const coords = { lat: position.coords.latitude, lng: position.coords.longitude };
+        const next = normalizeAddress('Current location', coords);
         setSelected(next);
         setSelectedMeta('current');
         setQuery('');
+        setDetectingAddress(true);
+        reverseGeocode(coords.lat, coords.lng)
+          .then((result) => {
+            setSelected(normalizeAddress(result?.address || 'Current location', coords));
+          })
+          .catch(() => undefined)
+          .finally(() => setDetectingAddress(false));
       },
       () => setError('Could not access your location. Select an address manually.'),
       { enableHighAccuracy: true, timeout: 7000 }
@@ -212,15 +163,15 @@ export function AddressMapPicker({
     setSelectedMeta('map');
     setDetectingAddress(true);
     window.setTimeout(() => {
-      reverseGeocode(coords)
-        .then((label) => {
-          if (!label) return;
-          setSelected((current) => ({ ...current, text: label, ...coords }));
+      reverseGeocode(coords.lat, coords.lng)
+        .then((result) => {
+          if (!result?.address) return;
+          setSelected((current) => ({ ...current, text: result.address, ...coords }));
         })
         .catch(() => undefined)
         .finally(() => setDetectingAddress(false));
     }, 450);
-  }, [reverseGeocode]);
+  }, []);
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/65 p-0 md:p-4">

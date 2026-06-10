@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { Bell, ChevronDown, LogOut, MapPin, PackageCheck, Search, ShoppingCart, UserRound, X } from 'lucide-react';
+import { Bell, ChevronDown, LogOut, Mail, MapPin, PackageCheck, Phone, Search, ShoppingCart, UserRound, X } from 'lucide-react';
 import { useMarketplace } from '@/context/MarketplaceContext';
 import { AddressMapPicker } from './AddressMapPicker';
 
@@ -14,7 +14,9 @@ export function MarketplaceHeader() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [name, setName] = useState(user?.name || '');
   const [phone, setPhone] = useState(user?.phone || '+998');
+  const [email, setEmail] = useState(user?.email || '');
   const [otp, setOtp] = useState('');
+  const [authMode, setAuthMode] = useState<'phone' | 'email'>('phone');
   const [authStep, setAuthStep] = useState<'details' | 'otp'>('details');
   const [authError, setAuthError] = useState('');
   const [authBusy, setAuthBusy] = useState(false);
@@ -23,13 +25,30 @@ export function MarketplaceHeader() {
     if (!authOpen) return;
     setName(user?.name || '');
     setPhone(user?.phone || '+998');
+    setEmail(user?.email || '');
     setOtp('');
+    setAuthMode('phone');
     setAuthStep('details');
     setAuthError('');
-  }, [authOpen, user?.name, user?.phone]);
+  }, [authOpen, user?.email, user?.name, user?.phone]);
+
+  useEffect(() => {
+    const openAuth = () => setAuthOpen(true);
+    window.addEventListener('marketplace:open-auth', openAuth);
+    return () => window.removeEventListener('marketplace:open-auth', openAuth);
+  }, []);
 
   const normalizePhone = (value: string) => value.replace(/[^\d+]/g, '');
+  const formatUzPhone = (value: string) => {
+    const digits = normalizePhone(value).replace(/^\+?998/, '').replace(/\D/g, '').slice(0, 9);
+    const a = digits.slice(0, 2);
+    const b = digits.slice(2, 5);
+    const c = digits.slice(5, 7);
+    const d = digits.slice(7, 9);
+    return `+998${a ? ` (${a}` : ' ('}${a.length === 2 ? ')' : ''}${b ? ` ${b}` : ''}${c ? `-${c}` : ''}${d ? `-${d}` : ''}`;
+  };
   const phoneLooksValid = (value: string) => /^\+?998\d{9}$/.test(normalizePhone(value));
+  const emailLooksValid = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
   const continueAuth = () => {
     setAuthError('');
     if (!name.trim()) {
@@ -48,6 +67,23 @@ export function MarketplaceHeader() {
     window.setTimeout(() => {
       setAuthBusy(false);
       setAuthStep('otp');
+    }, 250);
+  };
+  const continueEmailAuth = () => {
+    setAuthError('');
+    if (!name.trim()) {
+      setAuthError('Name is required.');
+      return;
+    }
+    if (!emailLooksValid(email)) {
+      setAuthError('Enter a valid email address.');
+      return;
+    }
+    setAuthBusy(true);
+    window.setTimeout(() => {
+      login(name.trim(), '+998901111111', email.trim());
+      setAuthBusy(false);
+      setAuthOpen(false);
     }, 250);
   };
   const verifyAuth = () => {
@@ -157,15 +193,19 @@ export function MarketplaceHeader() {
       )}
 
       {authOpen && (
-        <div className="fixed inset-0 z-[70] bg-black/40 p-4">
-          <div className="mx-auto mt-12 max-w-md rounded-[32px] bg-white p-6 shadow-2xl md:mt-20">
+        <div className="fixed inset-0 z-[70] bg-black/50 p-4 backdrop-blur-sm">
+          <div className="mx-auto mt-8 max-w-md overflow-hidden rounded-[34px] bg-white shadow-2xl md:mt-16">
+            <div className="bg-gray-950 p-6 text-white">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-3xl font-black text-gray-950">{user ? 'Account' : authStep === 'otp' ? 'Enter verification code' : 'Sign in'}</h2>
-                {!user && <p className="mt-1 font-bold text-gray-500">{authStep === 'otp' ? 'Use demo code 1111 to finish sign in.' : 'Continue with phone number or Google.'}</p>}
+                  <p className="text-sm font-black uppercase tracking-widest text-yellow-300">2(13) Delivery</p>
+                  <h2 className="mt-1 text-3xl font-black">{user ? 'Account' : authStep === 'otp' ? 'Enter verification code' : 'Sign in to 2(13) Delivery'}</h2>
+                  {!user && <p className="mt-2 font-bold text-gray-300">{authStep === 'otp' ? 'Use demo code 1111 to finish sign in.' : 'Use your phone number or Google account to continue.'}</p>}
               </div>
-              <button aria-label="Close login" onClick={() => setAuthOpen(false)} className="rounded-full bg-gray-100 p-3"><X size={20} /></button>
+                <button aria-label="Close login" onClick={() => setAuthOpen(false)} className="rounded-full bg-white/10 p-3 text-white hover:bg-white/20"><X size={20} /></button>
+              </div>
             </div>
+            <div className="p-6">
             {user ? (
               <div className="mt-5 space-y-3">
                 <p className="rounded-3xl bg-gray-50 p-4 font-bold">{user.name}<br /><span className="text-gray-500">{user.email || user.phone}</span></p>
@@ -174,26 +214,34 @@ export function MarketplaceHeader() {
                 <button onClick={() => { logout(); setAuthOpen(false); }} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gray-950 px-4 py-4 font-black text-white"><LogOut size={18} /> Logout</button>
               </div>
             ) : (
-              <div className="mt-5 space-y-3">
+              <div className="space-y-3">
                 {authStep === 'details' ? (
                   <>
                     <button disabled={authBusy} onClick={googleDemoLogin} className="flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-4 font-black text-gray-950 shadow-sm hover:bg-gray-50 disabled:opacity-60">
                       <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-950 text-sm font-black text-white">G</span>
                       Continue with Google
                     </button>
-                    <div className="flex items-center gap-3 text-xs font-black uppercase tracking-widest text-gray-400">
-                      <span className="h-px flex-1 bg-gray-100" /> or use phone <span className="h-px flex-1 bg-gray-100" />
+                    <div className="grid grid-cols-2 rounded-2xl bg-gray-100 p-1 font-black text-gray-600">
+                      <button onClick={() => { setAuthMode('phone'); setAuthError(''); }} className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2 ${authMode === 'phone' ? 'bg-white text-gray-950 shadow-sm' : ''}`}><Phone size={16} /> Phone</button>
+                      <button onClick={() => { setAuthMode('email'); setAuthError(''); }} className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2 ${authMode === 'email' ? 'bg-white text-gray-950 shadow-sm' : ''}`}><Mail size={16} /> Email</button>
                     </div>
                     <label className="block">
                       <span className="text-sm font-black text-gray-500">Name</span>
                       <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-yellow-300" />
                     </label>
-                    <label className="block">
-                      <span className="text-sm font-black text-gray-500">Phone number</span>
-                      <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+998 90 123 45 67" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-yellow-300" />
-                    </label>
+                    {authMode === 'phone' ? (
+                      <label className="block">
+                        <span className="text-sm font-black text-gray-500">Phone number</span>
+                        <input value={phone} onChange={(event) => setPhone(formatUzPhone(event.target.value))} placeholder="+998 (__) ___-__-__" inputMode="tel" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-yellow-300" />
+                      </label>
+                    ) : (
+                      <label className="block">
+                        <span className="text-sm font-black text-gray-500">Email</span>
+                        <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" inputMode="email" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-yellow-300" />
+                      </label>
+                    )}
                     {authError && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-black text-red-600">{authError}</p>}
-                    <button disabled={authBusy} onClick={continueAuth} className="w-full rounded-2xl bg-yellow-300 px-4 py-4 font-black text-gray-950 disabled:opacity-60">{authBusy ? 'Sending code...' : 'Continue'}</button>
+                    <button disabled={authBusy} onClick={authMode === 'phone' ? continueAuth : continueEmailAuth} className="w-full rounded-2xl bg-yellow-300 px-4 py-4 font-black text-gray-950 disabled:opacity-60">{authBusy ? 'Please wait...' : authMode === 'phone' ? 'Continue' : 'Continue as demo user'}</button>
                   </>
                 ) : (
                   <>
@@ -208,6 +256,7 @@ export function MarketplaceHeader() {
                 )}
               </div>
             )}
+            </div>
           </div>
         </div>
       )}

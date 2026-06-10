@@ -28,3 +28,31 @@ body {
     @apply bg-white/80 backdrop-blur-md border-b border-gray-100;
   }
 }
+
+@keyframes address-pin-drop {
+  0% {
+    transform: translateY(-18px) scale(0.86);
+    opacity: 0;
+  }
+  65% {
+    transform: translateY(4px) scale(1.04);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes address-pin-pulse {
+  0%, 100% {
+    box-shadow: 0 14px 28px rgba(15, 23, 42, .28), 0 0 0 0 rgba(249, 115, 22, .38);
+  }
+  50% {
+    box-shadow: 0 14px 28px rgba(15, 23, 42, .28), 0 0 0 12px rgba(249, 115, 22, 0);
+  }
+}
+
+.ymaps-demo-marker > div {
+  animation: address-pin-drop 240ms ease-out, address-pin-pulse 1.35s ease-out 240ms 2;
+}

@@ -1,4 +1,4 @@
-import type { Courier, VehicleType } from './courier';
+import type { CanonicalVehicleType, Courier, VehicleType } from './courier';
 import type { Order, OrderStatus } from './order';
 
 export type CoordinateLike = {
@@ -20,7 +20,6 @@ export type NormalizedCoordinate = {
 export const TERMINAL_ORDER_STATUSES: OrderStatus[] = ['delivered', 'cancelled', 'rejected'];
 export const COURIER_RADAR_STATUSES: OrderStatus[] = ['preparing', 'ready_for_pickup'];
 export const ACTIVE_COURIER_STATUSES: OrderStatus[] = [
-  'preparing',
   'ready_for_pickup',
   'picked_up',
   'on_the_way',
@@ -179,20 +178,33 @@ export function normalizeVehicleType(value?: string | null): VehicleType {
   return 'bicycle';
 }
 
+export function normalizeCanonicalVehicleType(value?: string | null): CanonicalVehicleType {
+  const vehicle = String(value || '').trim().toLowerCase();
+  if (vehicle.includes('car') || vehicle.includes('auto')) return 'car';
+  if (vehicle.includes('scooter')) return 'scooter';
+  if (vehicle.includes('moto')) return 'motorbike';
+  return 'bicycle';
+}
+
 export function getCourierVehicleType(courier?: Partial<Courier> | null, assignedCourier?: { vehicleType?: string; vehicle?: string } | null): VehicleType {
   return normalizeVehicleType(courier?.vehicleType || assignedCourier?.vehicleType || assignedCourier?.vehicle);
 }
 
 export function getVehicleLabel(vehicle?: string | null): string {
-  switch (normalizeVehicleType(vehicle)) {
+  const rawVehicle = String(vehicle || '').trim().toLowerCase();
+  if (rawVehicle.includes('foot') || rawVehicle.includes('walk')) {
+    return 'On Foot';
+  }
+  const normalized = normalizeCanonicalVehicleType(vehicle);
+  switch (normalized) {
     case 'car':
       return 'Car';
     case 'bicycle':
       return 'Bicycle';
-    case 'motorcycle':
-      return 'Motorcycle';
-    case 'foot':
-      return 'On Foot';
+    case 'motorbike':
+      return 'Motorbike';
+    case 'scooter':
+      return 'Scooter';
     default:
       return 'Vehicle';
   }

@@ -13,7 +13,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import MapView, { Marker, Polyline, type Region } from 'react-native-maps';
 import * as Location from 'expo-location';
-import { getCourierIdAsync } from '../../utils/storage';
 import {
   db,
   doc,
@@ -24,7 +23,6 @@ import {
   updateDoc,
   serverTimestamp,
   runTransaction,
-  increment,
 } from '@repo/firebase-config';
 import {
   formatCurrencyUZS,
@@ -35,6 +33,7 @@ import {
   normalizeVehicleType,
   type NormalizedCoordinate,
 } from '@repo/shared-types';
+import { useAuthStore } from '../../stores/authStore';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -167,9 +166,10 @@ const getItemQuantity = (item: OrderItemDoc) => {
 };
 
 export default function ActiveScreen() {
-  const [courierId, setCourierId] = useState<string | null>(null);
+  const courier = useAuthStore((state) => state.courier);
+  const isBooting = useAuthStore((state) => state.isLoading);
+  const courierId = courier?.id || null;
   const [activeOrders, setActiveOrders] = useState<OrderDoc[]>([]);
-  const [isBooting, setIsBooting] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [deliveringId, setDeliveringId] = useState<string | null>(null);
 
@@ -182,19 +182,6 @@ export default function ActiveScreen() {
         .join('|'),
     [activeOrders]
   );
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const saved = await getCourierIdAsync();
-        if (saved) setCourierId(saved);
-      } catch (error) {
-        console.log('Failed to read courier id', error);
-      } finally {
-        setIsBooting(false);
-      }
-    })();
-  }, []);
 
   useEffect(() => {
     if (!courierId) {
@@ -212,7 +199,8 @@ export default function ActiveScreen() {
     const mergeAndSet = () => {
       const mergedMap = new Map<string, OrderDoc>();
       [...list1, ...list2].forEach((data) => {
-        if (!isTerminalOrderStatus(data.status)) {
+        const status = normalizeOrderStatus(data.status);
+        if (['ready_for_pickup', 'picked_up', 'on_the_way'].includes(status)) {
           mergedMap.set(data.id, data);
         }
       });
@@ -227,7 +215,7 @@ export default function ActiveScreen() {
         mergeAndSet();
       },
       (error) => {
-        console.error('Firebase active order query error 1:', error);
+        if (__DEV__) console.warn('active-assigned-orders', error.code);
         setIsLoading(false);
       }
     );
@@ -239,7 +227,7 @@ export default function ActiveScreen() {
         mergeAndSet();
       },
       (error) => {
-        console.error('Firebase active order query error 2:', error);
+        if (__DEV__) console.warn('active-legacy-orders', error.code);
         setIsLoading(false);
       }
     );
@@ -278,6 +266,27 @@ export default function ActiveScreen() {
             speed: location.coords.speed ?? 0,
           };
 
+          if (courierId) {
+            try {
+              await updateDoc(doc(db, 'couriers', courierId), {
+                status: 'busy',
+                isOnline: true,
+                isAvailable: false,
+                currentLocation: {
+                  lat: latitude,
+                  lng: longitude,
+                  heading: location.coords.heading ?? 0,
+                  speed: location.coords.speed ?? 0,
+                  updatedAt: serverTimestamp(),
+                },
+                lastSeenAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+              });
+            } catch (error) {
+              if (__DEV__) console.warn('courier-location-update', error);
+            }
+          }
+
           for (const orderId of orderIds) {
             try {
               await updateDoc(doc(db, 'orders', orderId), {
@@ -297,7 +306,7 @@ export default function ActiveScreen() {
     return () => {
       if (locationSubscription) locationSubscription.remove();
     };
-  }, [activeBroadcastIds]);
+  }, [activeBroadcastIds, courierId]);
 
   const callCustomer = async (phone?: string) => {
     if (!phone) {
@@ -332,12 +341,12 @@ export default function ActiveScreen() {
               if (normalizeOrderStatus(orderData.status) !== 'on_the_way') {
                 throw new Error('Order is not ready to be delivered');
               }
-              if (orderData.assignedCourier?.id !== courierId) {
+              const assignedCourierId =
+                orderData.assignedCourier?.id ||
+                String(orderData.courierId || '');
+              if (assignedCourierId !== courierId) {
                 throw new Error('This order is assigned to another courier');
               }
-
-              const payout = Number(orderData.deliveryFee || 10000);
-              const safePayout = Number.isFinite(payout) && payout > 0 ? payout : 10000;
 
               transaction.update(orderRef, {
                 status: 'delivered',
@@ -346,11 +355,11 @@ export default function ActiveScreen() {
               });
 
               transaction.update(courierRef, {
-                totalEarnings: increment(safePayout),
-                totalDeliveries: increment(1),
-                deliveries: increment(1),
                 currentOrderId: null,
+                status: 'online',
+                isOnline: true,
                 isAvailable: true,
+                lastSeenAt: serverTimestamp(),
                 updatedAt: serverTimestamp(),
               });
             });
@@ -380,7 +389,9 @@ export default function ActiveScreen() {
       (currentStatus === 'ready_for_pickup' && nextStatus === 'picked_up') ||
       (currentStatus === 'picked_up' && nextStatus === 'on_the_way');
 
-    if (!validTransition || order.assignedCourier?.id !== courierId) {
+    const assignedCourierId =
+      order.assignedCourier?.id || String(order.courierId || '');
+    if (!validTransition || assignedCourierId !== courierId) {
       Alert.alert('Unable to update', 'This delivery is no longer in the expected state.');
       return;
     }

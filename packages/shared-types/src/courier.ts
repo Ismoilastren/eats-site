@@ -2,38 +2,55 @@
 // COURIER TYPES
 // =============================================
 
-export type VehicleType = 'foot' | 'bicycle' | 'motorcycle' | 'car';
+export type CanonicalVehicleType = 'bicycle' | 'car' | 'scooter' | 'motorbike';
+export type LegacyVehicleType = 'foot' | 'motorcycle';
+export type VehicleType = CanonicalVehicleType | LegacyVehicleType;
+export type CourierStatus = 'offline' | 'online' | 'busy';
 
 export interface CourierLocation {
-  latitude: number;
-  longitude: number;
+  lat: number;
+  lng: number;
+  latitude?: number;
+  longitude?: number;
   heading?: number;
   speed?: number;
-  timestamp: Date;
+  updatedAt?: unknown;
+  timestamp?: Date;
 }
 
 export interface Courier {
-  id: string; // Same as users.uid
-  displayName: string;
+  id: string;
+  name: string;
   phone: string;
-  photoURL: string;
-  vehicleType: VehicleType;
+  vehicleType: CanonicalVehicleType;
+  vehicleName?: string;
+  plateNumber?: string;
+  status: CourierStatus;
   isOnline: boolean;
-  isAvailable: boolean;
-  currentLocation: CourierLocation;
+  currentLocation: CourierLocation | null;
   currentOrderId: string | null;
-  totalDeliveries: number;
-  rating: number;
-  todayEarnings: number;
   totalEarnings: number;
-  lastLocationUpdate: Date;
-  licensePlate?: string; // e.g. 01A123AA
-  vehicleBrand?: string; // e.g. Chevrolet, KIA
-  vehicleModel?: string; // e.g. Cobalt
-  vehicleColor?: string; // e.g. White
-  mostActiveArea?: string; // e.g. Yunusobod, Chilonzor
-  createdAt: Date;
-  updatedAt: Date;
+  todayEarnings: number;
+  weeklyEarnings?: number;
+  completedOrders: number;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+  lastSeenAt?: unknown;
+
+  // Legacy aliases remain readable while existing documents are migrated.
+  displayName?: string;
+  fullName?: string;
+  photoURL?: string;
+  isAvailable?: boolean;
+  deliveries?: number;
+  totalDeliveries?: number;
+  rating?: number;
+  licensePlate?: string;
+  vehicleBrand?: string;
+  vehicleModel?: string;
+  vehicleColor?: string;
+  mostActiveArea?: string;
+  lastLocationUpdate?: unknown;
 }
 
 export interface DeliveryEarning {

@@ -9,7 +9,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { getCourierIdAsync } from '../../utils/storage';
 import {
   db,
   doc,
@@ -17,20 +16,11 @@ import {
   query,
   where,
   onSnapshot,
-  updateDoc,
   runTransaction,
   serverTimestamp,
 } from '@repo/firebase-config';
 import { formatCurrencyUZS, normalizeOrderStatus } from '@repo/shared-types';
-
-interface CourierDoc {
-  id: string;
-  displayName?: string;
-  fullName?: string;
-  phone?: string;
-  isOnline?: boolean;
-  [key: string]: any;
-}
+import { useAuthStore } from '../../stores/authStore';
 
 interface OrderDoc {
   id: string;
@@ -43,45 +33,22 @@ interface OrderDoc {
 }
 
 export default function RadarScreen() {
-  const [courierId, setCourierId] = useState<string | null>(null);
-  const [courier, setCourier] = useState<CourierDoc | null>(null);
+  const courier = useAuthStore((state) => state.courier);
+  const isOnline = useAuthStore((state) => state.isOnline);
+  const isBooting = useAuthStore((state) => state.isLoading);
+  const isToggling = useAuthStore((state) => state.isUpdatingStatus);
+  const toggleCourierOnline = useAuthStore((state) => state.toggleOnline);
+  const courierId = courier?.id || null;
   const [orders, setOrders] = useState<OrderDoc[]>([]);
-  const [isBooting, setIsBooting] = useState(true);
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
-  const [isToggling, setIsToggling] = useState(false);
   const [claimingId, setClaimingId] = useState<string | null>(null);
-
-  // ─── BOOT: read courierId from SecureStore ───
-  useEffect(() => {
-    (async () => {
-      try {
-        const saved = await getCourierIdAsync();
-        if (saved) setCourierId(saved);
-      } catch (_) {}
-      setIsBooting(false);
-    })();
-  }, []);
-
-  // ─── COURIER SYNC: live listener on courier doc ───
-  useEffect(() => {
-    if (!courierId) {
-      setCourier(null);
-      return;
-    }
-    const unsub = onSnapshot(doc(db, 'couriers', courierId), (snap) => {
-      if (snap.exists()) {
-        setCourier({ id: snap.id, ...snap.data() } as CourierDoc);
-      } else {
-        setCourier(null);
-      }
-    });
-    return () => unsub();
-  }, [courierId]);
+  const [syncError, setSyncError] = useState('');
 
   // ─── ORDER SYNC: only when courier is online ───
   useEffect(() => {
-    if (!courier?.isOnline) {
+    if (!isOnline) {
       setOrders([]);
+      setSyncError('');
       return;
     }
 
@@ -104,28 +71,25 @@ export default function RadarScreen() {
       });
       setOrders(result);
       setIsLoadingOrders(false);
+      setSyncError('');
     }, (error) => {
-      console.error("Radar Fetch Error:", error);
+      if (__DEV__) console.warn('radar-orders-query', error.code);
+      setSyncError('Unable to load delivery requests. Check Firestore rules.');
       setIsLoadingOrders(false);
     });
 
     return () => unsub();
-  }, [courier?.isOnline]);
+  }, [isOnline]);
 
   // ─── TOGGLE ONLINE ───
   const toggleOnline = async () => {
-    if (!courierId || !courier || isToggling) return;
-    setIsToggling(true);
     try {
-      await updateDoc(doc(db, 'couriers', courierId), {
-        isOnline: !courier.isOnline,
-        isAvailable: !courier.isOnline,
-        updatedAt: serverTimestamp(),
-      });
-    } catch (e) {
-      console.error('Toggle failed:', e);
-    } finally {
-      setIsToggling(false);
+      await toggleCourierOnline();
+    } catch (error) {
+      Alert.alert(
+        'Unable to update status',
+        error instanceof Error ? error.message : 'Please try again.'
+      );
     }
   };
 
@@ -146,28 +110,25 @@ export default function RadarScreen() {
           throw new Error('This order was already accepted or cancelled.');
         }
 
-        const vehicleParts = [courier.vehicleBrand, courier.vehicleModel, courier.licensePlate].filter(Boolean);
         transaction.update(orderRef, {
           courierId: courier.id,
-          courierName: courier.displayName || courier.fullName || 'Courier',
-          courierPhone: courier.phone || 'N/A',
+          courierName: courier.name,
+          courierPhone: courier.phone,
           assignedCourier: {
             id: courier.id,
-            name: courier.name || courier.displayName || courier.fullName || 'Courier',
-            phone: courier.phone || 'N/A',
-            vehicleType: courier.vehicleType || 'bicycle',
-            vehicle: {
-              model: courier.vehicleModel || courier.vehicle?.model || 'Car',
-              plate: courier.vehiclePlate || courier.vehicle?.plate || '',
-              color: courier.vehicleColor || courier.vehicle?.color || ''
-            }
+            name: courier.name,
+            phone: courier.phone,
+            vehicleType: courier.vehicleType,
           },
           updatedAt: serverTimestamp(),
         });
 
         transaction.update(courierRef, {
           currentOrderId: orderId,
+          status: 'busy',
+          isOnline: true,
           isAvailable: false,
+          lastSeenAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
       });
@@ -202,8 +163,6 @@ export default function RadarScreen() {
   // ═══════════════════════════════════════════
   //  MAIN RADAR UI
   // ═══════════════════════════════════════════
-  const isOnline = courier?.isOnline ?? false;
-
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#0f172a' }}>
       {/* Header */}
@@ -243,6 +202,12 @@ export default function RadarScreen() {
           </View>
 
         /* ── LOADING ORDERS ── */
+        ) : syncError ? (
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 80, paddingHorizontal: 24 }}>
+            <Ionicons name="cloud-offline-outline" size={64} color="#ef4444" />
+            <Text style={{ fontSize: 20, fontWeight: '900', color: '#fca5a5', marginTop: 18, textAlign: 'center' }}>RADAR CONNECTION FAILED</Text>
+            <Text style={{ color: '#94a3b8', fontWeight: '600', marginTop: 10, textAlign: 'center' }}>{syncError}</Text>
+          </View>
         ) : isLoadingOrders ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingBottom: 80 }}>
             <ActivityIndicator size="large" color="#f97316" />

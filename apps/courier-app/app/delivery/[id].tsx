@@ -10,7 +10,6 @@ import {
   updateDoc,
   serverTimestamp,
   runTransaction,
-  increment,
 } from '@repo/firebase-config';
 import { COLLECTIONS, isTerminalOrderStatus, normalizeOrderStatus, Order, getNextCourierStatus } from '@repo/shared-types';
 
@@ -27,6 +26,8 @@ export default function ActiveDeliveryScreen() {
       if (docSnap.exists()) {
         setOrder({ id: docSnap.id, ...docSnap.data() } as Order);
       }
+    }, (error) => {
+      console.warn('Order sync error:', error);
     });
     return () => unsubscribe();
   }, [id]);
@@ -97,9 +98,6 @@ export default function ActiveDeliveryScreen() {
           throw new Error('Order is not ready to be delivered');
         }
 
-        const payout = Number(orderData.deliveryFee || 10000);
-        const safePayout = Number.isFinite(payout) && payout > 0 ? payout : 10000;
-
         transaction.update(orderRef, {
           status: 'delivered',
           deliveredAt: serverTimestamp(),
@@ -107,11 +105,11 @@ export default function ActiveDeliveryScreen() {
         });
 
         transaction.update(courierRef, {
-          totalEarnings: increment(safePayout),
-          totalDeliveries: increment(1),
-          deliveries: increment(1),
           currentOrderId: null,
+          status: 'online',
+          isOnline: true,
           isAvailable: true,
+          lastSeenAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
       });
@@ -151,11 +149,9 @@ export default function ActiveDeliveryScreen() {
     );
   }
   const normalizedStatus = normalizeOrderStatus(order.status);
-  const canAdvance = ['preparing', 'ready_for_pickup', 'picked_up', 'on_the_way'].includes(normalizedStatus);
+  const canAdvance = ['ready_for_pickup', 'picked_up', 'on_the_way'].includes(normalizedStatus);
   const actionLabel =
-    normalizedStatus === 'preparing'
-      ? 'ARRIVED (FOOD READY)'
-      : normalizedStatus === 'ready_for_pickup'
+    normalizedStatus === 'ready_for_pickup'
         ? 'PICKED UP'
         : normalizedStatus === 'picked_up'
           ? 'START DELIVERY'

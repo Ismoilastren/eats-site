@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   ScrollView,
   Alert,
@@ -13,34 +12,17 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { clearCourierIdAsync, getCourierIdAsync, setCourierIdAsync } from '../../utils/storage';
 import {
   db,
-  doc,
   onSnapshot,
-  serverTimestamp,
-  updateDoc,
   collection,
   query,
   where,
 } from '@repo/firebase-config';
 import { formatCurrencyUZS, getVehicleLabel, normalizeOrderStatus, normalizeVehicleType } from '@repo/shared-types';
+import { useAuthStore } from '../../stores/authStore';
 
 // ─── Types ───
-interface CourierDoc {
-  id: string;
-  name?: string;
-  displayName?: string;
-  fullName?: string;
-  phone?: string;
-  vehicleType?: string;
-  isOnline?: boolean;
-  totalEarnings?: number | string | null;
-  deliveries?: number | string | null;
-  rating?: number;
-  [key: string]: any;
-}
-
 interface DeliveredOrderDoc {
   id: string;
   status?: string;
@@ -92,9 +74,6 @@ const toMoneyNumber = (value: number | string | null | undefined) => {
   const amount = Number(value ?? 0);
   return Number.isFinite(amount) ? amount : 0;
 };
-
-const getCourierName = (courier: CourierDoc | null) =>
-  String(courier?.name || courier?.displayName || courier?.fullName || '').trim();
 
 // ─── Bottom Sheet Modal Wrapper ───
 interface SheetModalProps {
@@ -167,40 +146,20 @@ const MenuItem = ({ icon, label, subtitle, iconBg, iconColor, onPress, isLast = 
 //  MAIN SCREEN
 // ═══════════════════════════════════════════════════════
 export default function ProfileScreen() {
-  const [courierId, setCourierId] = useState<string | null>(null);
-  const [courier, setCourier] = useState<CourierDoc | null>(null);
+  const courier = useAuthStore((state) => state.courier);
+  const isOnline = useAuthStore((state) => state.isOnline);
+  const isBooting = useAuthStore((state) => state.isLoading);
+  const isToggling = useAuthStore((state) => state.isUpdatingStatus);
+  const toggleCourierOnline = useAuthStore((state) => state.toggleOnline);
+  const signOut = useAuthStore((state) => state.signOut);
+  const courierId = courier?.id || null;
   const [deliveredOrders, setDeliveredOrders] = useState<DeliveredOrderDoc[]>([]);
-  const [inputId, setInputId] = useState('');
-  const [isBooting, setIsBooting] = useState(true);
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [isToggling, setIsToggling] = useState(false);
   const [activeModal, setActiveModal] = useState<'documents' | 'settings' | 'help' | null>(null);
   const [signOutModalVisible, setSignOutModalVisible] = useState(false);
 
   // Settings state (UI only)
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
-
-  // ─── BOOT ───
-  useEffect(() => {
-    (async () => {
-      try {
-        const saved = await getCourierIdAsync();
-        if (saved) setCourierId(saved);
-      } catch (_) {}
-      setIsBooting(false);
-    })();
-  }, []);
-
-  // ─── LIVE SYNC ───
-  useEffect(() => {
-    if (!courierId) { setCourier(null); return; }
-    const unsub = onSnapshot(doc(db, 'couriers', courierId), (snap) => {
-      if (snap.exists()) setCourier({ id: snap.id, ...snap.data() } as CourierDoc);
-      else setCourier(null);
-    });
-    return () => unsub();
-  }, [courierId]);
 
   useEffect(() => {
     if (!courierId) {
@@ -222,71 +181,30 @@ export default function ProfileScreen() {
         }
       });
       setDeliveredOrders(delivered);
+    }, (error) => {
+      console.warn('Delivered orders sync error:', error);
     });
 
     return () => unsub();
   }, [courierId]);
 
-  // ─── LOGIN ───
-  const handleLogin = async () => {
-    const id = inputId.trim();
-    if (!id) return Alert.alert('Error', 'Please enter your Courier ID');
-    setIsLoggingIn(true);
-    try {
-      await setCourierIdAsync(id);
-      setCourierId(id);
-      setInputId('');
-    } catch (e: any) {
-      Alert.alert('Login Failed', e.message);
-    } finally {
-      setIsLoggingIn(false);
-    }
-  };
-
-  // ─── LOGOUT ───
   const handleLogout = () => {
     setSignOutModalVisible(true);
   };
 
   const handleConfirmSignOut = async () => {
-    try {
-        // Failsafe: Set offline in Firestore before leaving so Admin doesn't see a ghost
-        if (courier?.isOnline && courierId) {
-            await updateDoc(doc(db, 'couriers', courierId), {
-              isOnline: false,
-              isAvailable: false,
-              updatedAt: serverTimestamp(),
-            });
-        }
-        
-        // Close the modal FIRST for smooth UX
-        setSignOutModalVisible(false);
-        
-        // Clear from local storage
-        await clearCourierIdAsync();
-        
-        // Clear state
-        setCourierId(null);
-        setCourier(null);
-    } catch (error) {
-        console.error("Sign out failed:", error);
-    }
+    setSignOutModalVisible(false);
+    await signOut();
   };
 
-  // ─── TOGGLE ONLINE ───
   const toggleOnline = async () => {
-    if (!courierId || !courier || isToggling) return;
-    setIsToggling(true);
     try {
-      await updateDoc(doc(db, 'couriers', courierId), {
-        isOnline: !courier.isOnline,
-        isAvailable: !courier.isOnline,
-        updatedAt: serverTimestamp(),
-      });
-    } catch (_) {
-      Alert.alert('Error', 'Failed to update status.');
-    } finally {
-      setIsToggling(false);
+      await toggleCourierOnline();
+    } catch (error) {
+      Alert.alert(
+        'Unable to update status',
+        error instanceof Error ? error.message : 'Please try again.'
+      );
     }
   };
 
@@ -300,70 +218,9 @@ export default function ProfileScreen() {
   }
 
   // ═══════════════════════════════════════════
-  //  LOGIN VIEW
-  // ═══════════════════════════════════════════
-  if (!courierId) {
-    return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#0f172a' }}>
-        <StatusBar barStyle="light-content" />
-        <View style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 28 }}>
-          <View style={{ alignItems: 'center', marginBottom: 44 }}>
-            <View style={{ width: 88, height: 88, borderRadius: 26, backgroundColor: '#f97316', alignItems: 'center', justifyContent: 'center', marginBottom: 20, shadowColor: '#f97316', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.4, shadowRadius: 20 }}>
-              <Ionicons name="bicycle" size={44} color="white" />
-            </View>
-            <Text style={{ fontSize: 32, fontWeight: '900', color: 'white', letterSpacing: 0.5 }}>ExpressEats</Text>
-            <Text style={{ fontSize: 17, fontWeight: '800', color: '#f97316', marginTop: 4, letterSpacing: 2 }}>COURIER</Text>
-            <Text style={{ fontSize: 14, color: '#64748b', marginTop: 14, textAlign: 'center', fontWeight: '600', lineHeight: 22 }}>
-              Enter your Courier ID from the Admin Panel
-            </Text>
-          </View>
-
-          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 16, marginBottom: 16 }}>
-            <Ionicons name="key-outline" size={20} color="#475569" />
-            <TextInput
-              value={inputId}
-              onChangeText={setInputId}
-              placeholder="courier_1717589432..."
-              placeholderTextColor="#334155"
-              autoCapitalize="none"
-              autoCorrect={false}
-              onSubmitEditing={handleLogin}
-              returnKeyType="go"
-              style={{ flex: 1, paddingVertical: 18, marginLeft: 12, fontSize: 15, color: 'white', fontWeight: '600' }}
-            />
-            {inputId.length > 0 && (
-              <TouchableOpacity onPress={() => setInputId('')}>
-                <Ionicons name="close-circle" size={18} color="#475569" />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <TouchableOpacity
-            onPress={handleLogin}
-            disabled={isLoggingIn || !inputId.trim()}
-            activeOpacity={0.85}
-            style={{ backgroundColor: inputId.trim() ? '#f97316' : '#3d2a1a', paddingVertical: 18, borderRadius: 16, alignItems: 'center', shadowColor: '#f97316', shadowOffset: { width: 0, height: 6 }, shadowOpacity: inputId.trim() ? 0.3 : 0, shadowRadius: 16 }}
-          >
-            {isLoggingIn ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <Text style={{ color: 'white', fontWeight: '900', fontSize: 16, letterSpacing: 1.5 }}>CONNECT</Text>
-            )}
-          </TouchableOpacity>
-
-          <Text style={{ color: '#334155', textAlign: 'center', marginTop: 24, fontSize: 13, fontWeight: '600' }}>
-            Contact your admin if you don't have an ID
-          </Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  // ═══════════════════════════════════════════
   //  PROFILE VIEW
   // ═══════════════════════════════════════════
-  const name = getCourierName(courier);
-  const isOnline = courier?.isOnline ?? false;
+  const name = courier?.name || '';
   const earnings = toMoneyNumber(courier?.totalEarnings);
   const todayStart = getStartOfToday().getTime();
   const todayEarnings = deliveredOrders.reduce((sum, order) => {
@@ -371,8 +228,16 @@ export default function ProfileScreen() {
     if (!date || date.getTime() < todayStart) return sum;
     return sum + toMoneyNumber(order.deliveryFee);
   }, 0);
-  const deliveries = Number(courier?.deliveries ?? 0) || 0;
-  const vehicleType = normalizeVehicleType(courier?.vehicleType || courier?.vehicle);
+  const deliveries = deliveredOrders.length;
+  const vehicleType = normalizeVehicleType(courier?.vehicleType);
+  const vehicleDetails = [courier?.vehicleName, courier?.plateNumber]
+    .filter(Boolean)
+    .join(' · ');
+  const statusLabel = courier?.status === 'busy'
+    ? 'BUSY'
+    : isOnline
+      ? 'ONLINE'
+      : 'OFFLINE';
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: '#0f172a' }}>
@@ -384,7 +249,7 @@ export default function ProfileScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: isOnline ? 'rgba(16,185,129,0.12)' : 'rgba(255,255,255,0.05)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: isOnline ? 'rgba(16,185,129,0.3)' : 'rgba(255,255,255,0.08)' }}>
           <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: isOnline ? '#10b981' : '#475569' }} />
           <Text style={{ color: isOnline ? '#10b981' : '#64748b', fontWeight: '800', fontSize: 12, letterSpacing: 1 }}>
-            {isOnline ? 'ONLINE' : 'OFFLINE'}
+            {statusLabel}
           </Text>
         </View>
       </View>
@@ -411,6 +276,7 @@ export default function ProfileScreen() {
             <Ionicons name={getVehicleIcon(vehicleType)} size={16} color="#f97316" />
             <Text style={{ color: '#f97316', fontWeight: '800', marginLeft: 8, textTransform: 'uppercase', fontSize: 12, letterSpacing: 1.5 }}>
               {getVehicleLabel(vehicleType)}
+              {vehicleDetails ? ` · ${vehicleDetails}` : ''}
             </Text>
           </TouchableOpacity>
         </View>
@@ -418,7 +284,7 @@ export default function ProfileScreen() {
         {/* ── Earnings Cards ── */}
         <View style={{ flexDirection: 'row', gap: 12, paddingHorizontal: 20, marginBottom: 24 }}>
           <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 20, padding: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)' }}>
-            <Text style={{ color: '#64748b', fontWeight: '800', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5 }}>Total</Text>
+            <Text style={{ color: '#64748b', fontWeight: '800', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.5 }}>Balance</Text>
             <Text style={{ color: '#4ade80', fontSize: 20, fontWeight: '900', marginTop: 6 }} numberOfLines={1}>
               {formatCurrencyUZS(earnings)}
             </Text>

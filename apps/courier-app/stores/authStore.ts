@@ -1,26 +1,36 @@
 import { create } from 'zustand';
 import type { Courier } from '@repo/shared-types';
-import { COLLECTIONS } from '@repo/shared-types';
+import { COLLECTIONS, DEMO_COURIER } from '@repo/shared-types';
 import {
   db,
   doc,
   getDoc,
-  updateDoc,
+  onSnapshot,
   serverTimestamp,
-  onSnapshot
+  setDoc,
+  updateDoc,
 } from '@repo/firebase-config';
-import { clearCourierIdAsync, getCourierIdAsync, setCourierIdAsync } from '../utils/storage';
+import {
+  getCourierOperationalFields,
+  getDemoCourierDocument,
+  mapCourierDocument,
+} from '../services/courierProfileService';
+import {
+  clearCourierIdAsync,
+  getCourierIdAsync,
+  setCourierIdAsync,
+} from '../utils/storage';
 
 interface AuthState {
   courier: Courier | null;
   isAuthenticated: boolean;
   isOnline: boolean;
   isLoading: boolean;
+  isUpdatingStatus: boolean;
   error: string | null;
-
-  // Actions
   initialize: () => Promise<void>;
   signIn: (courierId: string) => Promise<void>;
+  useDemoCourier: () => Promise<void>;
   signOut: () => Promise<void>;
   toggleOnline: () => Promise<void>;
   clearError: () => void;
@@ -28,138 +38,186 @@ interface AuthState {
 
 let unsubscribeSnapshot: (() => void) | null = null;
 
-export const useAuthStore = create<AuthState>()((set, get) => ({
-  courier: null,
-  isAuthenticated: false,
-  isOnline: false,
-  isLoading: true,
-  error: null,
+const stopProfileSubscription = () => {
+  if (unsubscribeSnapshot) {
+    unsubscribeSnapshot();
+    unsubscribeSnapshot = null;
+  }
+};
 
-  initialize: async () => {
-    try {
-      const savedId = await getCourierIdAsync();
-      if (savedId) {
-        const courierDocRef = doc(db, COLLECTIONS.COURIERS, savedId);
-        const courierSnap = await getDoc(courierDocRef);
+const getReadableError = (error: unknown) => {
+  const code =
+    typeof error === 'object' && error && 'code' in error
+      ? String((error as { code?: unknown }).code)
+      : '';
+  if (code.includes('permission-denied')) {
+    return 'Courier profile access is blocked. Deploy the updated Firestore rules.';
+  }
+  return error instanceof Error ? error.message : 'Unable to connect courier profile.';
+};
 
-        if (courierSnap.exists()) {
-          const courierData = { id: courierSnap.id, ...courierSnap.data() } as Courier;
+export const useAuthStore = create<AuthState>()((set, get) => {
+  const subscribeToProfile = (courierId: string) => {
+    stopProfileSubscription();
+    const courierRef = doc(db, COLLECTIONS.COURIERS, courierId);
+    unsubscribeSnapshot = onSnapshot(
+      courierRef,
+      (snapshot) => {
+        if (!snapshot.exists()) {
+          void clearCourierIdAsync();
+          stopProfileSubscription();
           set({
-            courier: courierData,
-            isAuthenticated: true,
-            isOnline: courierData.isOnline || false,
+            courier: null,
+            isAuthenticated: false,
+            isOnline: false,
             isLoading: false,
-            error: null,
+            error: 'Courier profile not found.',
           });
-
-          // Setup real-time listener for the profile
-          if (unsubscribeSnapshot) unsubscribeSnapshot();
-          unsubscribeSnapshot = onSnapshot(courierDocRef, (snap) => {
-            if (snap.exists()) {
-              const data = { id: snap.id, ...snap.data() } as Courier;
-              set({ courier: data, isOnline: data.isOnline || false });
-            }
-          });
-        } else {
-          await clearCourierIdAsync();
-          set({ isAuthenticated: false, isLoading: false });
+          return;
         }
-      } else {
-        set({ isAuthenticated: false, isLoading: false });
-      }
-    } catch (error) {
-      console.error('Initialize error:', error);
-      set({ isAuthenticated: false, isLoading: false });
-    }
-  },
-
-  signIn: async (courierId: string) => {
-    set({ isLoading: true, error: null });
-    try {
-      const courierDocRef = doc(db, COLLECTIONS.COURIERS, courierId);
-      const courierSnap = await getDoc(courierDocRef);
-
-      if (courierSnap.exists()) {
-        const courierData = { id: courierSnap.id, ...courierSnap.data() } as Courier;
-        await setCourierIdAsync(courierId);
-        
+        const courier = mapCourierDocument(snapshot.id, snapshot.data());
         set({
-          courier: courierData,
+          courier,
           isAuthenticated: true,
-          isOnline: courierData.isOnline || false,
+          isOnline: courier.isOnline,
           isLoading: false,
           error: null,
         });
-
-        if (unsubscribeSnapshot) unsubscribeSnapshot();
-        unsubscribeSnapshot = onSnapshot(courierDocRef, (snap) => {
-          if (snap.exists()) {
-            const data = { id: snap.id, ...snap.data() } as Courier;
-            set({ courier: data, isOnline: data.isOnline || false });
-          }
-        });
-      } else {
-        set({ isLoading: false, error: 'Invalid Courier ID. Not found in couriers collection.' });
+      },
+      (error) => {
+        if (__DEV__) console.warn('courier-profile-listener', error.code);
+        set({ error: getReadableError(error), isLoading: false });
       }
-    } catch (error: any) {
-      set({ isLoading: false, error: error.message || 'Failed to login' });
-    }
-  },
+    );
+  };
 
-  signOut: async () => {
-    try {
-      const { courier } = get();
-      if (courier) {
-        const courierRef = doc(db, COLLECTIONS.COURIERS, courier.id);
-        await updateDoc(courierRef, {
-          isOnline: false,
-          isAvailable: false,
-          updatedAt: serverTimestamp(),
-        });
-      }
-      if (unsubscribeSnapshot) {
-        unsubscribeSnapshot();
-        unsubscribeSnapshot = null;
-      }
-      await clearCourierIdAsync();
-      set({
-        courier: null,
-        isAuthenticated: false,
-        isOnline: false,
-        error: null,
-      });
-    } catch (error) {
-      console.error('Sign out error:', error);
-    }
-  },
+  const connect = async (courierId: string) => {
+    const normalizedId = courierId.trim();
+    if (!normalizedId) throw new Error('Enter a Courier ID.');
 
-  toggleOnline: async () => {
-    const { courier, isOnline } = get();
-    if (!courier) return;
+    const courierRef = doc(db, COLLECTIONS.COURIERS, normalizedId);
+    const snapshot = await getDoc(courierRef);
+    if (!snapshot.exists()) throw new Error('Courier profile not found.');
 
-    const newStatus = !isOnline;
-    // Optimistic update for snappy UI
+    const courier = mapCourierDocument(snapshot.id, snapshot.data());
+    await setCourierIdAsync(snapshot.id);
     set({
-      isOnline: newStatus,
-      courier: { ...courier, isOnline: newStatus, isAvailable: newStatus },
+      courier,
+      isAuthenticated: true,
+      isOnline: courier.isOnline,
+      isLoading: false,
+      error: null,
     });
+    subscribeToProfile(snapshot.id);
+  };
 
-    try {
-      const courierRef = doc(db, COLLECTIONS.COURIERS, courier.id);
-      await updateDoc(courierRef, {
-        isOnline: newStatus,
-        isAvailable: newStatus,
-        updatedAt: serverTimestamp(),
-      });
-    } catch (error) {
-      console.error('Failed to toggle online status:', error);
-      // Revert on failure
-      set({
-        isOnline: !newStatus,
-        courier: { ...courier, isOnline: !newStatus, isAvailable: !newStatus },
-      });
-    }
-  },
+  return {
+    courier: null,
+    isAuthenticated: false,
+    isOnline: false,
+    isLoading: true,
+    isUpdatingStatus: false,
+    error: null,
 
-  clearError: () => set({ error: null }),
-}));
+    initialize: async () => {
+      set({ isLoading: true, error: null });
+      try {
+        const savedId = await getCourierIdAsync();
+        if (!savedId) {
+          set({ isLoading: false, isAuthenticated: false });
+          return;
+        }
+        await connect(savedId);
+      } catch (error) {
+        await clearCourierIdAsync();
+        stopProfileSubscription();
+        set({
+          courier: null,
+          isAuthenticated: false,
+          isOnline: false,
+          isLoading: false,
+          error: getReadableError(error),
+        });
+      }
+    },
+
+    signIn: async (courierId) => {
+      set({ isLoading: true, error: null });
+      try {
+        await connect(courierId);
+      } catch (error) {
+        set({ isLoading: false, error: getReadableError(error) });
+        throw error;
+      }
+    },
+
+    useDemoCourier: async () => {
+      set({ isLoading: true, error: null });
+      try {
+        const courierRef = doc(db, COLLECTIONS.COURIERS, DEMO_COURIER.id);
+        const snapshot = await getDoc(courierRef);
+        if (!snapshot.exists()) {
+          const timestamp = serverTimestamp();
+          await setDoc(courierRef, getDemoCourierDocument(timestamp));
+        }
+        await connect(DEMO_COURIER.id);
+      } catch (error) {
+        set({ isLoading: false, error: getReadableError(error) });
+        throw error;
+      }
+    },
+
+    signOut: async () => {
+      const courier = get().courier;
+      try {
+        if (courier) {
+          const timestamp = serverTimestamp();
+          await updateDoc(
+            doc(db, COLLECTIONS.COURIERS, courier.id),
+            getCourierOperationalFields(false, timestamp, null)
+          );
+        }
+      } catch (error) {
+        if (__DEV__) console.warn('courier-sign-out-status', getReadableError(error));
+      } finally {
+        stopProfileSubscription();
+        await clearCourierIdAsync();
+        set({
+          courier: null,
+          isAuthenticated: false,
+          isOnline: false,
+          isLoading: false,
+          isUpdatingStatus: false,
+          error: null,
+        });
+      }
+    },
+
+    toggleOnline: async () => {
+      const { courier, isOnline } = get();
+      if (!courier) return;
+
+      const nextOnline = !isOnline;
+      set({ isUpdatingStatus: true, error: null });
+      try {
+        const timestamp = serverTimestamp();
+        await updateDoc(
+          doc(db, COLLECTIONS.COURIERS, courier.id),
+          getCourierOperationalFields(
+            nextOnline,
+            timestamp,
+            courier.currentOrderId
+          )
+        );
+      } catch (error) {
+        const message = getReadableError(error);
+        set({ error: message });
+        throw new Error(message);
+      } finally {
+        set({ isUpdatingStatus: false });
+      }
+    },
+
+    clearError: () => set({ error: null }),
+  };
+});

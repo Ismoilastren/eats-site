@@ -134,7 +134,7 @@ export const useEarningsStore = create<EarningsState>()((set, get) => ({
         isLoading: false,
       });
     } catch (error) {
-      console.error('Failed to fetch earnings:', error);
+      console.warn('Failed to fetch earnings:', error);
       set({ isLoading: false, error: 'Failed to load earnings' });
     }
   },
@@ -178,7 +178,7 @@ export const useEarningsStore = create<EarningsState>()((set, get) => ({
         isLoading: false,
       });
     } catch (error) {
-      console.error('Failed to fetch delivery history:', error);
+      console.warn('Failed to fetch delivery history:', error);
       set({ isLoading: false, error: 'Failed to load delivery history' });
     }
   },

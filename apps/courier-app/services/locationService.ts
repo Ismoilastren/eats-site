@@ -73,17 +73,23 @@ export async function startLocationTracking(
       try {
         const courierRef = doc(db, COLLECTIONS.COURIERS, courierId);
         await updateDoc(courierRef, {
+          status: 'busy',
+          isOnline: true,
+          isAvailable: false,
           currentLocation: {
+            lat: location.coords.latitude,
+            lng: location.coords.longitude,
             latitude: location.coords.latitude,
             longitude: location.coords.longitude,
             heading: location.coords.heading ?? 0,
             speed: location.coords.speed ?? 0,
-            timestamp: new Date(),
+            updatedAt: serverTimestamp(),
           },
-          lastLocationUpdate: serverTimestamp(),
+          lastSeenAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
         });
       } catch (error) {
-        console.error('Failed to update courier location in Firestore:', error);
+        if (__DEV__) console.warn('courier-location-watch', error);
       }
     }
   );
@@ -121,17 +127,23 @@ export async function startPeriodicLocationUpdates(
 
       const courierRef = doc(db, COLLECTIONS.COURIERS, courierId);
       await updateDoc(courierRef, {
+        status: 'busy',
+        isOnline: true,
+        isAvailable: false,
         currentLocation: {
+          lat: location.coords.latitude,
+          lng: location.coords.longitude,
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
           heading: location.coords.heading ?? 0,
           speed: location.coords.speed ?? 0,
-          timestamp: new Date(),
+          updatedAt: serverTimestamp(),
         },
-        lastLocationUpdate: serverTimestamp(),
+        lastSeenAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       });
     } catch (error) {
-      console.error('Periodic location update failed:', error);
+      if (__DEV__) console.warn('courier-location-periodic', error);
     }
   }, 5000);
 

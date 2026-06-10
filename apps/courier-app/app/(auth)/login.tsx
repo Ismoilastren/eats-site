@@ -18,7 +18,7 @@ import { useAuthStore } from '../../stores/authStore';
 
 export default function LoginScreen() {
   const [courierId, setCourierId] = useState('');
-  const { signIn, isLoading, error, clearError } = useAuthStore();
+  const { signIn, useDemoCourier, isLoading, error, clearError } = useAuthStore();
 
   const handleLogin = async () => {
     if (!courierId.trim()) {
@@ -111,7 +111,16 @@ export default function LoginScreen() {
             </Text>
           </Pressable>
 
-          {/* Footer */}
+          <Pressable
+            onPress={() => void useDemoCourier().catch(() => undefined)}
+            disabled={isLoading}
+            className="mt-3 items-center rounded-2xl border border-gray-700 bg-gray-900 py-4"
+          >
+            <Text className="text-base font-bold text-gray-200">
+              Use demo courier
+            </Text>
+          </Pressable>
+
           <Text className="mt-6 text-center text-sm text-gray-400">
             Ask an admin if you don't know your ID
           </Text>

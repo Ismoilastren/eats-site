@@ -14,8 +14,8 @@ import {
   formatCurrencyUZS,
   getVehicleLabel,
   hasAssignedCourier,
+  normalizeCanonicalVehicleType,
   normalizeOrderStatus,
-  normalizeVehicleType,
 } from '@repo/shared-types';
 import toast from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
@@ -98,6 +98,19 @@ export default function OrdersPage() {
         ...(nextStatus === 'cancelled' ? { cancelledAt: serverTimestamp(), cancelReason: 'Cancelled by admin' } : {}),
         updatedAt: serverTimestamp()
       });
+      if (
+        currentCourierId &&
+        ['delivered', 'cancelled'].includes(nextStatus)
+      ) {
+        await updateDoc(doc(db, COLLECTIONS.COURIERS, currentCourierId), {
+          currentOrderId: null,
+          status: 'online',
+          isOnline: true,
+          isAvailable: true,
+          lastSeenAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }).catch(() => undefined);
+      }
       toast.success(`Order status updated to ${ORDER_STATUS_LABELS[nextStatus] || nextStatus}`);
     } catch (e) {
       console.error(e);
@@ -112,8 +125,8 @@ export default function OrdersPage() {
       const courier = couriers.find(c => (c.uid || c.id) === courierId);
       const courierName = courier?.displayName || courier?.fullName || courier?.name || 'Assigned Courier';
       const courierPhone = courier?.phone || courier?.phoneNumber || '';
-      const vehicleType = normalizeVehicleType(courier?.vehicleType || courier?.vehicle || courier?.vehicleBrand);
-      const vehicle = [courier?.vehicleBrand, courier?.vehicleModel, courier?.licensePlate].filter(Boolean).join(' ') ||
+      const vehicleType = normalizeCanonicalVehicleType(courier?.vehicleType || courier?.vehicle || courier?.vehicleBrand);
+      const vehicle = [courier?.vehicleName || courier?.vehicleBrand, courier?.vehicleModel, courier?.plateNumber || courier?.licensePlate].filter(Boolean).join(' ') ||
         courier?.vehicle ||
         getVehicleLabel(vehicleType);
 
@@ -133,7 +146,10 @@ export default function OrdersPage() {
 
       await updateDoc(doc(db, COLLECTIONS.COURIERS, courierId), {
         currentOrderId: assignModalData.orderId,
+        status: 'busy',
+        isOnline: true,
         isAvailable: false,
+        lastSeenAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       }).catch(() => undefined);
 

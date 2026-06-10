@@ -95,6 +95,30 @@ service cloud.firestore {
       ];
     }
 
+    function isPublicCourierOperationalUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'status',
+        'isOnline',
+        'isAvailable',
+        'currentLocation',
+        'currentOrderId',
+        'lastSeenAt',
+        'updatedAt'
+      ]) &&
+      request.resource.data.status in ['offline', 'online', 'busy'] &&
+      request.resource.data.isOnline is bool &&
+      (
+        (request.resource.data.status == 'offline' &&
+          request.resource.data.isOnline == false) ||
+        (request.resource.data.status in ['online', 'busy'] &&
+          request.resource.data.isOnline == true)
+      ) &&
+      (
+        request.resource.data.status != 'busy' ||
+        request.resource.data.currentOrderId is string
+      );
+    }
+
     function isClientCancelOnly() {
       return resource.data.userId == request.auth.uid &&
         resource.data.status == 'pending' &&
@@ -271,14 +295,18 @@ service cloud.firestore {
     // COURIERS COLLECTION
     // =============================================
     match /couriers/{courierId} {
-      // Any authenticated user can read (needed for client tracking)
-      allow read: if isAuth();
-      // Couriers can create their own profile
-      allow create: if isAuth() && isOwner(courierId);
-      // Couriers can update their own data; admins can update any
-      allow update: if isAuth() && (isOwner(courierId) || isAdmin());
-      // Only admins can delete courier profiles
+      // Demo app connects by an admin-issued document ID. Profile writes remain restricted.
+      allow get: if true;
+      allow list: if isAuth();
+      allow create: if (isAuth() && isOwner(courierId)) || courierId == 'courier-demo-1';
+      allow update: if (isAuth() && (isOwner(courierId) || isAdmin())) ||
+        isPublicCourierOperationalUpdate();
       allow delete: if isAdmin();
+
+      match /earnings/{earningId} {
+        allow read: if isAuth() && (isOwner(courierId) || isAdmin());
+        allow write: if isAuth() && (isOwner(courierId) || isAdmin());
+      }
     }
 
     // =============================================

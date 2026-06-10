@@ -16,7 +16,6 @@ import {
   limit,
   serverTimestamp,
   runTransaction,
-  increment,
 } from '@repo/firebase-config';
 import type { Unsubscribe } from '@repo/firebase-config';
 import {
@@ -75,7 +74,7 @@ export const useDeliveryStore = create<DeliveryState>()((set, get) => ({
         set({ availableDeliveries: deliveries, isLoadingAvailable: false, error: null });
       },
       (error) => {
-        console.error('Available deliveries subscription error:', error);
+        console.warn('Available deliveries subscription error:', error);
         set({ isLoadingAvailable: false, error: 'Failed to load available deliveries' });
       }
     );
@@ -120,7 +119,7 @@ export const useDeliveryStore = create<DeliveryState>()((set, get) => ({
         processActiveDeliveries();
       },
       (error) => {
-        console.error('Active delivery subscription error 1:', error);
+        console.warn('Active delivery subscription error 1:', error);
         set({ isLoadingActive: false });
       }
     );
@@ -132,7 +131,7 @@ export const useDeliveryStore = create<DeliveryState>()((set, get) => ({
         processActiveDeliveries();
       },
       (error) => {
-        console.error('Active delivery subscription error 2:', error);
+        console.warn('Active delivery subscription error 2:', error);
         set({ isLoadingActive: false });
       }
     );
@@ -172,7 +171,10 @@ export const useDeliveryStore = create<DeliveryState>()((set, get) => ({
 
         transaction.update(courierRef, {
           currentOrderId: orderId,
+          status: 'busy',
+          isOnline: true,
           isAvailable: false,
+          lastSeenAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
       });
@@ -239,9 +241,6 @@ export const useDeliveryStore = create<DeliveryState>()((set, get) => ({
           throw new Error('Order is not ready to be delivered');
         }
 
-        const payout = Number(orderData.deliveryFee || 10000);
-        const safePayout = Number.isFinite(payout) && payout > 0 ? payout : 10000;
-
         transaction.update(orderRef, {
           status: 'delivered',
           deliveredAt: serverTimestamp(),
@@ -249,11 +248,11 @@ export const useDeliveryStore = create<DeliveryState>()((set, get) => ({
         });
 
         transaction.update(courierRef, {
-          totalEarnings: increment(safePayout),
-          totalDeliveries: increment(1),
-          deliveries: increment(1),
           currentOrderId: null,
+          status: 'online',
+          isOnline: true,
           isAvailable: true,
+          lastSeenAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
       });

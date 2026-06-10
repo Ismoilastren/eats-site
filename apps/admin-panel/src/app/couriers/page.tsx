@@ -1,24 +1,32 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { db, collection, query, doc, setDoc, onSnapshot, updateDoc, deleteDoc } from '@repo/firebase-config';
-import { COLLECTIONS } from '@repo/shared-types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { db, collection, query, doc, setDoc, onSnapshot, updateDoc, deleteDoc, serverTimestamp } from '@repo/firebase-config';
+import { COLLECTIONS, normalizeCanonicalVehicleType, normalizeOrderStatus } from '@repo/shared-types';
 import type { Courier, VehicleType } from '@repo/shared-types';
 import toast from 'react-hot-toast';
 
-const StatusBadge = ({ online }: { online?: boolean }) => (
+const StatusBadge = ({ online, status }: { online?: boolean; status?: string }) => {
+  const normalizedStatus = status === 'busy' ? 'busy' : online ? 'online' : 'offline';
+  const active = normalizedStatus !== 'offline';
+  return (
   <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold uppercase tracking-wider ${
-    online
+    normalizedStatus === 'busy'
+      ? 'bg-orange-100 text-orange-700 border border-orange-200 dark:bg-orange-500/15 dark:text-orange-400 dark:border-orange-500/30'
+      : active
       ? 'bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-400 dark:border-emerald-500/30'
       : 'bg-red-100 text-red-700 border border-red-200 dark:bg-red-500/15 dark:text-red-400 dark:border-red-500/30'
   }`}>
-    <span className={`h-1.5 w-1.5 rounded-full ${online ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-red-500 dark:bg-red-400'}`} />
-    {online ? 'Online' : 'Offline'}
+    <span className={`h-1.5 w-1.5 rounded-full ${normalizedStatus === 'busy' ? 'bg-orange-500' : active ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-red-500 dark:bg-red-400'}`} />
+    {normalizedStatus}
   </span>
-);
+  );
+};
 
 const vehicleEmoji: Record<string, string> = {
   bicycle: '🚲',
+  motorbike: '🏍️',
+  scooter: '🛵',
   motorcycle: '🏍️',
   car: '🚗',
   foot: '🚶',
@@ -85,13 +93,13 @@ const FormFields = ({
         onChange={(e) => setForm({ ...form, vehicleType: e.target.value as VehicleType })}
         className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
       >
-        <option value="foot">🚶 On Foot</option>
         <option value="bicycle">🚲 Bicycle</option>
-        <option value="motorcycle">🏍️ Motorcycle</option>
+        <option value="scooter">🛵 Scooter</option>
+        <option value="motorbike">🏍️ Motorbike</option>
         <option value="car">🚗 Car</option>
       </select>
     </div>
-    {(form.vehicleType === 'car' || form.vehicleType === 'motorcycle') && (
+    {(form.vehicleType === 'car' || form.vehicleType === 'motorbike') && (
       <>
         <div>
           <label className="block text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">Vehicle Brand (Optional)</label>
@@ -134,6 +142,7 @@ const FormFields = ({
 
 export default function CouriersPage() {
   const [couriers, setCouriers] = useState<Courier[]>([]);
+  const [courierOrders, setCourierOrders] = useState<Array<Record<string, unknown>>>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -167,6 +176,38 @@ export default function CouriersPage() {
     return () => unsub();
   }, []);
 
+  useEffect(() => {
+    const unsub = onSnapshot(
+      query(collection(db, COLLECTIONS.ORDERS)),
+      (snapshot) => {
+        setCourierOrders(snapshot.docs.map((order) => ({
+          id: order.id,
+          ...order.data(),
+        })));
+      },
+      (error) => {
+        console.error('Courier order metrics fetch error:', error);
+      }
+    );
+    return () => unsub();
+  }, []);
+
+  const courierMetrics = useMemo(() => {
+    const metrics = new Map<string, { completedOrders: number; deliveryEarnings: number }>();
+    courierOrders.forEach((order) => {
+      if (normalizeOrderStatus(String(order.status || '')) !== 'delivered') return;
+      const assigned = order.assignedCourier as { id?: unknown } | null | undefined;
+      const courierId = String(assigned?.id || order.courierId || '');
+      if (!courierId) return;
+      const current = metrics.get(courierId) || { completedOrders: 0, deliveryEarnings: 0 };
+      const fee = Number(order.deliveryFee || 0);
+      current.completedOrders += 1;
+      current.deliveryEarnings += Number.isFinite(fee) ? fee : 0;
+      metrics.set(courierId, current);
+    });
+    return metrics;
+  }, [courierOrders]);
+
   // ─── COPY ID ───
   const copyId = (id: string) => {
     navigator.clipboard.writeText(id).then(() => {
@@ -192,21 +233,31 @@ export default function CouriersPage() {
       const newId = 'courier_' + Date.now().toString();
       const data: any = {
         id: newId,
+        name: form.fullName.trim(),
         fullName: form.fullName.trim(),
         displayName: form.fullName.trim(),
         phone: form.phone.trim(),
-        vehicleType: form.vehicleType,
+        vehicleType: normalizeCanonicalVehicleType(form.vehicleType),
+        vehicleName: form.vehicleBrand.trim() || null,
+        plateNumber: form.licensePlate.toUpperCase() || null,
+        status: 'offline',
         isOnline: false,
         isAvailable: false,
+        currentOrderId: null,
+        currentLocation: null,
+        completedOrders: 0,
+        deliveries: 0,
         totalDeliveries: 0,
         totalEarnings: 0,
         todayEarnings: 0,
+        weeklyEarnings: 0,
         todayDeliveries: 0,
         rating: 5.0,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        lastSeenAt: serverTimestamp(),
       };
-      if (form.vehicleType === 'car' || form.vehicleType === 'motorcycle') {
+      if (form.vehicleType === 'car' || form.vehicleType === 'motorbike') {
         if (form.licensePlate) data.licensePlate = form.licensePlate.toUpperCase();
         if (form.vehicleBrand) data.vehicleBrand = form.vehicleBrand;
       }
@@ -229,13 +280,16 @@ export default function CouriersPage() {
     setIsSubmitting(true);
     try {
       const updates: any = {
+        name: form.fullName.trim(),
         fullName: form.fullName.trim(),
         displayName: form.fullName.trim(),
         phone: form.phone.trim(),
-        vehicleType: form.vehicleType,
-        updatedAt: new Date(),
+        vehicleType: normalizeCanonicalVehicleType(form.vehicleType),
+        vehicleName: form.vehicleBrand.trim() || null,
+        plateNumber: form.licensePlate.toUpperCase() || null,
+        updatedAt: serverTimestamp(),
       };
-      if (form.vehicleType === 'car' || form.vehicleType === 'motorcycle') {
+      if (form.vehicleType === 'car' || form.vehicleType === 'motorbike') {
         updates.licensePlate = form.licensePlate.toUpperCase();
         updates.vehicleBrand = form.vehicleBrand;
       }
@@ -270,9 +324,9 @@ export default function CouriersPage() {
     setForm({
       fullName: (courier as any).fullName || courier.displayName || '',
       phone: courier.phone || '',
-      vehicleType: courier.vehicleType || 'bicycle',
-      licensePlate: courier.licensePlate || '',
-      vehicleBrand: (courier as any).vehicleBrand || '',
+      vehicleType: normalizeCanonicalVehicleType(courier.vehicleType),
+      licensePlate: courier.plateNumber || courier.licensePlate || '',
+      vehicleBrand: courier.vehicleName || courier.vehicleBrand || '',
     });
     setShowEditModal(true);
   };
@@ -308,9 +362,9 @@ export default function CouriersPage() {
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         {[
           { label: 'Total Couriers', value: couriers.length, color: 'text-gray-900 dark:text-white' },
-          { label: 'Online Now', value: couriers.filter((c) => c.isOnline).length, color: 'text-emerald-600 dark:text-emerald-400' },
-          { label: 'Offline', value: couriers.filter((c) => !c.isOnline).length, color: 'text-red-600 dark:text-red-400' },
-          { label: 'Available', value: couriers.filter((c) => (c as any).isAvailable).length, color: 'text-orange-600 dark:text-orange-400' },
+          { label: 'Online Now', value: couriers.filter((c) => c.isOnline || c.status === 'online' || c.status === 'busy').length, color: 'text-emerald-600 dark:text-emerald-400' },
+          { label: 'Offline', value: couriers.filter((c) => !c.isOnline && c.status !== 'online' && c.status !== 'busy').length, color: 'text-red-600 dark:text-red-400' },
+          { label: 'Available', value: couriers.filter((c) => (c.status === 'online' || c.isOnline) && !c.currentOrderId).length, color: 'text-orange-600 dark:text-orange-400' },
         ].map((stat) => (
           <div
             key={stat.label}
@@ -364,8 +418,9 @@ export default function CouriersPage() {
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-slate-700/60">
                 {filtered.map((courier) => {
-                  const name = (courier as any).fullName || courier.displayName || 'Unknown';
+                  const name = courier.name || courier.fullName || courier.displayName || 'Unknown';
                   const isCopied = copiedId === courier.id;
+                  const metrics = courierMetrics.get(courier.id) || { completedOrders: 0, deliveryEarnings: 0 };
                   return (
                     <tr key={courier.id} className="transition-colors hover:bg-gray-50 dark:hover:bg-slate-700/40">
 
@@ -405,24 +460,26 @@ export default function CouriersPage() {
                       {/* Vehicle */}
                       <td className="px-5 py-4">
                         <span className="text-gray-800 dark:text-slate-300 capitalize">
-                          {vehicleEmoji[courier.vehicleType || 'foot']} {(courier as any).vehicleBrand || courier.vehicleType || 'N/A'}
+                          {vehicleEmoji[courier.vehicleType || 'bicycle']} {courier.vehicleName || courier.vehicleBrand || courier.vehicleType || 'N/A'}
                         </span>
-                        {courier.licensePlate && (
-                          <p className="text-xs text-gray-500 dark:text-slate-500 mt-0.5">{courier.licensePlate}</p>
+                        {(courier.plateNumber || courier.licensePlate) && (
+                          <p className="text-xs text-gray-500 dark:text-slate-500 mt-0.5">{courier.plateNumber || courier.licensePlate}</p>
                         )}
                       </td>
 
                       {/* Earnings */}
                       <td className="px-5 py-4">
                         <p className="text-emerald-600 dark:text-emerald-400 font-bold">
-                          {Number(courier.totalEarnings || 0).toLocaleString('ru-RU')} UZS
+                          Balance: {Number(courier.totalEarnings || 0).toLocaleString('ru-RU')} UZS
                         </p>
-                        <p className="text-xs text-gray-500 dark:text-slate-500">{(courier as any).deliveries || courier.totalDeliveries || 0} deliveries</p>
+                        <p className="text-xs text-gray-500 dark:text-slate-500">
+                          {metrics.completedOrders} delivered · {metrics.deliveryEarnings.toLocaleString('ru-RU')} UZS earned
+                        </p>
                       </td>
 
                       {/* Status */}
                       <td className="px-5 py-4">
-                        <StatusBadge online={courier.isOnline} />
+                        <StatusBadge online={courier.isOnline} status={courier.status} />
                       </td>
 
                       {/* Actions */}
@@ -487,11 +544,11 @@ export default function CouriersPage() {
             </div>
             <div>
               <h3 className="text-lg font-bold text-gray-900 dark:text-white">
-                {(selectedCourier as any).fullName || selectedCourier.displayName}
+                {selectedCourier.name || selectedCourier.fullName || selectedCourier.displayName}
               </h3>
               <p className="text-sm text-gray-500 dark:text-slate-400">{selectedCourier.phone}</p>
               <div className="mt-1.5">
-                <StatusBadge online={selectedCourier.isOnline} />
+                <StatusBadge online={selectedCourier.isOnline} status={selectedCourier.status} />
               </div>
             </div>
           </div>
@@ -517,9 +574,9 @@ export default function CouriersPage() {
           {/* Stats grid */}
           <div className="grid grid-cols-2 gap-3 mb-6">
             {[
-              { label: 'Total Earnings', value: `${Number(selectedCourier.totalEarnings || 0).toLocaleString('ru-RU')} UZS`, color: 'text-emerald-600 dark:text-emerald-400' },
+              { label: 'Admin Balance', value: `${Number(selectedCourier.totalEarnings || 0).toLocaleString('ru-RU')} UZS`, color: 'text-emerald-600 dark:text-emerald-400' },
               { label: "Today's Earnings", value: `${Number(selectedCourier.todayEarnings || 0).toLocaleString('ru-RU')} UZS`, color: 'text-orange-600 dark:text-orange-400' },
-              { label: 'Total Deliveries', value: String(selectedCourier.totalDeliveries || 0), color: 'text-gray-900 dark:text-white' },
+              { label: 'Delivered Orders', value: String(courierMetrics.get(selectedCourier.id)?.completedOrders || 0), color: 'text-gray-900 dark:text-white' },
               { label: 'Rating', value: `★ ${selectedCourier.rating?.toFixed(1) || '5.0'}`, color: 'text-yellow-600 dark:text-yellow-400' },
             ].map((s) => (
               <div key={s.label} className="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-slate-700 dark:bg-slate-700/60">

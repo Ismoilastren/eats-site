@@ -9,10 +9,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { getCourierIdAsync } from '../../utils/storage';
 import {
   db,
-  doc,
   collection,
   query,
   where,
@@ -24,15 +22,7 @@ import {
   isTerminalOrderStatus,
   normalizeOrderStatus,
 } from '@repo/shared-types';
-
-interface CourierDoc {
-  id: string;
-  name?: string;
-  displayName?: string;
-  fullName?: string;
-  totalEarnings?: number | string | null;
-  deliveries?: number | string | null;
-}
+import { useAuthStore } from '../../stores/authStore';
 
 interface DeliveredOrder {
   id: string;
@@ -85,52 +75,13 @@ const toMoneyNumber = (value: number | string | null | undefined) => {
   return Number.isFinite(amount) ? amount : 0;
 };
 
-const getCourierName = (courier: CourierDoc | null) =>
-  String(courier?.name || courier?.displayName || courier?.fullName || '').trim();
-
 export default function EarningsScreen() {
-  const [courierId, setCourierId] = useState<string | null>(null);
-  const [courier, setCourier] = useState<CourierDoc | null>(null);
+  const courier = useAuthStore((state) => state.courier);
+  const isBooting = useAuthStore((state) => state.isLoading);
+  const courierId = courier?.id || null;
   const [history, setHistory] = useState<DeliveredOrder[]>([]);
-  const [isBooting, setIsBooting] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const saved = await getCourierIdAsync();
-        setCourierId(saved);
-      } catch (error) {
-        console.log('Failed to load courier id', error);
-      } finally {
-        setIsBooting(false);
-      }
-    })();
-  }, []);
-
-  useEffect(() => {
-    if (!courierId) {
-      setCourier(null);
-      return;
-    }
-
-    const unsub = onSnapshot(
-      doc(db, 'couriers', courierId),
-      (snapshot) => {
-        if (!snapshot.exists()) {
-          setCourier(null);
-          return;
-        }
-        setCourier({ id: snapshot.id, ...snapshot.data() } as CourierDoc);
-      },
-      (error) => {
-        console.error('Courier earnings doc listener failed:', error);
-      }
-    );
-
-    return () => unsub();
-  }, [courierId]);
 
   useEffect(() => {
     if (!courierId) {
@@ -139,38 +90,70 @@ export default function EarningsScreen() {
     }
 
     setIsLoading(true);
-    const q = query(
+    const assignedQuery = query(
       collection(db, 'orders'),
       where('assignedCourier.id', '==', courierId)
     );
+    const legacyQuery = query(
+      collection(db, 'orders'),
+      where('courierId', '==', courierId)
+    );
+    let assignedOrders: DeliveredOrder[] = [];
+    let legacyOrders: DeliveredOrder[] = [];
 
-    const unsub = onSnapshot(
-      q,
+    const mergeHistory = () => {
+      const deliveredById = new Map<string, DeliveredOrder>();
+      [...assignedOrders, ...legacyOrders].forEach((order) => {
+        if (normalizeOrderStatus(order.status) === 'delivered') {
+          deliveredById.set(order.id, order);
+        }
+      });
+      const delivered = Array.from(deliveredById.values());
+
+      delivered.sort((a, b) => {
+        const aDate = toDate(a.deliveredAt) || toDate(a.updatedAt) || toDate(a.createdAt) || new Date(0);
+        const bDate = toDate(b.deliveredAt) || toDate(b.updatedAt) || toDate(b.createdAt) || new Date(0);
+        return bDate.getTime() - aDate.getTime();
+      });
+
+      setHistory(delivered);
+      setIsLoading(false);
+    };
+
+    const unsubscribeAssigned = onSnapshot(
+      assignedQuery,
       (snapshot) => {
-        const delivered: DeliveredOrder[] = [];
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          if (normalizeOrderStatus(data.status) === 'delivered') {
-            delivered.push({ id: docSnap.id, ...data } as DeliveredOrder);
-          }
-        });
-
-        delivered.sort((a, b) => {
-          const aDate = toDate(a.createdAt) || toDate(a.deliveredAt) || toDate(a.updatedAt) || new Date(0);
-          const bDate = toDate(b.createdAt) || toDate(b.deliveredAt) || toDate(b.updatedAt) || new Date(0);
-          return bDate.getTime() - aDate.getTime();
-        });
-
-        setHistory(delivered);
-        setIsLoading(false);
+        assignedOrders = snapshot.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...docSnap.data(),
+        } as DeliveredOrder));
+        mergeHistory();
       },
       (error) => {
-        console.error('Delivery history listener failed:', error);
+        if (__DEV__) console.warn('earnings-assigned-orders', error.code);
         setIsLoading(false);
       }
     );
 
-    return () => unsub();
+    const unsubscribeLegacy = onSnapshot(
+      legacyQuery,
+      (snapshot) => {
+        legacyOrders = snapshot.docs.map((docSnap) => ({
+          id: docSnap.id,
+          ...docSnap.data(),
+        } as DeliveredOrder));
+        mergeHistory();
+      },
+      (error) => {
+        if (__DEV__) console.warn('earnings-legacy-orders', error.code);
+        setIsLoading(false);
+      }
+    );
+
+    return () => {
+      unsubscribeAssigned();
+      unsubscribeLegacy();
+    };
   }, [courierId]);
 
   const stats = useMemo(() => {
@@ -180,7 +163,7 @@ export default function EarningsScreen() {
     let week = 0;
 
     history.forEach((order) => {
-      const deliveredDate = toDate(order.createdAt) || toDate(order.deliveredAt) || toDate(order.updatedAt);
+      const deliveredDate = toDate(order.deliveredAt) || toDate(order.updatedAt) || toDate(order.createdAt);
       if (!deliveredDate) return;
       const timestamp = deliveredDate.getTime();
       const fee = toMoneyNumber(order.deliveryFee);
@@ -191,9 +174,9 @@ export default function EarningsScreen() {
     return {
       today,
       week,
-      deliveriesCount: Number(courier?.deliveries ?? 0) || 0,
+      deliveriesCount: history.length,
       totalEarnings: toMoneyNumber(courier?.totalEarnings),
-      courierName: getCourierName(courier),
+      courierName: courier?.name || '',
     };
   }, [courier, history]);
 
@@ -249,7 +232,7 @@ export default function EarningsScreen() {
         <View style={styles.glowCard}>
           <View style={styles.glowTopRow}>
             <View>
-              <Text style={styles.cardLabel}>TOTAL EARNINGS</Text>
+              <Text style={styles.cardLabel}>COURIER BALANCE</Text>
               <Text style={styles.totalAmount}>
                 {formatCurrencyUZS(stats.totalEarnings)}
               </Text>

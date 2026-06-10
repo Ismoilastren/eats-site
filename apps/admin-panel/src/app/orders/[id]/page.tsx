@@ -11,6 +11,7 @@ import {
   formatFirestoreDate,
   getVehicleLabel,
   hasAssignedCourier,
+  normalizeCanonicalVehicleType,
   normalizeOrderStatus,
   normalizeVehicleType,
 } from "@repo/shared-types";
@@ -165,6 +166,20 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
       }
 
       await updateDoc(orderRef, updateData);
+      const assignedCourierId = order.assignedCourier?.id || order.courierId;
+      if (
+        assignedCourierId &&
+        ['delivered', 'cancelled'].includes(nextStatus)
+      ) {
+        await updateDoc(doc(db, COLLECTIONS.COURIERS, assignedCourierId), {
+          currentOrderId: null,
+          status: 'online',
+          isOnline: true,
+          isAvailable: true,
+          lastSeenAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }).catch(() => undefined);
+      }
       toast.success(`Status updated to ${nextStatus.replace(/_/g, ' ')}`);
     } catch (error) {
       console.error("Status Update Error:", error);
@@ -186,8 +201,8 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
 
         const name = cData.displayName || cData.fullName || cData.name || 'Courier';
         const phone = cData.phone || cData.phoneNumber || '';
-        const vehicleType = normalizeVehicleType(cData.vehicleType || cData.vehicle || cData.vehicleBrand);
-        const vehicle = [cData.vehicleBrand, cData.vehicleModel, cData.licensePlate].filter(Boolean).join(' ') ||
+        const vehicleType = normalizeCanonicalVehicleType(cData.vehicleType || cData.vehicle || cData.vehicleBrand);
+        const vehicle = [cData.vehicleName || cData.vehicleBrand, cData.vehicleModel, cData.plateNumber || cData.licensePlate].filter(Boolean).join(' ') ||
           cData.vehicle ||
           getVehicleLabel(vehicleType);
 
@@ -216,7 +231,10 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
         if (courierSnap.exists()) {
           await updateDoc(courierRef, {
             currentOrderId: order.id,
+            status: 'busy',
+            isOnline: true,
             isAvailable: false,
+            lastSeenAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           });
         }

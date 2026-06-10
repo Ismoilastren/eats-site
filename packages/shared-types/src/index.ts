@@ -16,7 +16,15 @@ export {
   ORDER_STATUS_LABELS,
   ORDER_STATUS_COLORS,
 } from './order';
-export type { Courier, CourierLocation, VehicleType, DeliveryEarning } from './courier';
+export type {
+  CanonicalVehicleType,
+  Courier,
+  CourierLocation,
+  CourierStatus,
+  DeliveryEarning,
+  LegacyVehicleType,
+  VehicleType,
+} from './courier';
 export {
   ACTIVE_COURIER_STATUSES,
   COURIER_RADAR_STATUSES,
@@ -37,6 +45,7 @@ export {
   hasAssignedCourier,
   isTerminalOrderStatus,
   normalizeCoordinate,
+  normalizeCanonicalVehicleType,
   normalizeOrderStatus,
   normalizeVehicleType,
 } from './runtime';
@@ -58,4 +67,14 @@ export const COLLECTIONS = {
   ORDERS: 'orders',
   COURIERS: 'couriers',
   PAYMENTS: 'payments',
+} as const;
+
+// =============================================
+// DEMO IDENTITY
+// =============================================
+export const DEMO_COURIER = {
+  id: 'courier-demo-1',
+  name: 'Demo Courier',
+  phone: '+998 90 123 45 67',
+  vehicleType: 'bicycle',
 } as const;

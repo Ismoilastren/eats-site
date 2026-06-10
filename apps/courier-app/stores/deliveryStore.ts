@@ -27,6 +27,7 @@ import {
 
 interface DeliveryState {
   availableDeliveries: Order[];
+  activeDeliveries: Order[];
   activeDelivery: Order | null;
   isLoadingAvailable: boolean;
   isLoadingActive: boolean;
@@ -44,6 +45,7 @@ interface DeliveryState {
 
 export const useDeliveryStore = create<DeliveryState>()((set, get) => ({
   availableDeliveries: [],
+  activeDeliveries: [],
   activeDelivery: null,
   isLoadingAvailable: true,
   isLoadingActive: false,
@@ -55,7 +57,7 @@ export const useDeliveryStore = create<DeliveryState>()((set, get) => ({
     const ordersRef = collection(db, COLLECTIONS.ORDERS);
     const q = query(
       ordersRef,
-      where('status', '==', 'ready_for_pickup'),
+      where('status', 'in', ['preparing', 'ready_for_pickup']),
       where('assignedCourier', '==', null),
       limit(PAGE_SIZE)
     );
@@ -66,7 +68,7 @@ export const useDeliveryStore = create<DeliveryState>()((set, get) => ({
         const deliveries: Order[] = [];
         snapshot.forEach((docSnap) => {
           const data = docSnap.data();
-          if (normalizeOrderStatus(data.status) === 'ready_for_pickup' && !data.courierId && !data.assignedCourier) {
+          if (['preparing', 'ready_for_pickup'].includes(normalizeOrderStatus(data.status)) && !data.courierId && !data.assignedCourier) {
             deliveries.push({ id: docSnap.id, ...data } as Order);
           }
         });
@@ -85,35 +87,60 @@ export const useDeliveryStore = create<DeliveryState>()((set, get) => ({
     set({ isLoadingActive: true });
 
     const ordersRef = collection(db, COLLECTIONS.ORDERS);
-    const q = query(
-      ordersRef,
-      where('assignedCourier.id', '==', courierId)
-    );
 
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const activeDoc = snapshot.docs.find((docSnap) => {
-          const status = normalizeOrderStatus(docSnap.data().status);
-          return ACTIVE_COURIER_STATUSES.includes(status) && !isTerminalOrderStatus(status);
-        });
+    // Use separate simple queries and merge in memory to avoid composite index requirements
+    const q1 = query(ordersRef, where('assignedCourier.id', '==', courierId));
+    const q2 = query(ordersRef, where('courierId', '==', courierId));
 
-        if (activeDoc) {
-          set({
-            activeDelivery: { id: activeDoc.id, ...activeDoc.data() } as Order,
-            isLoadingActive: false,
-          });
-        } else {
-          set({ activeDelivery: null, isLoadingActive: false });
+    let list1: Order[] = [];
+    let list2: Order[] = [];
+
+    const processActiveDeliveries = () => {
+      const mergedMap = new Map<string, Order>();
+      [...list1, ...list2].forEach((order) => {
+        const status = normalizeOrderStatus(order.status);
+        if (ACTIVE_COURIER_STATUSES.includes(status) && !isTerminalOrderStatus(status)) {
+          mergedMap.set(order.id, order);
         }
+      });
+
+      const allActives = Array.from(mergedMap.values());
+      const activeDoc = allActives[0];
+      if (activeDoc) {
+        set({ activeDeliveries: allActives, activeDelivery: activeDoc, isLoadingActive: false });
+      } else {
+        set({ activeDeliveries: [], activeDelivery: null, isLoadingActive: false });
+      }
+    };
+
+    const unsub1 = onSnapshot(
+      q1,
+      (snapshot) => {
+        list1 = snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as Order));
+        processActiveDeliveries();
       },
       (error) => {
-        console.error('Active delivery subscription error:', error);
+        console.error('Active delivery subscription error 1:', error);
         set({ isLoadingActive: false });
       }
     );
 
-    return unsubscribe;
+    const unsub2 = onSnapshot(
+      q2,
+      (snapshot) => {
+        list2 = snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as Order));
+        processActiveDeliveries();
+      },
+      (error) => {
+        console.error('Active delivery subscription error 2:', error);
+        set({ isLoadingActive: false });
+      }
+    );
+
+    return () => {
+      unsub1();
+      unsub2();
+    };
   },
 
   acceptDelivery: async (orderId, courierId, courierName, courierPhone) => {
@@ -127,7 +154,7 @@ export const useDeliveryStore = create<DeliveryState>()((set, get) => ({
 
         const orderData = orderSnap.data();
         const status = normalizeOrderStatus(orderData.status);
-        if (status !== 'ready_for_pickup' || orderData.courierId || orderData.assignedCourier) {
+        if (!['preparing', 'ready_for_pickup'].includes(status) || orderData.courierId || orderData.assignedCourier) {
           throw new Error('Order is no longer available');
         }
 

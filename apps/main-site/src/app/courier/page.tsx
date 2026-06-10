@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import { ArrowLeft, Bike, CheckCircle2, MapPin, Phone } from 'lucide-react';
 import type { LocalOrder } from '@/context/MarketplaceContext';
 import { assignOrderToCourier, getAvailableCourierOrders, subscribeToOrders, updateOrderStatus, type OrderStatus } from '@/services/marketplace';
+import { getNextCourierStatus } from '@repo/shared-types';
 import { ModeBadge, money, RefreshButton, StatCard, StatusBadge } from '@/components/ops/OpsUi';
 import { useEffect } from 'react';
 
@@ -13,12 +14,6 @@ const DEMO_COURIER = {
   name: 'Demo Courier',
   phone: '+998 90 555 21 13',
   vehicle: 'Bicycle',
-};
-
-const nextCourierStatus: Partial<Record<OrderStatus, OrderStatus>> = {
-  ready_for_pickup: 'picked_up',
-  picked_up: 'on_the_way',
-  on_the_way: 'delivered',
 };
 
 export default function CourierPage() {
@@ -45,7 +40,7 @@ export default function CourierPage() {
     const unsubscribe = subscribeToOrders(
       (records) => {
         setOrders(records);
-        setAvailable(records.filter((order) => order.status === 'ready_for_pickup' && !order.assignedCourier));
+        setAvailable(records.filter((order) => ['preparing', 'ready_for_pickup'].includes(order.status) && !order.assignedCourier));
         setLoading(false);
       },
       (subscriptionError) => {
@@ -56,8 +51,8 @@ export default function CourierPage() {
     return unsubscribe;
   }, []);
 
-  const assigned = useMemo(() => orders.filter((order) => order.assignedCourier?.id === DEMO_COURIER.id && !['delivered', 'cancelled', 'rejected'].includes(order.status)), [orders]);
-  const deliveredToday = orders.filter((order) => order.assignedCourier?.id === DEMO_COURIER.id && order.status === 'delivered' && new Date(order.createdAt).toDateString() === new Date().toDateString());
+  const assigned = useMemo(() => orders.filter((order) => (order.assignedCourier?.id === DEMO_COURIER.id || order.courierId === DEMO_COURIER.id) && !['delivered', 'cancelled', 'rejected'].includes(order.status)), [orders]);
+  const deliveredToday = orders.filter((order) => (order.assignedCourier?.id === DEMO_COURIER.id || order.courierId === DEMO_COURIER.id) && order.status === 'delivered' && new Date(order.createdAt).toDateString() === new Date().toDateString());
   const earningsToday = deliveredToday.reduce((sum, order) => sum + Number(order.deliveryFee || 0), 0);
 
   const acceptOrder = async (orderId: string) => {
@@ -109,7 +104,7 @@ export default function CourierPage() {
         {error && <p className="mt-5 rounded-2xl bg-red-50 px-4 py-3 font-black text-red-600">{error}</p>}
 
         <section className="mt-6 rounded-[32px] bg-white p-5 shadow-sm ring-1 ring-black/5">
-          <h2 className="text-3xl font-black">Available ready-for-pickup orders</h2>
+          <h2 className="text-3xl font-black">Available orders</h2>
           <div className="mt-5 grid gap-4 lg:grid-cols-2">
             {loading ? (
               <div className="h-48 animate-pulse rounded-[24px] bg-gray-100 lg:col-span-2" />
@@ -127,7 +122,7 @@ export default function CourierPage() {
             {assigned.length === 0 ? (
               <EmptyCourierState text="No assigned active orders." />
             ) : assigned.map((order) => {
-              const next = nextCourierStatus[order.status];
+              const next = getNextCourierStatus(order.status as OrderStatus);
               return (
                 <CourierOrderCard
                   key={order.id}

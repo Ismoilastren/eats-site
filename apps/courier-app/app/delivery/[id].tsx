@@ -12,7 +12,7 @@ import {
   runTransaction,
   increment,
 } from '@repo/firebase-config';
-import { COLLECTIONS, isTerminalOrderStatus, normalizeOrderStatus, Order } from '@repo/shared-types';
+import { COLLECTIONS, isTerminalOrderStatus, normalizeOrderStatus, Order, getNextCourierStatus } from '@repo/shared-types';
 
 export default function ActiveDeliveryScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -122,6 +122,7 @@ export default function ActiveDeliveryScreen() {
     }
   };
 
+
   const advanceStatus = async () => {
     if (!order) return;
     const currentStatus = normalizeOrderStatus(order.status);
@@ -129,12 +130,7 @@ export default function ActiveDeliveryScreen() {
       await markDelivered();
       return;
     }
-    const nextStatus =
-      currentStatus === 'ready_for_pickup'
-        ? 'picked_up'
-        : currentStatus === 'picked_up'
-          ? 'on_the_way'
-          : null;
+    const nextStatus = getNextCourierStatus(currentStatus);
     if (!nextStatus) return;
 
     try {
@@ -155,15 +151,17 @@ export default function ActiveDeliveryScreen() {
     );
   }
   const normalizedStatus = normalizeOrderStatus(order.status);
-  const canAdvance = ['ready_for_pickup', 'picked_up', 'on_the_way'].includes(normalizedStatus);
+  const canAdvance = ['preparing', 'ready_for_pickup', 'picked_up', 'on_the_way'].includes(normalizedStatus);
   const actionLabel =
-    normalizedStatus === 'ready_for_pickup'
-      ? 'PICKED UP'
-      : normalizedStatus === 'picked_up'
-        ? 'START DELIVERY'
-        : normalizedStatus === 'on_the_way'
-          ? 'DELIVERED'
-          : 'WAITING';
+    normalizedStatus === 'preparing'
+      ? 'ARRIVED (FOOD READY)'
+      : normalizedStatus === 'ready_for_pickup'
+        ? 'PICKED UP'
+        : normalizedStatus === 'picked_up'
+          ? 'START DELIVERY'
+          : normalizedStatus === 'on_the_way'
+            ? 'DELIVERED'
+            : 'WAITING';
 
   return (
     <SafeAreaView className="flex-1 bg-gray-50">

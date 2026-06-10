@@ -173,6 +173,7 @@ export async function createOrder(orderInput: MarketplaceOrderInput): Promise<Lo
     restaurantId: orderInput.restaurantId,
     restaurantName: orderInput.restaurantName,
     restaurantLocation: orderInput.restaurantLocation || { lat: 41.311081, lng: 69.240562 },
+    restaurantAddress: orderInput.restaurantLocation?.address || '',
     items: orderInput.items.map((item) => ({
       id: item.id,
       name: item.name,
@@ -255,7 +256,7 @@ export async function getOrdersByRestaurant(restaurantId: string): Promise<Local
 
 export async function getAvailableCourierOrders(): Promise<LocalOrder[]> {
   const orders = await getAllOrders();
-  return orders.filter((order) => order.status === 'ready_for_pickup' && !order.assignedCourier);
+  return orders.filter((order) => ['preparing', 'ready_for_pickup'].includes(order.status) && !order.assignedCourier);
 }
 
 export async function assignOrderToCourier(orderId: string, courier: DemoCourier): Promise<void> {

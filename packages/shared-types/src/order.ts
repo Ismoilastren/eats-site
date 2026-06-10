@@ -99,7 +99,7 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   on_the_way: 'On the Way',
   delivered: 'Delivered',
   cancelled: 'Cancelled',
-  rejected: 'Rejected',
+  rejected: 'Cancelled (Rejected)',
 };
 
 export const ORDER_STATUS_COLORS: Record<OrderStatus, string> = {

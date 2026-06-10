@@ -203,31 +203,51 @@ export default function ActiveScreen() {
     }
 
     setIsLoading(true);
-    const q = query(
-      collection(db, 'orders'),
-      where('assignedCourier.id', '==', courierId)
-    );
+    const q1 = query(collection(db, 'orders'), where('assignedCourier.id', '==', courierId));
+    const q2 = query(collection(db, 'orders'), where('courierId', '==', courierId));
 
-    const unsub = onSnapshot(
-      q,
+    let list1: OrderDoc[] = [];
+    let list2: OrderDoc[] = [];
+
+    const mergeAndSet = () => {
+      const mergedMap = new Map<string, OrderDoc>();
+      [...list1, ...list2].forEach((data) => {
+        if (!isTerminalOrderStatus(data.status)) {
+          mergedMap.set(data.id, data);
+        }
+      });
+      setActiveOrders(Array.from(mergedMap.values()));
+      setIsLoading(false);
+    };
+
+    const unsub1 = onSnapshot(
+      q1,
       (snapshot) => {
-        const result: OrderDoc[] = [];
-        snapshot.forEach((d) => {
-          const data = d.data();
-          if (!isTerminalOrderStatus(data.status)) {
-            result.push({ id: d.id, ...data } as OrderDoc);
-          }
-        });
-        setActiveOrders(result);
-        setIsLoading(false);
+        list1 = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as OrderDoc));
+        mergeAndSet();
       },
       (error) => {
-        console.error('Firebase active order query error:', error);
+        console.error('Firebase active order query error 1:', error);
         setIsLoading(false);
       }
     );
 
-    return () => unsub();
+    const unsub2 = onSnapshot(
+      q2,
+      (snapshot) => {
+        list2 = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as OrderDoc));
+        mergeAndSet();
+      },
+      (error) => {
+        console.error('Firebase active order query error 2:', error);
+        setIsLoading(false);
+      }
+    );
+
+    return () => {
+      unsub1();
+      unsub2();
+    };
   }, [courierId]);
 
   useEffect(() => {

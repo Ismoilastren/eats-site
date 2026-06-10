@@ -18,12 +18,73 @@ export type NormalizedCoordinate = {
 };
 
 export const TERMINAL_ORDER_STATUSES: OrderStatus[] = ['delivered', 'cancelled', 'rejected'];
-export const COURIER_RADAR_STATUSES: OrderStatus[] = ['ready_for_pickup'];
+export const COURIER_RADAR_STATUSES: OrderStatus[] = ['preparing', 'ready_for_pickup'];
 export const ACTIVE_COURIER_STATUSES: OrderStatus[] = [
+  'preparing',
   'ready_for_pickup',
   'picked_up',
   'on_the_way',
 ];
+
+export const ADMIN_VISIBLE_STATUSES: OrderStatus[] = [
+  'pending',
+  'accepted',
+  'preparing',
+  'ready_for_pickup',
+  'picked_up',
+  'on_the_way',
+  'delivered',
+  'cancelled',
+];
+
+export const RESTAURANT_STATUSES: OrderStatus[] = [
+  'pending',
+  'accepted',
+  'preparing',
+  'ready_for_pickup',
+  'picked_up',
+];
+
+export const COURIER_MUTABLE_STATUSES: OrderStatus[] = [
+  'preparing',
+  'ready_for_pickup',
+  'picked_up',
+  'on_the_way',
+  'delivered',
+  'cancelled',
+];
+
+export function getAdminStatusOptions(): OrderStatus[] {
+  return ADMIN_VISIBLE_STATUSES;
+}
+
+export function getRestaurantStatusOptions(): OrderStatus[] {
+  return RESTAURANT_STATUSES;
+}
+
+export function getCourierStatusOptions(): OrderStatus[] {
+  return COURIER_MUTABLE_STATUSES;
+}
+
+export function getNextRestaurantStatus(current: OrderStatus): OrderStatus | null {
+  switch (current) {
+    case 'pending': return 'accepted';
+    case 'accepted': return 'preparing';
+    case 'preparing': return 'ready_for_pickup';
+    case 'ready_for_pickup': return 'picked_up';
+    default: return null;
+  }
+}
+
+export function getNextCourierStatus(current: OrderStatus): OrderStatus | null {
+  switch (current) {
+    case 'preparing': return 'ready_for_pickup';
+    case 'ready_for_pickup': return 'picked_up';
+    case 'picked_up': return 'on_the_way';
+    case 'on_the_way': return 'delivered';
+    default: return null;
+  }
+}
 
 const LEGACY_STATUS_MAP: Record<string, OrderStatus> = {
   pending: 'pending',

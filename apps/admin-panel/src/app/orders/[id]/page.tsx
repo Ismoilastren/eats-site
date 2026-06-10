@@ -430,7 +430,6 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
                   <option value="on_the_way">On the Way</option>
                   <option value="delivered">Delivered</option>
                   <option value="cancelled">Cancelled</option>
-                  <option value="rejected">Rejected</option>
                 </select>
               </>
             )}

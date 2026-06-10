@@ -6,13 +6,8 @@ import { ArrowLeft, Check, Clock, X } from 'lucide-react';
 import type { LocalOrder } from '@/context/MarketplaceContext';
 import type { Restaurant } from '@/data/marketplace';
 import { getRestaurants, isActiveOrderStatus, subscribeToOrders, updateOrderStatus, type OrderStatus } from '@/services/marketplace';
+import { getNextRestaurantStatus } from '@repo/shared-types';
 import { ModeBadge, money, RefreshButton, StatCard, StatusBadge } from '@/components/ops/OpsUi';
-
-const nextRestaurantStatus: Partial<Record<OrderStatus, OrderStatus>> = {
-  pending: 'accepted',
-  accepted: 'preparing',
-  preparing: 'ready_for_pickup',
-};
 
 export default function RestaurantPanelPage() {
   const [orders, setOrders] = useState<LocalOrder[]>([]);
@@ -141,7 +136,7 @@ export default function RestaurantPanelPage() {
 }
 
 function OrderRow({ order, busy, onStatus }: { order: LocalOrder; busy: boolean; onStatus: (id: string, status: OrderStatus) => void }) {
-  const next = nextRestaurantStatus[order.status];
+  const next = getNextRestaurantStatus(order.status as OrderStatus);
   return (
     <tr className="border-t border-gray-100 align-top">
       <td className="p-3">

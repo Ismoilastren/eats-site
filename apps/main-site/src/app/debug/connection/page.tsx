@@ -89,10 +89,12 @@ export default function ConnectionDebugPage() {
     ['Firebase project ID', state.projectId],
     ['Yandex Maps key configured', state.yandexMapsKeyConfigured ? 'Yes' : 'No'],
     ['Yandex Maps loader', state.yandexMapsStatus],
+    ['Firestore configured', state.projectId && state.projectId !== 'missing' ? 'Yes' : 'No'],
     ['Firestore read', state.loading ? 'Checking...' : state.ok ? 'OK' : 'Failed'],
     ['Restaurants count', state.restaurantsCount ?? '-'],
     ['Orders count', state.ordersCount ?? '-'],
     ['Fallback/mock active', state.dataSource === 'mock' ? 'Yes' : 'No'],
+    ['Production-safe mode', process.env.NODE_ENV === 'production' || !!process.env.NEXT_PUBLIC_VERCEL_URL || (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') ? 'Yes' : 'No'],
   ];
 
   return (

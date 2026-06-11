@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { Bell, ChevronDown, LogOut, Mail, MapPin, PackageCheck, Phone, Search, ShoppingCart, UserRound, X } from 'lucide-react';
+import { Bell, ChevronDown, LogOut, Mail, MapPin, PackageCheck, Phone, Search, ShoppingCart, Store, Truck, UserRound, X } from 'lucide-react';
 import { auth, GoogleAuthProvider, signInWithPopup } from '@repo/firebase-config';
 import { useMarketplace } from '@/context/MarketplaceContext';
 import { AddressMapPicker } from './AddressMapPicker';
@@ -170,9 +170,19 @@ export function MarketplaceHeader() {
             <ChevronDown size={16} />
           </button>
 
-          <div className="hidden rounded-2xl bg-gray-100 p-1 text-sm font-black text-gray-950 sm:flex">
-            <button onClick={() => setDeliveryMode('delivery')} className={`rounded-xl px-3 py-2 ${deliveryMode === 'delivery' ? 'bg-yellow-300 shadow-sm' : 'text-gray-500'}`}>Delivery</button>
-            <button onClick={() => setDeliveryMode('pickup')} className={`rounded-xl px-3 py-2 ${deliveryMode === 'pickup' ? 'bg-yellow-300 shadow-sm' : 'text-gray-500'}`}>Pickup</button>
+          <div className="order-4 flex shrink-0 rounded-2xl bg-gray-100 p-1 text-sm font-black text-gray-950 sm:order-none">
+            <button
+              onClick={() => setDeliveryMode('delivery')}
+              className={`flex min-h-10 items-center gap-1.5 rounded-xl px-3 py-2 transition ${deliveryMode === 'delivery' ? 'bg-yellow-300 text-gray-950 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+            >
+              <Truck size={15} /> Delivery
+            </button>
+            <button
+              onClick={() => setDeliveryMode('pickup')}
+              className={`flex min-h-10 items-center gap-1.5 rounded-xl px-3 py-2 transition ${deliveryMode === 'pickup' ? 'bg-yellow-300 text-gray-950 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+            >
+              <Store size={15} /> Pickup
+            </button>
           </div>
 
           <button onClick={() => setSearchOpen(true)} className="order-2 flex min-w-[180px] flex-1 items-center gap-3 rounded-2xl bg-gray-100 px-4 py-3 text-left text-gray-500 hover:bg-gray-200 lg:order-none">

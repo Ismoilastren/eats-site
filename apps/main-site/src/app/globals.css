@@ -56,3 +56,7 @@ body {
 .ymaps-demo-marker > div {
   animation: address-pin-drop 240ms ease-out, address-pin-pulse 1.35s ease-out 240ms 2;
 }
+
+.address-picker-pin {
+  animation: address-pin-drop 220ms ease-out, address-pin-pulse 1.2s ease-out 220ms 1;
+}

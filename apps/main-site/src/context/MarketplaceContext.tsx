@@ -23,7 +23,7 @@ export type CartLine = Dish & {
 };
 
 export type MockUser = { name: string; phone: string; email?: string };
-export type SavedAddress = { text: string; inZone: boolean; lat?: number; lng?: number };
+export type SavedAddress = { text: string; inZone: boolean; lat?: number; lng?: number; confirmed?: boolean };
 export type LocalOrder = {
   id: string;
   userId?: string;
@@ -41,6 +41,7 @@ export type LocalOrder = {
   serviceFee: number;
   discount: number;
   paymentMethod: 'cash' | 'card';
+  fulfillmentType?: DeliveryMode;
   status: OrderStatus;
   createdAt: string;
   updatedAt?: string;
@@ -101,7 +102,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   const [cart, setCart] = useState<CartLine[]>([]);
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [user, setUser] = useState<MockUser | null>(null);
-  const [address, setAddressState] = useState<SavedAddress>({ text: 'Tashkent, Amir Temur Avenue 14', inZone: true, ...TASHKENT_CENTER });
+  const [address, setAddressState] = useState<SavedAddress>({ text: 'Tashkent, Amir Temur Avenue 14', inZone: true, confirmed: false, ...TASHKENT_CENTER });
   const [favorites, setFavorites] = useState<string[]>([]);
   const [orders, setOrders] = useState<LocalOrder[]>([]);
   const [promo, setPromo] = useState<Promo | null>(null);
@@ -114,7 +115,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   useEffect(() => {
     setCart(readStorage<CartLine[]>('marketplace_cart', []));
     setUser(readStorage<MockUser | null>('marketplace_user', null));
-    setAddressState(readStorage<SavedAddress>('marketplace_address', { text: 'Tashkent, Amir Temur Avenue 14', inZone: true, ...TASHKENT_CENTER }));
+    setAddressState(readStorage<SavedAddress>('marketplace_address', { text: 'Tashkent, Amir Temur Avenue 14', inZone: true, confirmed: false, ...TASHKENT_CENTER }));
     setFavorites(readStorage<string[]>('marketplace_favorites', []));
     if (!isFirestoreDataSource()) {
       setOrders(readStorage<LocalOrder[]>('marketplace_orders', []));
@@ -223,7 +224,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   const setDeliveryMode = (mode: DeliveryMode) => setDeliveryModeState(mode);
 
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const deliveryFee = cart.length === 0 || promo?.type === 'freeDelivery' ? 0 : cart[0].restaurantDeliveryFee;
+  const deliveryFee = cart.length === 0 || deliveryMode === 'pickup' || promo?.type === 'freeDelivery' ? 0 : cart[0].restaurantDeliveryFee;
   const serviceFee = subtotal > 0 ? 3000 : 0;
   const discount = promo?.type === 'percent' ? Math.round(subtotal * (promo.value / 100)) : 0;
   const total = Math.max(0, subtotal + deliveryFee + serviceFee - discount);
@@ -239,17 +240,25 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
 
   const placeOrder = useCallback(async (payload: { name: string; phone: string; address: string; paymentMethod?: 'cash' | 'card' }) => {
     const restaurant = restaurants.find((item) => item.slug === cart[0]?.restaurantSlug || item.id === cart[0]?.restaurantId);
+    const isPickup = deliveryMode === 'pickup';
+    const orderAddress = isPickup
+      ? `Pickup from ${restaurant?.name || cart[0]?.restaurantName || 'restaurant'}`
+      : payload.address;
+    const orderLocation = isPickup
+      ? restaurant?.location || TASHKENT_CENTER
+      : { lat: address.lat || TASHKENT_CENTER.lat, lng: address.lng || TASHKENT_CENTER.lng };
     const orderInput: MarketplaceOrderInput = {
       userId: MOCK_CUSTOMER_ID,
       restaurantId: restaurant?.id || cart[0]?.restaurantId || 'unknown',
       restaurantName: restaurant?.name || cart[0]?.restaurantName || 'Restaurant',
       restaurantLocation: restaurant?.location,
       items: cart,
-      address: payload.address,
-      customerLocation: { lat: address.lat || TASHKENT_CENTER.lat, lng: address.lng || TASHKENT_CENTER.lng },
+      address: orderAddress,
+      customerLocation: orderLocation,
       customerName: payload.name,
       customerPhone: payload.phone,
       paymentMethod: payload.paymentMethod || 'cash',
+      fulfillmentType: deliveryMode,
       subtotal,
       deliveryFee,
       serviceFee,
@@ -263,7 +272,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     clearCart();
     setPromo(null);
     return order;
-  }, [address.lat, address.lng, cart, deliveryFee, discount, promo?.code, restaurants, serviceFee, subtotal, total]);
+  }, [address.lat, address.lng, cart, deliveryFee, deliveryMode, discount, promo?.code, restaurants, serviceFee, subtotal, total]);
 
   const value = useMemo<MarketplaceContextValue>(() => ({
     cart,

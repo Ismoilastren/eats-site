@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, ChevronRight, Package, Search } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Home, Package, Search } from 'lucide-react';
 import { auth, db, doc, getDoc, onAuthStateChanged } from '@repo/firebase-config';
 import { COLLECTIONS } from '@repo/shared-types';
 import { MarketplaceHeader } from '@/components/marketplace/MarketplaceHeader';
@@ -102,10 +102,16 @@ export default function OrdersPage() {
     <div className="min-h-screen bg-[#f6f6f3] text-gray-950">
       <MarketplaceHeader />
       <main className="mx-auto max-w-5xl px-4 pb-20 pt-6 lg:px-8">
-        <Link href="/profile" className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-3 font-bold shadow-sm ring-1 ring-black/5">
-          <ArrowLeft size={18} />
-          Back to profile
-        </Link>
+        <div className="flex flex-wrap gap-3">
+          <Link href="/" className="inline-flex min-h-11 items-center gap-2 rounded-full bg-white px-4 py-3 font-bold shadow-sm ring-1 ring-black/5">
+            <Home size={17} />
+            Back to home
+          </Link>
+          <Link href="/profile" className="inline-flex min-h-11 items-center gap-2 rounded-full bg-white px-4 py-3 font-bold shadow-sm ring-1 ring-black/5">
+            <ArrowLeft size={18} />
+            Back to profile
+          </Link>
+        </div>
 
         <div className="mt-6 rounded-[32px] bg-white p-5 shadow-sm ring-1 ring-black/5 md:p-8">
           <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">

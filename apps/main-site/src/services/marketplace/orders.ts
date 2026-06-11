@@ -15,6 +15,7 @@ import {
   type Unsubscribe,
 } from '@repo/firebase-config';
 import type { CartLine, LocalOrder } from '@/context/MarketplaceContext';
+import type { DeliveryMode } from '@/data/marketplace';
 import { isFirestoreDataSource, MOCK_CUSTOMER_ID } from './config';
 import { normalizeOrderStatus, statusIndex, type OrderActor, type OrderStatus } from './status';
 
@@ -38,6 +39,7 @@ export type MarketplaceOrderInput = {
   customerName: string;
   customerPhone: string;
   paymentMethod: 'cash' | 'card';
+  fulfillmentType?: DeliveryMode;
   subtotal: number;
   deliveryFee: number;
   serviceFee: number;
@@ -77,6 +79,7 @@ function readMockOrders(): LocalOrder[] {
         serviceFee: Number(order.serviceFee ?? 0),
         discount: Number(order.discount ?? 0),
         paymentMethod: order.paymentMethod || 'cash',
+        fulfillmentType: order.fulfillmentType || 'delivery',
         assignedCourier: order.assignedCourier || null,
       }))
       : [];
@@ -123,6 +126,7 @@ function mapFirestoreOrder(data: DocumentData, id: string): LocalOrder {
     discount: Number(data.discount || 0),
     total: Number(data.total ?? data.totalAmount ?? 0),
     paymentMethod: data.paymentMethod === 'card' ? 'card' : 'cash',
+    fulfillmentType: data.fulfillmentType === 'pickup' ? 'pickup' : 'delivery',
     status,
     createdAt: dateFromFirestore(data.createdAt),
     updatedAt: dateFromFirestore(data.updatedAt),
@@ -155,6 +159,7 @@ export async function createOrder(orderInput: MarketplaceOrderInput): Promise<Lo
       discount: orderInput.discount,
       total: orderInput.total,
       paymentMethod: orderInput.paymentMethod,
+      fulfillmentType: orderInput.fulfillmentType || 'delivery',
       status: 'pending',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -198,6 +203,7 @@ export async function createOrder(orderInput: MarketplaceOrderInput): Promise<Lo
     customerName: orderInput.customerName,
     customerPhone: orderInput.customerPhone,
     paymentMethod: orderInput.paymentMethod,
+    fulfillmentType: orderInput.fulfillmentType || 'delivery',
     subtotal: orderInput.subtotal,
     deliveryFee: orderInput.deliveryFee,
     serviceFee: orderInput.serviceFee,

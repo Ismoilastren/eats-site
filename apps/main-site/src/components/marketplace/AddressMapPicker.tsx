@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, LocateFixed, MapPin, Navigation, Search, X } from 'lucide-react';
 import { TASHKENT_CENTER } from '@/lib/yandexMaps';
 import { geocodeAddress, reverseGeocode } from '@/lib/yandexGeocoder';
@@ -67,6 +67,7 @@ export function AddressMapPicker({
   }));
   const [selectedMeta, setSelectedMeta] = useState<SelectedMeta>(initialAddress.text === 'Current location' ? 'current' : 'preset');
   const [error, setError] = useState('');
+  const reverseRequestRef = useRef(0);
 
   const suggestions: AddressOption[] = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -130,12 +131,16 @@ export function AddressMapPicker({
         setSelectedMeta('current');
         setQuery('');
         setDetectingAddress(true);
+        const requestId = ++reverseRequestRef.current;
         reverseGeocode(coords.lat, coords.lng)
           .then((result) => {
-            setSelected(normalizeAddress(result?.fullAddress || 'Current location', coords));
+            if (requestId !== reverseRequestRef.current) return;
+            setSelected(normalizeAddress(result?.fullAddress || 'Selected point, Tashkent', coords));
           })
           .catch(() => undefined)
-          .finally(() => setDetectingAddress(false));
+          .finally(() => {
+            if (requestId === reverseRequestRef.current) setDetectingAddress(false);
+          });
       },
       () => setError('Could not access your location. Select an address manually.'),
       { enableHighAccuracy: true, timeout: 7000 }
@@ -152,25 +157,36 @@ export function AddressMapPicker({
       setError('Delivery is available inside Tashkent. Choose a Tashkent address.');
       return;
     }
-    onConfirm(next);
+    onConfirm({ ...next, confirmed: true });
   };
 
   const selectedSecondary = selectedMeta === 'current' ? 'Detected location in Tashkent' : selectedMeta === 'map' ? 'Near selected point' : 'Tashkent delivery area';
-  const selectedTitle = cleanAddressTitle(selectedDisplayText);
+  const selectedTitle = selectedMeta === 'current' ? 'Current location' : cleanAddressTitle(selectedDisplayText);
 
   const handleMapSelect = useCallback((coords: { lat: number; lng: number }) => {
+    const requestId = ++reverseRequestRef.current;
     setSelected((current) => ({ ...current, text: 'Selected point, Tashkent', ...coords }));
     setSelectedMeta('map');
+    setQuery('');
+    setError('');
     setDetectingAddress(true);
-    window.setTimeout(() => {
-      reverseGeocode(coords.lat, coords.lng)
-        .then((result) => {
-          if (!result?.fullAddress) return;
-          setSelected((current) => ({ ...current, text: result.fullAddress, ...coords }));
-        })
-        .catch(() => undefined)
-        .finally(() => setDetectingAddress(false));
-    }, 450);
+    reverseGeocode(coords.lat, coords.lng)
+      .then((result) => {
+        if (requestId !== reverseRequestRef.current) return;
+        setSelected((current) => ({
+          ...current,
+          text: result?.fullAddress || 'Selected point, Tashkent',
+          ...coords,
+        }));
+      })
+      .catch(() => {
+        if (requestId === reverseRequestRef.current) {
+          setSelected((current) => ({ ...current, text: 'Selected point, Tashkent', ...coords }));
+        }
+      })
+      .finally(() => {
+        if (requestId === reverseRequestRef.current) setDetectingAddress(false);
+      });
   }, []);
 
   return (
@@ -259,7 +275,6 @@ export function AddressMapPicker({
           <section className="min-h-[360px] bg-gray-950 p-3 md:min-h-[420px] md:p-5">
             <YandexMap
               center={{ lat: selected.lat || TASHKENT_CENTER.lat, lng: selected.lng || TASHKENT_CENTER.lng }}
-              points={[{ id: 'selected', label: 'Address', lat: selected.lat || TASHKENT_CENTER.lat, lng: selected.lng || TASHKENT_CENTER.lng, color: '#f97316' }]}
               interactive
               dark
               showLocateControl={false}

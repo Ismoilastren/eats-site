@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Filter, Gift, Search, SlidersHorizontal, Timer, Utensils } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Check, ChevronDown, Filter, Gift, Search, SlidersHorizontal, Timer, Utensils } from 'lucide-react';
 import { categories, deliveryTimeFilters, priceLevels, type PriceLevel, type Restaurant } from '@/data/marketplace';
 import { MarketplaceHeader } from '@/components/marketplace/MarketplaceHeader';
 import { RestaurantCard } from '@/components/marketplace/RestaurantCard';
@@ -124,18 +124,29 @@ export default function HomeClient() {
               <FilterButton active={discounts} onClick={() => setDiscounts((value) => !value)}>Discounts</FilterButton>
               <FilterButton active={openNow} onClick={() => setOpenNow((value) => !value)}>Open now</FilterButton>
               <FilterButton active={ratingOnly} onClick={() => setRatingOnly((value) => !value)}>4.6+</FilterButton>
-              <select value={deliveryTime} onChange={(event) => setDeliveryTime(event.target.value)} className="rounded-2xl border-0 bg-white px-4 py-3 font-black outline-none ring-1 ring-black/5">
-                {deliveryTimeFilters.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-              </select>
-              <select value={priceLevel} onChange={(event) => setPriceLevel(event.target.value as PriceLevel | 'any')} className="rounded-2xl border-0 bg-white px-4 py-3 font-black outline-none ring-1 ring-black/5">
-                {priceLevels.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-              </select>
-              <select value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)} className="rounded-2xl border-0 bg-white px-4 py-3 font-black outline-none ring-1 ring-black/5">
-                <option value="recommended">Recommended</option>
-                <option value="fastest">Fastest delivery</option>
-                <option value="rating">Highest rating</option>
-                <option value="delivery">Cheapest delivery</option>
-              </select>
+              <CustomSelect
+                label="Delivery time"
+                value={deliveryTime}
+                options={deliveryTimeFilters}
+                onChange={setDeliveryTime}
+              />
+              <CustomSelect
+                label="Price"
+                value={priceLevel}
+                options={priceLevels}
+                onChange={(value) => setPriceLevel(value as PriceLevel | 'any')}
+              />
+              <CustomSelect
+                label="Sort"
+                value={sortMode}
+                options={[
+                  { label: 'Recommended', value: 'recommended' },
+                  { label: 'Fastest delivery', value: 'fastest' },
+                  { label: 'Highest rating', value: 'rating' },
+                  { label: 'Cheapest delivery', value: 'delivery' },
+                ]}
+                onChange={(value) => setSortMode(value as SortMode)}
+              />
             </div>
           </div>
         </section>
@@ -190,6 +201,82 @@ function RestaurantSection({ title, restaurants: sectionRestaurants }: { title: 
 
 function FilterButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return <button onClick={onClick} className={`shrink-0 rounded-2xl px-4 py-3 font-black ${active ? 'bg-yellow-300 text-gray-950' : 'bg-white text-gray-700'}`}>{children}</button>;
+}
+
+function CustomSelect({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: ReadonlyArray<{ label: string; value: string }>;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const selected = options.find((option) => option.value === value) || options[0];
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutside = (event: MouseEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', closeOnOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <div ref={containerRef} className="relative shrink-0">
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className={`flex min-h-12 items-center gap-2 rounded-2xl px-4 py-3 font-black ring-1 transition ${
+          open || value !== 'any'
+            ? 'bg-yellow-300 text-gray-950 ring-yellow-300'
+            : 'bg-white text-gray-700 ring-black/5'
+        }`}
+      >
+        <span className="max-w-40 truncate">{selected?.label || label}</span>
+        <ChevronDown size={17} className={`transition ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div role="listbox" aria-label={label} className="absolute right-0 top-[calc(100%+8px)] z-50 min-w-56 overflow-hidden rounded-[22px] bg-white p-2 shadow-[0_20px_50px_rgba(17,24,39,0.18)] ring-1 ring-black/5">
+          {options.map((option) => {
+            const active = option.value === value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="option"
+                aria-selected={active}
+                onClick={() => {
+                  onChange(option.value);
+                  setOpen(false);
+                }}
+                className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left font-bold transition ${
+                  active ? 'bg-yellow-300 text-gray-950' : 'text-gray-700 hover:bg-orange-50'
+                }`}
+              >
+                {option.label}
+                {active && <Check size={17} />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {

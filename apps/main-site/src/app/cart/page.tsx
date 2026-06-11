@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { ArrowLeft, CreditCard, MapPin, Minus, Plus, Ticket, Trash2, Wallet } from 'lucide-react';
+import { ArrowLeft, CreditCard, MapPin, Minus, Plus, ShoppingBasket, Store, Ticket, Trash2, Truck, Wallet } from 'lucide-react';
 import { formatCurrencyUZS } from '@repo/shared-types';
 import { AddressMapPicker } from '@/components/marketplace/AddressMapPicker';
 import { MarketplaceHeader } from '@/components/marketplace/MarketplaceHeader';
@@ -30,6 +30,7 @@ export default function CartPage() {
     removePromo,
     placeOrder,
     setAddress,
+    deliveryMode,
   } = useMarketplace();
   const [name, setName] = useState(user?.name || '');
   const [phone, setPhone] = useState(user?.phone || '+998');
@@ -43,9 +44,26 @@ export default function CartPage() {
   const minOrder = cart[0]?.restaurantMinOrder || 0;
   const belowMinimum = cart.length > 0 && subtotal < minOrder;
   const phoneValid = /^\+?998\d{9}$/.test(phone.replace(/\s/g, ''));
+  const isDelivery = deliveryMode === 'delivery';
+  const looksLikeCoordinates = /^(lat:|lng:)|^-?\d{1,3}\.\d+[,;\s]+-?\d{1,3}\.\d+$/i.test(address.text.trim());
+  const hasConfirmedAddress = Boolean(
+    address.confirmed
+    && address.inZone
+    && address.text.trim()
+    && !looksLikeCoordinates
+  );
   const displayAddress = address.text === 'Current location'
     ? 'Detected location, Tashkent'
     : address.text.replace(/^Tashkent,\s*/i, '') || 'No address selected';
+  const placeOrderDisabled = cart.length === 0
+    || belowMinimum
+    || isSubmitting
+    || (isDelivery && !hasConfirmedAddress);
+  const placeOrderHelper = cart.length === 0
+    ? 'Add items to place an order.'
+    : isDelivery && !hasConfirmedAddress
+      ? 'Select delivery address.'
+      : '';
 
   useEffect(() => {
     if (!user) return;
@@ -61,12 +79,12 @@ export default function CartPage() {
       window.dispatchEvent(new Event('marketplace:open-auth'));
       return;
     }
-    if (!name.trim() || !phone.trim() || !address.text.trim()) {
-      setError('Name, phone and delivery address are required.');
+    if (!name.trim() || !phone.trim()) {
+      setError('Name and phone are required.');
       return;
     }
-    if (!address.inZone) {
-      setError('Select an address inside Tashkent delivery zone before checkout.');
+    if (isDelivery && !hasConfirmedAddress) {
+      setError('Select and confirm a delivery address before checkout.');
       return;
     }
     if (!phoneValid) {
@@ -94,7 +112,7 @@ export default function CartPage() {
       <main className="mx-auto max-w-7xl px-4 pb-20 pt-6 lg:px-8">
         <Link href="/" className="mb-5 inline-flex items-center gap-2 rounded-full bg-white px-4 py-3 font-black shadow-sm"><ArrowLeft size={18} /> Continue shopping</Link>
         <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
-          <section className="rounded-[40px] bg-white p-5 shadow-sm ring-1 ring-black/5 md:p-7">
+          <section className="min-w-0 rounded-[40px] bg-white p-5 shadow-sm ring-1 ring-black/5 md:p-7">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-black uppercase tracking-widest text-yellow-500">Checkout</p>
@@ -104,16 +122,21 @@ export default function CartPage() {
             </div>
 
             {cart.length === 0 ? (
-              <div className="mt-8 rounded-[32px] bg-gray-50 p-12 text-center">
-                <p className="text-3xl font-black">Cart is empty</p>
-                <p className="mt-2 font-bold text-gray-500">Open a restaurant and add dishes.</p>
-                <Link href="/" className="mt-6 inline-block rounded-2xl bg-yellow-300 px-6 py-4 font-black text-gray-950">Browse restaurants</Link>
+              <div className="mt-8 flex min-h-[430px] flex-col items-center justify-center rounded-[32px] bg-[linear-gradient(145deg,#faf9f6,#fff7df)] px-6 py-12 text-center">
+                <div className="flex h-24 w-24 items-center justify-center rounded-[30px] bg-white text-orange-500 shadow-[0_18px_45px_rgba(17,24,39,0.10)]">
+                  <ShoppingBasket size={42} />
+                </div>
+                <p className="mt-6 text-3xl font-black">Your cart is empty</p>
+                <p className="mt-3 max-w-md text-base font-bold text-gray-500">Add dishes from restaurants to start your order.</p>
+                <Link href="/" className="mt-7 inline-flex min-h-12 items-center justify-center rounded-2xl bg-yellow-300 px-7 py-4 font-black text-gray-950 shadow-sm transition hover:bg-yellow-200">
+                  Browse restaurants
+                </Link>
               </div>
             ) : (
               <div className="mt-6 space-y-3">
                 {cart.map((item) => (
-                  <div key={item.id} className="flex items-center gap-4 rounded-[28px] bg-gray-50 p-4">
-                    <div className="flex-1">
+                  <div key={item.id} className="flex flex-wrap items-center gap-3 rounded-[28px] bg-gray-50 p-4 sm:flex-nowrap sm:gap-4">
+                    <div className="min-w-0 flex-1 basis-[180px]">
                       <p className="text-xl font-black">{item.name}</p>
                       <p className="mt-1 font-bold text-gray-500">{formatCurrencyUZS(item.price)} · {item.restaurantName}</p>
                     </div>
@@ -146,25 +169,36 @@ export default function CartPage() {
             )}
           </section>
 
-          <aside className="h-fit rounded-[40px] bg-white p-6 shadow-sm ring-1 ring-black/5 lg:sticky lg:top-24">
+          <aside className="h-fit min-w-0 rounded-[40px] bg-white p-6 shadow-sm ring-1 ring-black/5 lg:sticky lg:top-24">
             <h2 className="text-3xl font-black">Order summary</h2>
             <div className="mt-5 rounded-3xl bg-gray-50 p-4">
-              <p className="flex items-center gap-2 font-black"><MapPin size={18} /> Delivery address</p>
-              <p className="mt-2 font-bold text-gray-500">{displayAddress}</p>
-              <p className="mt-1 text-xs font-black text-gray-400">
-                {(address.lat || TASHKENT_CENTER.lat).toFixed(5)}, {(address.lng || TASHKENT_CENTER.lng).toFixed(5)}
-              </p>
-              {!address.inZone && <p className="mt-2 text-sm font-black text-red-500">Outside delivery zone. Use the header address selector.</p>}
-              <div className="mt-4">
-                <YandexMapPreview
-                  center={{ lat: address.lat || TASHKENT_CENTER.lat, lng: address.lng || TASHKENT_CENTER.lng }}
-                  label={displayAddress}
-                  className="h-48"
-                />
-              </div>
-              <button onClick={() => setAddressPickerOpen(true)} className="mt-4 w-full rounded-2xl bg-gray-950 px-4 py-3 font-black text-white hover:bg-gray-800">
-                Change address
-              </button>
+              {isDelivery ? (
+                <>
+                  <p className="flex items-center gap-2 font-black"><Truck size={18} /> Delivery address</p>
+                  <p className="mt-2 font-bold text-gray-500">{hasConfirmedAddress ? displayAddress : 'Select and confirm your address'}</p>
+                  {!hasConfirmedAddress && <p className="mt-2 text-sm font-black text-orange-600">Choose the exact delivery point before placing the order.</p>}
+                  <div className="mt-4">
+                    <YandexMapPreview
+                      center={{ lat: address.lat || TASHKENT_CENTER.lat, lng: address.lng || TASHKENT_CENTER.lng }}
+                      label={hasConfirmedAddress ? displayAddress : 'Delivery address'}
+                      className="h-48"
+                    />
+                  </div>
+                  <button onClick={() => setAddressPickerOpen(true)} className="mt-4 w-full rounded-2xl bg-gray-950 px-4 py-3 font-black text-white hover:bg-gray-800">
+                    {hasConfirmedAddress ? 'Change address' : 'Select address'}
+                  </button>
+                </>
+              ) : (
+                <div className="flex items-start gap-3">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-yellow-300 text-gray-950">
+                    <Store size={20} />
+                  </div>
+                  <div>
+                    <p className="font-black">Pickup order</p>
+                    <p className="mt-1 text-sm font-bold text-gray-500">Collect your order directly from the restaurant. Delivery address is not required.</p>
+                  </div>
+                </div>
+              )}
             </div>
             <div className="mt-4 grid grid-cols-2 gap-2">
               <button onClick={() => setPayment('cash')} className={`rounded-2xl px-4 py-4 font-black ${payment === 'cash' ? 'bg-yellow-300' : 'bg-gray-100'}`}><Wallet className="mx-auto mb-1" /> Cash</button>
@@ -189,7 +223,8 @@ export default function CartPage() {
               <Row label="Total" value={formatCurrencyUZS(total)} strong />
             </div>
             {belowMinimum && <p className="mt-4 rounded-2xl bg-yellow-50 px-4 py-3 text-sm font-black text-yellow-700">Minimum order: {formatCurrencyUZS(minOrder)}</p>}
-            <button onClick={submit} disabled={cart.length === 0 || belowMinimum || !address.inZone || isSubmitting} className="mt-6 w-full rounded-2xl bg-yellow-300 px-4 py-5 text-lg font-black text-gray-950 disabled:bg-gray-200 disabled:text-gray-400">{isSubmitting ? 'Placing order...' : 'Place order'}</button>
+            <button onClick={submit} disabled={placeOrderDisabled} className="mt-6 w-full rounded-2xl bg-yellow-300 px-4 py-5 text-lg font-black text-gray-950 disabled:bg-gray-200 disabled:text-gray-400">{isSubmitting ? 'Placing order...' : 'Place order'}</button>
+            {placeOrderHelper && <p className="mt-3 text-center text-sm font-bold text-gray-500">{placeOrderHelper}</p>}
           </aside>
         </div>
       </main>

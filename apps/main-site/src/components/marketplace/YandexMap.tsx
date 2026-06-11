@@ -60,6 +60,7 @@ export function YandexMap({
 }: YandexMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<YMapInstance | null>(null);
+  const lastReportedCenterRef = useRef<[number, number]>([center.lng, center.lat]);
   const [status, setStatus] = useState<'not_loaded' | 'loading' | 'loaded' | 'error'>('not_loaded');
   const [, setError] = useState('');
   const [zoom, setZoom] = useState(13);
@@ -110,9 +111,20 @@ export function YandexMap({
               const coordinates = event.coordinates;
               if (coordinates) onSelect?.({ lng: coordinates[0], lat: coordinates[1] });
             },
+            onUpdate: (event: { location?: { center?: [number, number] }; mapInAction?: boolean }) => {
+              const nextCenter = event.location?.center;
+              if (event.mapInAction || !nextCenter) return;
+              const [previousLng, previousLat] = lastReportedCenterRef.current;
+              const moved = Math.abs(nextCenter[0] - previousLng) > 0.00001
+                || Math.abs(nextCenter[1] - previousLat) > 0.00001;
+              if (!moved) return;
+              lastReportedCenterRef.current = nextCenter;
+              onSelect?.({ lng: nextCenter[0], lat: nextCenter[1] });
+            },
           }));
         }
 
+        lastReportedCenterRef.current = [mapCenter.lng, mapCenter.lat];
         mapRef.current = map;
         setStatus('loaded');
       } catch (loadError) {
@@ -165,9 +177,9 @@ export function YandexMap({
 
       {interactive && status === 'loaded' && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="-mt-10 flex flex-col items-center">
-            <div className="h-10 w-10 rounded-full bg-orange-500 shadow-2xl ring-4 ring-white" />
-            <div className="h-8 w-1 rounded-b-full bg-orange-500" />
+          <div className="address-picker-pin -mt-8 flex flex-col items-center">
+            <div className="h-8 w-8 rounded-full bg-orange-500 shadow-xl ring-[3px] ring-white" />
+            <div className="h-6 w-1 rounded-b-full bg-orange-500" />
           </div>
         </div>
       )}

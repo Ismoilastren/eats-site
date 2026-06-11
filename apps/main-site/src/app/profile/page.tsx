@@ -6,7 +6,7 @@ import {
   auth, db, doc, getDoc, setDoc, addDoc, deleteDoc, collection, query, where, getDocs, signOut, onAuthStateChanged, onSnapshot, updateProfile, writeBatch
 } from "@repo/firebase-config";
 import { COLLECTIONS } from "@repo/shared-types";
-import { LogOut, User as UserIcon, Mail, Phone, Package, Clock, ChevronRight, Edit2, Check, X, Loader2, CreditCard, Plus, Trash2, MapPin, CheckCircle2 } from "lucide-react";
+import { LogOut, User as UserIcon, Mail, Phone, Package, Clock, ChevronRight, Edit2, Check, X, Loader2, CreditCard, Plus, Trash2, MapPin, CheckCircle2, Home } from "lucide-react";
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import { useMarketplace, type LocalOrder } from '@/context/MarketplaceContext';
@@ -17,6 +17,61 @@ import {
   getCustomerOrderStatus,
   isValidRecentOrderTotal,
 } from '@/lib/orderDisplay';
+import { reverseGeocode } from '@/lib/yandexGeocoder';
+
+type PaymentMethod = {
+  id: string;
+  brand: string;
+  last4: string;
+  expiry: string;
+  holderName: string;
+  createdAt: string;
+};
+
+type SavedLocation = {
+  id: string;
+  label: string;
+  address: string;
+  lat?: number;
+  lng?: number;
+  createdAt: string;
+};
+
+const localPaymentKey = (uid: string) => `profile_payment_methods_${uid}`;
+const localAddressKey = (uid: string) => `profile_saved_locations_${uid}`;
+
+function readLocalList<T>(key: string): T[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalList<T>(key: string, items: T[]) {
+  localStorage.setItem(key, JSON.stringify(items));
+}
+
+function mergeById<T extends { id: string }>(remote: T[], local: T[]) {
+  return [...remote, ...local].filter((item, index, list) => list.findIndex((entry) => entry.id === item.id) === index);
+}
+
+function passesLuhn(number: string) {
+  let sum = 0;
+  let doubleDigit = false;
+  for (let index = number.length - 1; index >= 0; index -= 1) {
+    let digit = Number(number[index]);
+    if (doubleDigit) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+    sum += digit;
+    doubleDigit = !doubleDigit;
+  }
+  return sum % 10 === 0;
+}
 
 const getCardBrand = (number: string) => {
   if (!number) return 'Unknown';
@@ -60,7 +115,7 @@ export default function ProfilePage() {
   });
 
   // Payment Method States
-  const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [isCardModalOpen, setIsCardModalOpen] = useState(false);
   const [isAddingCard, setIsAddingCard] = useState(false);
   const [cardForm, setCardForm] = useState({ number: '', expiry: '', cvv: '', holder: '' });
@@ -68,9 +123,10 @@ export default function ProfilePage() {
   const [cardToDelete, setCardToDelete] = useState<string | null>(null);
 
   // Address States
-  const [addresses, setAddresses] = useState<any[]>([]);
+  const [addresses, setAddresses] = useState<SavedLocation[]>([]);
   const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
-  const [newAddress, setNewAddress] = useState({ label: '', address: '' });
+  const [newAddress, setNewAddress] = useState<{ label: string; address: string; lat?: number; lng?: number }>({ label: '', address: '' });
+  const [addressErrors, setAddressErrors] = useState<Record<string, string>>({});
   const [isAddingAddress, setIsAddingAddress] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
 
@@ -91,11 +147,27 @@ export default function ProfilePage() {
   // Real-time listener for addresses
   useEffect(() => {
     if (!user) return;
-    const unsubscribe = onSnapshot(collection(db, 'users', user.uid, 'addresses'), (snapshot) => {
-      const fetchedAddresses: any[] = [];
-      snapshot.forEach(doc => fetchedAddresses.push({ id: doc.id, ...doc.data() }));
-      setAddresses(fetchedAddresses);
-    });
+    const localAddresses = readLocalList<SavedLocation>(localAddressKey(user.uid));
+    setAddresses(localAddresses);
+    const unsubscribe = onSnapshot(
+      collection(db, 'users', user.uid, 'addresses'),
+      (snapshot) => {
+        const fetchedAddresses: SavedLocation[] = [];
+        snapshot.forEach((addressDoc) => {
+          const data = addressDoc.data();
+          fetchedAddresses.push({
+            id: addressDoc.id,
+            label: String(data.label || 'Saved location'),
+            address: String(data.address || ''),
+            lat: Number.isFinite(Number(data.lat)) ? Number(data.lat) : undefined,
+            lng: Number.isFinite(Number(data.lng)) ? Number(data.lng) : undefined,
+            createdAt: String(data.createdAt || ''),
+          });
+        });
+        setAddresses(mergeById(fetchedAddresses, readLocalList<SavedLocation>(localAddressKey(user.uid))));
+      },
+      () => setAddresses(readLocalList<SavedLocation>(localAddressKey(user.uid))),
+    );
     return () => unsubscribe();
   }, [user]);
 
@@ -129,11 +201,22 @@ export default function ProfilePage() {
 
         const pmQuery = query(collection(db, COLLECTIONS.USERS, user.uid, 'paymentMethods'));
         const pmSnapshot = await getDocs(pmQuery);
-        const fetchedPMs: any[] = [];
-        pmSnapshot.forEach(doc => fetchedPMs.push({ id: doc.id, ...doc.data() }));
-        setPaymentMethods(fetchedPMs);
+        const fetchedPMs: PaymentMethod[] = [];
+        pmSnapshot.forEach((paymentDoc) => {
+          const data = paymentDoc.data();
+          fetchedPMs.push({
+            id: paymentDoc.id,
+            brand: String(data.brand || 'Other'),
+            last4: String(data.last4 || ''),
+            expiry: String(data.expiry || ''),
+            holderName: String(data.holderName || ''),
+            createdAt: String(data.createdAt || ''),
+          });
+        });
+        setPaymentMethods(mergeById(fetchedPMs, readLocalList<PaymentMethod>(localPaymentKey(user.uid))));
       } catch (error: any) {
         console.error("Failed to fetch profile or orders:", error);
+        setPaymentMethods(readLocalList<PaymentMethod>(localPaymentKey(user.uid)));
       } finally {
         setIsDataLoading(false);
       }
@@ -179,31 +262,50 @@ export default function ProfilePage() {
 
   const handleDeleteAddress = async (id: string) => {
     if (!user) return;
+    const nextLocal = readLocalList<SavedLocation>(localAddressKey(user.uid)).filter((item) => item.id !== id);
+    writeLocalList(localAddressKey(user.uid), nextLocal);
+    setAddresses((current) => current.filter((item) => item.id !== id));
     try {
       await deleteDoc(doc(db, 'users', user.uid, 'addresses', id));
-      toast.success("Address deleted");
-    } catch (e) {
-      toast.error("Failed to delete address");
+    } catch {
+      // Local demo storage remains the source of truth when Firestore writes are unavailable.
     }
+    toast.success("Address deleted");
   };
 
   const handleAddAddress = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
-    if (!newAddress.address.trim()) return toast.error("Address is required");
+    const nextErrors: Record<string, string> = {};
+    if (!newAddress.label.trim()) nextErrors.label = 'Label is required.';
+    if (!newAddress.address.trim()) nextErrors.address = 'Address is required.';
+    setAddressErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
+
     setIsAddingAddress(true);
+    const safeAddress = {
+      label: newAddress.label.trim(),
+      address: newAddress.address.trim(),
+      ...(Number.isFinite(newAddress.lat) ? { lat: newAddress.lat } : {}),
+      ...(Number.isFinite(newAddress.lng) ? { lng: newAddress.lng } : {}),
+      createdAt: new Date().toISOString(),
+    };
     try {
-      await addDoc(collection(db, 'users', user.uid, 'addresses'), {
-        label: newAddress.label || 'Saved Location',
-        address: newAddress.address,
-        createdAt: new Date()
-      });
-      toast.success("Address added");
+      const docRef = await addDoc(collection(db, 'users', user.uid, 'addresses'), safeAddress);
+      setAddresses((current) => mergeById(current, [{ id: docRef.id, ...safeAddress }]));
+    } catch {
+      const localLocation: SavedLocation = {
+        id: `local_address_${Date.now()}`,
+        ...safeAddress,
+      };
+      const localAddresses = [...readLocalList<SavedLocation>(localAddressKey(user.uid)), localLocation];
+      writeLocalList(localAddressKey(user.uid), localAddresses);
+      setAddresses((current) => mergeById(current, [localLocation]));
+    } finally {
+      toast.success("Address saved");
       setIsAddressModalOpen(false);
       setNewAddress({ label: '', address: '' });
-    } catch (e) {
-      toast.error("Failed to add address");
-    } finally {
+      setAddressErrors({});
       setIsAddingAddress(false);
     }
   };
@@ -218,35 +320,24 @@ export default function ProfilePage() {
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         const { latitude, longitude } = position.coords;
+        setNewAddress((previous) => ({ ...previous, lat: latitude, lng: longitude }));
         try {
-          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`);
-          const data = await res.json();
-          
-          if (data && data.address) {
-            const road = data.address.road || data.address.pedestrian || '';
-            const area = data.address.neighbourhood || data.address.suburb || data.address.city || '';
-            
-            let cleanAddress = [road, area].filter(Boolean).join(', ');
-            
-            if (!cleanAddress && data.display_name) {
-              cleanAddress = data.display_name.split(',').slice(0, 2).join(',');
-            }
-            
-            if (cleanAddress) {
-              setNewAddress(prev => ({ ...prev, address: cleanAddress }));
-              toast.success("Location found!");
-            } else {
-              setNewAddress(prev => ({ ...prev, address: `Lat: ${latitude.toFixed(5)}, Lng: ${longitude.toFixed(5)}` }));
-            }
-          } else if (data && data.display_name) {
-            setNewAddress(prev => ({ ...prev, address: data.display_name.split(',').slice(0, 2).join(',') }));
-            toast.success("Location found!");
-          } else {
-            setNewAddress(prev => ({ ...prev, address: `Lat: ${latitude.toFixed(5)}, Lng: ${longitude.toFixed(5)}` }));
-          }
-        } catch (error) {
-          setNewAddress(prev => ({ ...prev, address: `Lat: ${latitude.toFixed(5)}, Lng: ${longitude.toFixed(5)}` }));
-          toast.error("Could not fetch street name, using coordinates.");
+          const result = await reverseGeocode(latitude, longitude);
+          setNewAddress((previous) => ({
+            ...previous,
+            address: result?.fullAddress || 'Selected point, Tashkent',
+            lat: latitude,
+            lng: longitude,
+          }));
+          setAddressErrors((current) => ({ ...current, address: '' }));
+          toast.success("Location found");
+        } catch {
+          setNewAddress((previous) => ({
+            ...previous,
+            address: 'Selected point, Tashkent',
+            lat: latitude,
+            lng: longitude,
+          }));
         } finally {
           setIsLocating(false);
         }
@@ -332,8 +423,7 @@ export default function ProfilePage() {
   };
 
   const validateExpiry = (expiry: string) => {
-    // Regex: MM/YY
-    if (!/^(0[1-9]|1[0-2])\/?([0-9]{2})$/.test(expiry)) return false;
+    if (!/^(0[1-9]|1[0-2])\/([0-9]{2})$/.test(expiry)) return false;
     
     const [month, year] = expiry.split('/').map(n => parseInt(n, 10));
     const now = new Date();
@@ -350,47 +440,46 @@ export default function ProfilePage() {
     if (!user || !user.uid) return toast.error('Authentication error.');
 
     const cleanNumber = cardForm.number.replace(/\s+/g, '');
-    if (!/^\d{16}$/.test(cleanNumber)) {
-      setErrors({ number: 'Invalid number' });
-      return toast.error('Card number must be 16 digits');
+    const nextErrors: Record<string, string> = {};
+    if (!/^\d{13,19}$/.test(cleanNumber) || !passesLuhn(cleanNumber)) {
+      nextErrors.number = 'Enter a valid card number.';
     }
     if (!validateExpiry(cardForm.expiry)) {
-      setErrors({ expiry: 'Invalid expiry date' });
-      toast.error('Invalid expiry date. Please check the format (MM/YY).');
-      return;
+      nextErrors.expiry = 'Enter a future date in MM/YY format.';
     }
-    if (!/^\d{3}$/.test(cardForm.cvv)) {
-      setErrors({ cvv: 'Invalid CVV' });
-      return toast.error('CVV must be 3 digits');
+    if (!/^\d{3,4}$/.test(cardForm.cvv)) {
+      nextErrors.cvv = 'CVV must contain 3 or 4 digits.';
     }
     if (!cardForm.holder.trim()) {
-      setErrors({ holder: 'Name is required' });
-      return toast.error('Holder name is required');
+      nextErrors.holder = 'Cardholder name is required.';
     }
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) return;
 
-    setErrors({});
     setIsAddingCard(true);
+    const safeCard = {
+      brand: getCardBrand(cleanNumber),
+      last4: cleanNumber.slice(-4),
+      expiry: cardForm.expiry,
+      holderName: cardForm.holder.trim().toUpperCase(),
+      createdAt: new Date().toISOString(),
+    };
     try {
-      const brand = getCardBrand(cleanNumber);
-      
-      const newCard = {
-        brand,
-        last4: cleanNumber.slice(-4),
-        holderName: cardForm.holder.trim(),
-        token: `tok_${Math.random().toString(36).substring(2, 10)}`,
-        createdAt: new Date().toISOString()
+      const docRef = await addDoc(collection(db, COLLECTIONS.USERS, user.uid, 'paymentMethods'), safeCard);
+      setPaymentMethods((current) => mergeById(current, [{ id: docRef.id, ...safeCard }]));
+    } catch {
+      const localCard: PaymentMethod = {
+        id: `local_card_${Date.now()}`,
+        ...safeCard,
       };
-
-      const docRef = await addDoc(collection(db, COLLECTIONS.USERS, user.uid, 'paymentMethods'), newCard);
-      
-      setPaymentMethods(prev => [...prev, { id: docRef.id, ...newCard }]);
-      setCardForm({ number: '', expiry: '', cvv: '', holder: '' });
-      setIsCardModalOpen(false);
-      toast.success('Payment method added successfully');
-    } catch (err) {
-      console.error(err);
-      toast.error('Failed to add card');
+      const localCards = [...readLocalList<PaymentMethod>(localPaymentKey(user.uid)), localCard];
+      writeLocalList(localPaymentKey(user.uid), localCards);
+      setPaymentMethods((current) => mergeById(current, [localCard]));
     } finally {
+      setCardForm({ number: '', expiry: '', cvv: '', holder: '' });
+      setErrors({});
+      setIsCardModalOpen(false);
+      toast.success('Card added');
       setIsAddingCard(false);
     }
   };
@@ -401,14 +490,15 @@ export default function ProfilePage() {
 
   const confirmDeleteCard = async () => {
     if (!user || !user.uid || !cardToDelete) return;
+    const nextLocal = readLocalList<PaymentMethod>(localPaymentKey(user.uid)).filter((item) => item.id !== cardToDelete);
+    writeLocalList(localPaymentKey(user.uid), nextLocal);
+    setPaymentMethods((current) => current.filter((card) => card.id !== cardToDelete));
     try {
       await deleteDoc(doc(db, COLLECTIONS.USERS, user.uid, 'paymentMethods', cardToDelete));
-      setPaymentMethods(prev => prev.filter(c => c.id !== cardToDelete));
-      toast.success('Card removed');
-    } catch (err) {
-      console.error(err);
-      toast.error('Failed to remove card');
+    } catch {
+      // Local demo storage remains the source of truth when Firestore writes are unavailable.
     } finally {
+      toast.success('Card removed');
       setCardToDelete(null);
     }
   };
@@ -427,6 +517,10 @@ export default function ProfilePage() {
 
       <main className="relative mx-auto max-w-6xl px-4 lg:px-8">
         <div className="mb-6">
+          <Link href="/" className="mb-5 inline-flex min-h-11 items-center gap-2 rounded-full bg-white/80 px-4 py-2.5 text-sm font-bold text-gray-700 shadow-sm ring-1 ring-black/5 transition hover:bg-white hover:text-primary">
+            <Home size={17} />
+            Back to home
+          </Link>
           <p className="text-sm font-extrabold uppercase tracking-[0.22em] text-primary">Customer account</p>
           <h1 className="mt-2 text-4xl font-black text-[#111827] md:text-5xl">My profile</h1>
           <p className="mt-3 max-w-2xl text-base font-medium text-gray-600 md:text-lg">
@@ -619,8 +713,8 @@ export default function ProfilePage() {
                           {card.brand}
                         </div>
                         <div className="flex flex-col">
-                          <span className="text-sm font-bold text-gray-900">•••• {card.last4}</span>
-                          <span className="text-xs text-gray-400">{card.holderName}</span>
+                          <span className="text-sm font-bold text-gray-900">**** **** **** {card.last4}</span>
+                          <span className="text-xs text-gray-400">{card.holderName}{card.expiry ? ` · ${card.expiry}` : ''}</span>
                         </div>
                       </div>
                       <button 
@@ -765,7 +859,11 @@ export default function ProfilePage() {
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl relative animate-in fade-in zoom-in-95 duration-200">
             <button 
-              onClick={() => setIsCardModalOpen(false)}
+              onClick={() => {
+                setIsCardModalOpen(false);
+                setErrors({});
+                setCardForm({ number: '', expiry: '', cvv: '', holder: '' });
+              }}
               className="absolute right-4 top-4 text-gray-400 hover:text-gray-600 bg-transparent border-none cursor-pointer"
             >
               <X size={20} />
@@ -779,7 +877,7 @@ export default function ProfilePage() {
                 <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Card Number</label>
                 <input 
                   type="text" 
-                  maxLength={19}
+                  maxLength={23}
                   value={cardForm.number}
                   onChange={(e) => {
                     const val = e.target.value.replace(/\D/g, '');
@@ -790,6 +888,7 @@ export default function ProfilePage() {
                   className={`w-full px-3 py-2 border rounded-xl focus:ring-2 focus:ring-primary/20 transition-all outline-none ${errors.number ? 'border-red-500 bg-red-50 focus:border-red-500' : 'border-gray-300 focus:border-primary'}`}
                   placeholder="0000 0000 0000 0000"
                 />
+                {errors.number && <p className="mt-1.5 text-xs font-bold text-red-600">{errors.number}</p>}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -807,12 +906,13 @@ export default function ProfilePage() {
                     className={`w-full px-3 py-2 border rounded-xl focus:ring-2 focus:ring-primary/20 transition-all outline-none text-center ${errors.expiry ? 'border-red-500 bg-red-50 focus:border-red-500' : 'border-gray-300 focus:border-primary'}`}
                     placeholder="MM/YY"
                   />
+                  {errors.expiry && <p className="mt-1.5 text-xs font-bold text-red-600">{errors.expiry}</p>}
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">CVV</label>
                   <input 
                     type="password" 
-                    maxLength={3}
+                    maxLength={4}
                     value={cardForm.cvv}
                     onChange={(e) => {
                       setCardForm({...cardForm, cvv: e.target.value.replace(/\D/g, '')});
@@ -821,6 +921,7 @@ export default function ProfilePage() {
                     className={`w-full px-3 py-2 border rounded-xl focus:ring-2 focus:ring-primary/20 transition-all outline-none text-center ${errors.cvv ? 'border-red-500 bg-red-50 focus:border-red-500' : 'border-gray-300 focus:border-primary'}`}
                     placeholder="123"
                   />
+                  {errors.cvv && <p className="mt-1.5 text-xs font-bold text-red-600">{errors.cvv}</p>}
                 </div>
               </div>
               <div>
@@ -835,6 +936,7 @@ export default function ProfilePage() {
                   className={`w-full px-3 py-2 border rounded-xl focus:ring-2 focus:ring-primary/20 transition-all outline-none uppercase ${errors.holder ? 'border-red-500 bg-red-50 focus:border-red-500' : 'border-gray-300 focus:border-primary'}`}
                   placeholder="JOHN DOE"
                 />
+                {errors.holder && <p className="mt-1.5 text-xs font-bold text-red-600">{errors.holder}</p>}
               </div>
               <button 
                 type="submit"
@@ -877,7 +979,11 @@ export default function ProfilePage() {
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl relative animate-in fade-in zoom-in-95 duration-200">
             <button 
-              onClick={() => setIsAddressModalOpen(false)}
+              onClick={() => {
+                setIsAddressModalOpen(false);
+                setAddressErrors({});
+                setNewAddress({ label: '', address: '' });
+              }}
               className="absolute right-4 top-4 text-gray-400 hover:text-gray-600 bg-transparent border-none cursor-pointer"
             >
               <X size={20} />
@@ -892,10 +998,14 @@ export default function ProfilePage() {
                 <input 
                   type="text" 
                   value={newAddress.label}
-                  onChange={(e) => setNewAddress({...newAddress, label: e.target.value})}
-                  className="w-full px-3 py-2 border rounded-xl focus:ring-2 focus:ring-primary/20 transition-all outline-none border-gray-300 focus:border-primary"
+                  onChange={(e) => {
+                    setNewAddress({...newAddress, label: e.target.value});
+                    if (addressErrors.label) setAddressErrors((current) => ({ ...current, label: '' }));
+                  }}
+                  className={`w-full px-3 py-2 border rounded-xl focus:ring-2 focus:ring-primary/20 transition-all outline-none ${addressErrors.label ? 'border-red-500 bg-red-50' : 'border-gray-300 focus:border-primary'}`}
                   placeholder="Home"
                 />
+                {addressErrors.label && <p className="mt-1.5 text-xs font-bold text-red-600">{addressErrors.label}</p>}
               </div>
               <div>
                 <div className="flex justify-between items-center mb-1">
@@ -911,11 +1021,14 @@ export default function ProfilePage() {
                 </div>
                 <textarea 
                   value={newAddress.address}
-                  onChange={(e) => setNewAddress({...newAddress, address: e.target.value})}
-                  className="w-full px-3 py-2 border rounded-xl focus:ring-2 focus:ring-primary/20 transition-all outline-none border-gray-300 focus:border-primary resize-none h-24"
+                  onChange={(e) => {
+                    setNewAddress({...newAddress, address: e.target.value, lat: undefined, lng: undefined});
+                    if (addressErrors.address) setAddressErrors((current) => ({ ...current, address: '' }));
+                  }}
+                  className={`w-full px-3 py-2 border rounded-xl focus:ring-2 focus:ring-primary/20 transition-all outline-none resize-none h-24 ${addressErrors.address ? 'border-red-500 bg-red-50' : 'border-gray-300 focus:border-primary'}`}
                   placeholder="Street, Building, Apartment..."
-                  required
                 />
+                {addressErrors.address && <p className="mt-1.5 text-xs font-bold text-red-600">{addressErrors.address}</p>}
               </div>
               <button 
                 type="submit"

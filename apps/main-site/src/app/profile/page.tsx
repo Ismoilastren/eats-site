@@ -6,7 +6,7 @@ import {
   auth, db, doc, getDoc, setDoc, addDoc, deleteDoc, collection, query, where, getDocs, signOut, onAuthStateChanged, onSnapshot, updateProfile, writeBatch
 } from "@repo/firebase-config";
 import { COLLECTIONS } from "@repo/shared-types";
-import { LogOut, User as UserIcon, Mail, Phone, Package, Clock, ChevronRight, Edit2, Check, X, Loader2, CreditCard, Plus, Trash2, MapPin } from "lucide-react";
+import { LogOut, User as UserIcon, Mail, Phone, Package, Clock, ChevronRight, Edit2, Check, X, Loader2, CreditCard, Plus, Trash2, MapPin, CheckCircle2 } from "lucide-react";
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import { useMarketplace, type LocalOrder } from '@/context/MarketplaceContext';
@@ -148,6 +148,24 @@ export default function ProfilePage() {
     () => orders.filter((order) => isValidRecentOrderTotal(order.total)).slice(0, 3),
     [orders],
   );
+
+  const orderStats = useMemo(() => {
+    const normalizedStatuses = orders.map((order) => getCustomerOrderStatus(order.status).status);
+    const activeStatuses = new Set([
+      'pending',
+      'accepted',
+      'preparing',
+      'ready_for_pickup',
+      'picked_up',
+      'on_the_way',
+    ]);
+
+    return {
+      total: orders.length,
+      delivered: normalizedStatuses.filter((status) => status === 'delivered').length,
+      active: normalizedStatuses.filter((status) => activeStatuses.has(status)).length,
+    };
+  }, [orders]);
 
   const handleSignOut = async () => {
     try {
@@ -397,30 +415,87 @@ export default function ProfilePage() {
 
   if (isAuthLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 pt-28 pb-20 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      <div className="flex min-h-screen items-center justify-center bg-[#f7f4ee] pt-28 pb-20">
+        <div className="h-12 w-12 animate-spin rounded-full border-4 border-orange-100 border-t-primary"></div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 pt-28 pb-20">
-      <div className="container mx-auto px-4 lg:px-8 max-w-5xl">
-        <h1 className="text-3xl font-bold text-gray-900 mb-8">My Profile</h1>
-        
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          
-          {/* SECTION A: My Data */}
-          <div className="lg:col-span-1 space-y-6">
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-              
-              {/* Header: Edit / Save Controls */}
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="font-bold text-gray-900 text-lg">Details</h3>
+    <div className="relative min-h-screen overflow-hidden bg-[#f7f4ee] pb-20 pt-28">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[520px] bg-[radial-gradient(circle_at_12%_18%,rgba(255,190,92,0.28),transparent_38%),radial-gradient(circle_at_88%_8%,rgba(255,107,53,0.18),transparent_34%)]" />
+
+      <main className="relative mx-auto max-w-6xl px-4 lg:px-8">
+        <div className="mb-6">
+          <p className="text-sm font-extrabold uppercase tracking-[0.22em] text-primary">Customer account</p>
+          <h1 className="mt-2 text-4xl font-black text-[#111827] md:text-5xl">My profile</h1>
+          <p className="mt-3 max-w-2xl text-base font-medium text-gray-600 md:text-lg">
+            Manage your delivery details and track your recent orders.
+          </p>
+        </div>
+
+        <section className="overflow-hidden rounded-[36px] bg-[#111827] text-white shadow-[0_24px_70px_rgba(17,24,39,0.22)]">
+          <div className="grid lg:grid-cols-[1.35fr_1fr]">
+            <div className="relative p-6 md:p-9">
+              <div className="relative flex flex-col gap-6 sm:flex-row sm:items-center">
+                <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-[28px] bg-primary text-white shadow-[0_16px_36px_rgba(255,107,53,0.34)]">
+                  <UserIcon size={44} />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <h2 className="break-words text-3xl font-black md:text-4xl">
+                      {profileData?.fullName || user?.displayName || "Customer"}
+                    </h2>
+                    <span className="rounded-full bg-white/10 px-3 py-1.5 text-xs font-extrabold uppercase tracking-widest text-orange-200 ring-1 ring-white/15">
+                      Customer
+                    </span>
+                  </div>
+                  <div className="mt-4 flex flex-col gap-2 text-sm font-semibold text-gray-300 sm:flex-row sm:flex-wrap sm:gap-x-6">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <Mail size={17} className="shrink-0 text-orange-300" />
+                      <span className="truncate">{profileData?.email || user?.email || "No email provided"}</span>
+                    </span>
+                    <span className="flex items-center gap-2">
+                      <Phone size={17} className="text-orange-300" />
+                      {profileData?.phone || "Phone not provided"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 border-t border-white/10 bg-white/[0.04] lg:border-l lg:border-t-0">
+              <div className="flex min-h-28 flex-col justify-center px-4 py-6 text-center">
+                <Package className="mx-auto text-orange-300" size={22} />
+                <span className="mt-3 text-3xl font-black">{orderStats.total}</span>
+                <span className="mt-1 text-xs font-bold uppercase tracking-wider text-gray-400">Total orders</span>
+              </div>
+              <div className="flex min-h-28 flex-col justify-center border-x border-white/10 px-4 py-6 text-center">
+                <CheckCircle2 className="mx-auto text-emerald-300" size={22} />
+                <span className="mt-3 text-3xl font-black">{orderStats.delivered}</span>
+                <span className="mt-1 text-xs font-bold uppercase tracking-wider text-gray-400">Delivered</span>
+              </div>
+              <div className="flex min-h-28 flex-col justify-center px-4 py-6 text-center">
+                <Clock className="mx-auto text-amber-300" size={22} />
+                <span className="mt-3 text-3xl font-black">{orderStats.active}</span>
+                <span className="mt-1 text-xs font-bold uppercase tracking-wider text-gray-400">Active</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <div className="mt-7 grid gap-7 lg:grid-cols-[380px_minmax(0,1fr)]">
+          <div className="space-y-6">
+            <section className="rounded-[28px] bg-white p-6 shadow-[0_14px_45px_rgba(17,24,39,0.08)]">
+              <div className="mb-6 flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-primary">Personal information</p>
+                  <h3 className="mt-1 text-2xl font-black text-gray-950">Profile details</h3>
+                </div>
                 {!isEditing ? (
                   <button 
                     onClick={() => setIsEditing(true)}
-                    className="text-primary hover:text-primary/80 transition-colors p-2 rounded-lg hover:bg-primary/5 flex items-center gap-1 text-sm font-bold bg-transparent border-none cursor-pointer"
+                    className="flex min-h-11 items-center gap-2 rounded-xl bg-orange-50 px-4 py-2 text-sm font-bold text-primary transition hover:bg-orange-100"
                   >
                     <Edit2 size={16} /> Edit
                   </button>
@@ -434,14 +509,15 @@ export default function ProfilePage() {
                           phone: profileData?.phone || ""
                         });
                       }}
-                      className="text-gray-400 hover:text-gray-600 transition-colors p-1.5 rounded-lg hover:bg-gray-100 bg-transparent border-none cursor-pointer"
+                      className="flex h-11 w-11 items-center justify-center rounded-xl bg-gray-100 text-gray-500 transition hover:bg-gray-200"
+                      aria-label="Cancel editing"
                     >
                       <X size={18} />
                     </button>
                     <button 
                       onClick={handleSaveProfile}
                       disabled={isSaving}
-                      className="text-white bg-primary hover:bg-primary/90 transition-colors px-3 py-1.5 rounded-lg flex items-center gap-1 text-sm font-bold border-none cursor-pointer disabled:opacity-70"
+                      className="flex min-h-11 items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-white transition hover:bg-[#eb5c28] disabled:opacity-70"
                     >
                       {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />} Save
                     </button>
@@ -449,52 +525,40 @@ export default function ProfilePage() {
                 )}
               </div>
 
-              {/* Avatar & Info Section */}
-              <div className="flex flex-col items-center gap-4 mb-8 text-center">
-                <div className="w-24 h-24 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0 border-4 border-white shadow-sm">
-                  <UserIcon size={40} />
-                </div>
-                <div className="w-full break-words whitespace-normal px-2">
-                  {!isEditing ? (
-                    <h2 className="text-xl font-bold text-gray-900 break-words whitespace-normal">
-                      {profileData?.fullName || user?.displayName || "User"}
-                    </h2>
-                  ) : (
+              <div className="space-y-4">
+                {isEditing && (
+                  <label className="block">
+                    <span className="text-xs font-extrabold uppercase tracking-wider text-gray-400">Full name</span>
                     <input
                       type="text"
                       value={editForm.fullName}
                       onChange={(e) => setEditForm(prev => ({ ...prev, fullName: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-center font-bold text-gray-900 outline-none"
+                      className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-3.5 font-bold text-gray-900 outline-none ring-primary/30 transition focus:ring-2"
                       placeholder="Your Full Name"
                     />
-                  )}
-                  <div className="mt-2">
-                    <span className="text-sm font-medium text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
-                      {profileData?.role === 'client' ? 'Customer' : profileData?.role || 'Customer'}
+                  </label>
+                )}
+
+                <div className="flex items-center gap-4 rounded-2xl bg-gray-50 p-4">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white text-primary shadow-sm">
+                    <Mail size={19} />
+                  </div>
+                  <div className="min-w-0">
+                    <span className="text-xs font-extrabold uppercase tracking-wider text-gray-400">Email address</span>
+                    <span className="mt-1 block truncate font-bold text-gray-800" title={profileData?.email || user?.email}>
+                      {profileData?.email || user?.email || "No email provided"}
                     </span>
                   </div>
                 </div>
-              </div>
-              
-              <div className="space-y-5 mb-8">
-                <div className="flex items-center gap-3 text-gray-700">
-                  <div className="w-10 h-10 rounded-xl bg-gray-50 flex items-center justify-center shrink-0">
-                    <Mail size={18} className="text-gray-500" />
-                  </div>
-                  <div className="flex flex-col w-full overflow-hidden">
-                    <span className="text-xs text-gray-400 font-medium uppercase">Email (Unchangeable)</span>
-                    <span className="font-medium break-all whitespace-normal block w-full" title={profileData?.email || user?.email}>{profileData?.email || user?.email || "No email provided"}</span>
-                  </div>
-                </div>
                 
-                <div className="flex items-center gap-3 text-gray-700">
-                  <div className="w-10 h-10 rounded-xl bg-gray-50 flex items-center justify-center shrink-0">
-                    <Phone size={18} className="text-gray-500" />
+                <div className="flex items-center gap-4 rounded-2xl bg-gray-50 p-4">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white text-primary shadow-sm">
+                    <Phone size={19} />
                   </div>
-                  <div className="flex flex-col w-full break-words whitespace-normal">
-                    <span className="text-xs text-gray-400 font-medium uppercase">Phone Number</span>
+                  <div className="min-w-0 flex-1">
+                    <span className="text-xs font-extrabold uppercase tracking-wider text-gray-400">Phone number</span>
                     {!isEditing ? (
-                      <span className="font-medium break-words whitespace-normal">{profileData?.phone || "Not provided"}</span>
+                      <span className="mt-1 block font-bold text-gray-800">{profileData?.phone || "Not provided"}</span>
                     ) : (
                       <input
                         type="tel"
@@ -503,7 +567,7 @@ export default function ProfilePage() {
                           const val = e.target.value.replace(/[^0-9+]/g, '');
                           setEditForm(prev => ({ ...prev, phone: val }));
                         }}
-                        className="w-full px-3 py-1.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all font-medium text-gray-900 outline-none mt-1"
+                        className="mt-2 w-full rounded-xl bg-white px-3 py-2.5 font-bold text-gray-900 outline-none ring-primary/30 transition focus:ring-2"
                         placeholder="+998901234567"
                       />
                     )}
@@ -513,36 +577,43 @@ export default function ProfilePage() {
               
               <button 
                 onClick={handleSignOut}
-                className="w-full flex items-center justify-center gap-2 py-3.5 px-4 bg-red-50 hover:bg-red-100 text-red-600 font-bold rounded-xl transition-colors border border-red-100 border-none cursor-pointer"
+                className="mt-6 flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl bg-red-50 px-4 py-3 font-bold text-red-600 transition hover:bg-red-100"
               >
                 <LogOut size={18} />
                 Sign Out
               </button>
-            </div>
+            </section>
 
-            {/* Payment Methods Card */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="font-bold text-gray-900 text-lg flex items-center gap-2">
-                  <CreditCard size={20} className="text-primary" />
-                  Payment Methods
-                </h3>
-                <button 
+            <section className="rounded-[28px] bg-white p-6 shadow-[0_14px_45px_rgba(17,24,39,0.07)]">
+              <div className="mb-5 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-50 text-primary">
+                    <CreditCard size={22} />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-gray-950">Payment methods</h3>
+                    <p className="text-sm font-medium text-gray-500">Secure checkout options</p>
+                  </div>
+                </div>
+                <button
                   onClick={() => setIsCardModalOpen(true)}
-                  className="text-primary hover:text-primary/80 transition-colors p-1.5 rounded-lg hover:bg-primary/5 bg-transparent border-none cursor-pointer"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-950 text-white transition hover:bg-primary"
+                  aria-label="Add payment method"
                 >
                   <Plus size={20} />
                 </button>
               </div>
 
               {paymentMethods.length === 0 ? (
-                <div className="text-center py-6 text-gray-500 text-sm bg-gray-50 rounded-xl border border-dashed border-gray-200">
-                  No cards added yet.<br/>Add a card for faster checkout.
+                <div className="rounded-2xl bg-gray-50 px-5 py-6 text-center">
+                  <CreditCard className="mx-auto text-gray-300" size={30} />
+                  <p className="mt-3 font-black text-gray-800">No cards added yet</p>
+                  <p className="mt-1 text-sm font-medium text-gray-500">Add a card for faster checkout.</p>
                 </div>
               ) : (
                 <div className="space-y-3">
                   {paymentMethods.map(card => (
-                    <div key={card.id} className="flex items-center justify-between p-3 border border-gray-100 rounded-xl hover:border-gray-200 transition-colors group">
+                    <div key={card.id} className="group flex items-center justify-between rounded-2xl bg-gray-50 p-4 transition hover:bg-orange-50">
                       <div className="flex items-center gap-3">
                         <div className={`w-14 h-8 rounded-md flex items-center justify-center text-[10px] font-extrabold uppercase tracking-wider border shadow-sm ${getBrandColor(card.brand)}`}>
                           {card.brand}
@@ -554,7 +625,7 @@ export default function ProfilePage() {
                       </div>
                       <button 
                         onClick={() => handleDeleteCard(card.id)}
-                        className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all bg-transparent border-none cursor-pointer p-1"
+                        className="flex h-10 w-10 items-center justify-center rounded-xl text-gray-400 opacity-100 transition hover:bg-white hover:text-red-500 sm:opacity-0 sm:group-hover:opacity-100"
                         title="Delete Card"
                       >
                         <Trash2 size={16} />
@@ -563,43 +634,50 @@ export default function ProfilePage() {
                   ))}
                 </div>
               )}
-            </div>
+            </section>
 
-            {/* Saved Locations Card */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="font-bold text-gray-900 text-lg flex items-center gap-2">
-                  <MapPin size={20} className="text-primary" />
-                  Saved Locations
-                </h3>
+            <section className="rounded-[28px] bg-white p-6 shadow-[0_14px_45px_rgba(17,24,39,0.07)]">
+              <div className="mb-5 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-50 text-amber-600">
+                    <MapPin size={22} />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-gray-950">Saved locations</h3>
+                    <p className="text-sm font-medium text-gray-500">Your delivery favorites</p>
+                  </div>
+                </div>
                 <button 
                   onClick={() => setIsAddressModalOpen(true)}
-                  className="text-primary hover:text-primary/80 transition-colors p-1.5 rounded-lg hover:bg-primary/5 bg-transparent border-none cursor-pointer"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-950 text-white transition hover:bg-primary"
+                  aria-label="Add saved location"
                 >
                   <Plus size={20} />
                 </button>
               </div>
 
               {addresses.length === 0 ? (
-                <div className="text-center py-6 text-gray-500 text-sm bg-gray-50 rounded-xl border border-dashed border-gray-200">
-                  Saved Locations: 0<br/>Add a delivery address.
+                <div className="rounded-2xl bg-gray-50 px-5 py-6 text-center">
+                  <MapPin className="mx-auto text-gray-300" size={30} />
+                  <p className="mt-3 font-black text-gray-800">No saved locations yet</p>
+                  <p className="mt-1 text-sm font-medium text-gray-500">Add your favorite delivery addresses.</p>
                 </div>
               ) : (
                 <div className="space-y-3">
                   {addresses.map(addr => (
-                    <div key={addr.id} className="flex items-start justify-between p-3 border border-gray-100 rounded-xl hover:border-gray-200 transition-colors group">
-                      <div className="flex items-start gap-3">
-                        <div className={`w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary mt-0.5 shrink-0`}>
+                    <div key={addr.id} className="group flex items-start justify-between rounded-2xl bg-gray-50 p-4 transition hover:bg-amber-50">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-primary shadow-sm">
                           <MapPin size={16} />
                         </div>
-                        <div className="flex flex-col">
+                        <div className="min-w-0">
                           <span className="text-sm font-bold text-gray-900">{addr.label || 'Home'}</span>
-                          <span className="text-xs text-gray-500 line-clamp-2">{addr.address}</span>
+                          <span className="mt-1 line-clamp-2 block text-xs font-medium text-gray-500">{addr.address}</span>
                         </div>
                       </div>
                       <button 
                         onClick={() => handleDeleteAddress(addr.id)}
-                        className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all bg-transparent border-none cursor-pointer p-1"
+                        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-gray-400 opacity-100 transition hover:bg-white hover:text-red-500 sm:opacity-0 sm:group-hover:opacity-100"
                         title="Delete Address"
                       >
                         <Trash2 size={16} />
@@ -608,84 +686,79 @@ export default function ProfilePage() {
                   ))}
                 </div>
               )}
-            </div>
-
+            </section>
           </div>
           
-          {/* SECTION B: Recent orders */}
-          <div className="lg:col-span-2">
-            <div className="h-fit bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
-              <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-100">
-                <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                  <Package className="text-primary" />
-                  Recent orders
-                </h2>
-                {orders.length > recentOrders.length && (
-                  <Link href="/orders" className="text-sm font-bold text-primary hover:text-primary/80">
-                    View all orders
-                  </Link>
-                )}
+          <section className="h-fit rounded-[32px] bg-white p-5 shadow-[0_18px_55px_rgba(17,24,39,0.09)] md:p-7">
+            <div className="flex flex-col gap-4 border-b border-gray-100 pb-6 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-primary">Order activity</p>
+                <h2 className="mt-1 text-3xl font-black text-gray-950">Recent orders</h2>
+                <p className="mt-2 font-medium text-gray-500">Your latest deliveries, all in one place.</p>
               </div>
+              <Link href="/orders" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-gray-950 px-5 py-3 text-sm font-bold text-white transition hover:bg-primary">
+                View all orders <ChevronRight size={17} />
+              </Link>
+            </div>
               
-              {isDataLoading ? (
-                <div className="space-y-4">
-                  {[1, 2, 3].map(i => (
-                    <div key={i} className="animate-pulse bg-gray-50 h-24 rounded-xl border border-gray-100 w-full"></div>
-                  ))}
+            {isDataLoading ? (
+              <div className="mt-6 space-y-4">
+                {[1, 2, 3].map(i => (
+                  <div key={i} className="h-32 w-full animate-pulse rounded-[24px] bg-gray-100"></div>
+                ))}
+              </div>
+            ) : recentOrders.length === 0 ? (
+              <div className="mt-6 flex min-h-80 flex-col items-center justify-center rounded-[26px] bg-[#faf9f6] px-6 py-12 text-center">
+                <div className="flex h-20 w-20 items-center justify-center rounded-[24px] bg-white text-gray-300 shadow-sm">
+                  <Package size={34} />
                 </div>
-              ) : recentOrders.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-4">
-                    <Package size={32} className="text-gray-300" />
-                  </div>
-                  <h3 className="text-lg font-bold text-gray-900 mb-1">No orders yet</h3>
-                  <p className="text-gray-500 max-w-sm">Your recent orders will appear here.</p>
-                  <button 
-                    onClick={() => router.push('/')}
-                    className="mt-6 px-6 py-2.5 bg-primary text-white font-medium rounded-xl shadow-md shadow-primary/20 hover:bg-primary/90 transition-colors border-none cursor-pointer"
-                  >
-                    Explore Restaurants
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {recentOrders.map((order) => {
-                    const orderStatus = getCustomerOrderStatus(order.status);
-                    return (
-                    <div key={order.id} className="border border-gray-100 rounded-xl p-4 hover:border-primary/30 transition-colors group">
-                      <div className="flex justify-between items-start mb-3">
+                <h3 className="mt-5 text-2xl font-black text-gray-900">No orders yet</h3>
+                <p className="mt-2 max-w-sm font-medium text-gray-500">Your recent orders will appear here after your first checkout.</p>
+                <button
+                  onClick={() => router.push('/')}
+                  className="mt-6 min-h-12 rounded-2xl bg-primary px-6 py-3 font-bold text-white shadow-[0_12px_26px_rgba(255,107,53,0.24)] transition hover:bg-[#eb5c28]"
+                >
+                  Explore restaurants
+                </button>
+              </div>
+            ) : (
+              <div className="mt-6 space-y-4">
+                {recentOrders.map((order) => {
+                  const orderStatus = getCustomerOrderStatus(order.status);
+                  return (
+                    <article key={order.id} className="group rounded-[24px] bg-[#faf9f6] p-5 transition hover:-translate-y-0.5 hover:bg-orange-50/70 hover:shadow-[0_14px_30px_rgba(17,24,39,0.08)] md:p-6">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
-                          <p className="text-sm text-gray-500 mb-1 font-medium flex items-center gap-1.5">
-                            <Clock size={14} />
-                            {formatOrderDate(order.createdAt)}
-                          </p>
-                          <h4 className="font-bold text-gray-900">Order #{order.id.substring(0, 8).toUpperCase()}</h4>
-                          <p className="mt-1 truncate text-sm font-medium text-gray-500">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-lg font-black text-gray-950">Order #{order.id.substring(0, 8).toUpperCase()}</h3>
+                            <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-bold ${orderStatus.className}`}>
+                              {orderStatus.label}
+                            </span>
+                          </div>
+                          <p className="mt-2 truncate text-base font-bold text-gray-700">
                             {order.restaurantName || 'Restaurant'}
                           </p>
+                          <p className="mt-2 flex items-center gap-1.5 text-sm font-medium text-gray-500">
+                            <Clock size={15} />
+                            {formatOrderDate(order.createdAt)}
+                          </p>
                         </div>
-                        <span className={`shrink-0 px-3 py-1 rounded-full text-xs font-bold ${orderStatus.className}`}>
-                          {orderStatus.label}
-                        </span>
+                        <p className="shrink-0 text-lg font-black text-gray-950">{formatOrderTotalSafe(order.total)}</p>
                       </div>
                       
-                      <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-50">
-                        <p className="font-medium text-gray-700">
-                          {formatOrderTotalSafe(order.total)}
-                        </p>
-                        <Link href={`/orders/${order.id}`} className="flex items-center gap-1 text-primary text-sm font-bold group-hover:translate-x-1 transition-transform no-underline">
-                          View Details <ChevronRight size={16} />
+                      <div className="mt-5 flex justify-end border-t border-black/5 pt-4">
+                        <Link href={`/orders/${order.id}`} className="flex min-h-11 items-center gap-1 rounded-xl bg-white px-4 py-2 text-sm font-bold text-primary shadow-sm transition group-hover:bg-primary group-hover:text-white">
+                          View details <ChevronRight size={16} />
                         </Link>
                       </div>
-                    </div>
-                  )})}
-                </div>
-              )}
-            </div>
-          </div>
-
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
         </div>
-      </div>
+      </main>
 
       {/* Card Modal */}
       {isCardModalOpen && (

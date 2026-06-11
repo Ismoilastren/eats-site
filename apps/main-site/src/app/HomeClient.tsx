@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Filter, Gift, Search, SlidersHorizontal, Timer, Utensils } from 'lucide-react';
+import { Filter, Gift, SlidersHorizontal, Timer, Utensils } from 'lucide-react';
 import { categories, type Restaurant } from '@/data/marketplace';
 import { MarketplaceHeader } from '@/components/marketplace/MarketplaceHeader';
 import { RestaurantCard } from '@/components/marketplace/RestaurantCard';
@@ -14,10 +14,8 @@ export default function HomeClient() {
   const [discounts, setDiscounts] = useState(false);
   const [openNow, setOpenNow] = useState(false);
   const [ratingOnly, setRatingOnly] = useState(false);
-  const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
     const normalizeFilter = (value: string) => value.toLowerCase().replace(/s$/, '');
     const selectedCategoryKey = normalizeFilter(selectedCategory);
     let list = restaurants.filter((restaurant) => {
@@ -27,17 +25,9 @@ export default function HomeClient() {
         ...restaurant.menu.map((dish) => dish.category),
       ].map(normalizeFilter);
       const categoryMatch = selectedCategory === 'Restaurants' || restaurantCategories.includes(selectedCategoryKey);
-      const queryMatch = !normalized ||
-        restaurant.name.toLowerCase().includes(normalized) ||
-        restaurant.cuisine.join(' ').toLowerCase().includes(normalized) ||
-        restaurant.menu.some((dish) =>
-          dish.name.toLowerCase().includes(normalized) ||
-          dish.description.toLowerCase().includes(normalized) ||
-          dish.category.toLowerCase().includes(normalized)
-        );
       const modeMatch = deliveryMode === 'delivery' || restaurant.supportsPickup;
       const zoneMatch = address.inZone || deliveryMode === 'pickup';
-      return categoryMatch && queryMatch && modeMatch && zoneMatch;
+      return categoryMatch && modeMatch && zoneMatch;
     });
 
     if (freeDelivery) list = list.filter((item) => item.deliveryFee === 0);
@@ -45,7 +35,7 @@ export default function HomeClient() {
     if (openNow) list = list.filter((item) => item.isOpen);
     if (ratingOnly) list = list.filter((item) => item.rating >= 4.6);
     return [...list].sort((a, b) => Number(b.hasDiscount) - Number(a.hasDiscount) || b.rating - a.rating);
-  }, [address.inZone, deliveryMode, discounts, freeDelivery, openNow, query, ratingOnly, restaurants, selectedCategory]);
+  }, [address.inZone, deliveryMode, discounts, freeDelivery, openNow, ratingOnly, restaurants, selectedCategory]);
 
   const recommended = filtered.filter((restaurant) => restaurant.rating >= 4.6).slice(0, 4);
   const fast = filtered.filter((restaurant) => restaurant.etaMin <= 26).slice(0, 4);
@@ -101,17 +91,11 @@ export default function HomeClient() {
               </button>
             ))}
           </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto]">
-            <div className="flex items-center gap-3 rounded-3xl bg-white px-5 py-4 ring-1 ring-black/5">
-              <Search size={21} className="text-gray-400" />
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search restaurants and dishes" className="w-full bg-transparent font-bold outline-none" />
-            </div>
-            <div className="flex gap-2 overflow-x-auto">
-              <FilterButton active={freeDelivery} onClick={() => setFreeDelivery((value) => !value)}>Free delivery</FilterButton>
-              <FilterButton active={discounts} onClick={() => setDiscounts((value) => !value)}>Discounts</FilterButton>
-              <FilterButton active={openNow} onClick={() => setOpenNow((value) => !value)}>Open now</FilterButton>
-              <FilterButton active={ratingOnly} onClick={() => setRatingOnly((value) => !value)}>4.6+</FilterButton>
-            </div>
+          <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+            <FilterButton active={freeDelivery} onClick={() => setFreeDelivery((value) => !value)}>Free delivery</FilterButton>
+            <FilterButton active={discounts} onClick={() => setDiscounts((value) => !value)}>Discounts</FilterButton>
+            <FilterButton active={openNow} onClick={() => setOpenNow((value) => !value)}>Open now</FilterButton>
+            <FilterButton active={ratingOnly} onClick={() => setRatingOnly((value) => !value)}>4.6+</FilterButton>
           </div>
         </section>
 

@@ -13,6 +13,7 @@ import {
   type OrderStatus,
   type MarketplaceOrderInput,
 } from '@/services/marketplace';
+import { readStoredCustomerProfile } from '@/services/customerProfile';
 import { TASHKENT_CENTER } from '@/lib/yandexMaps';
 
 export type CartLine = Dish & {
@@ -24,7 +25,14 @@ export type CartLine = Dish & {
 };
 
 export type MockUser = { name: string; phone: string; email?: string };
-export type SavedAddress = { text: string; inZone: boolean; lat?: number; lng?: number; confirmed?: boolean };
+export type SavedAddress = {
+  text: string;
+  inZone: boolean;
+  lat?: number;
+  lng?: number;
+  confirmed?: boolean;
+  source?: 'manual' | 'map' | 'current_location' | 'suggestion';
+};
 export type LocalOrder = {
   id: string;
   userId?: string;
@@ -63,6 +71,7 @@ type MarketplaceContextValue = {
   promo: Promo | null;
   marketplacePromos: Promo[];
   deliveryMode: DeliveryMode;
+  storageHydrated: boolean;
   dataLoading: boolean;
   dataError: string | null;
   addDish: (restaurant: Restaurant, dish: Dish, quantity?: number) => void;
@@ -103,7 +112,13 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   const [cart, setCart] = useState<CartLine[]>([]);
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [user, setUser] = useState<MockUser | null>(null);
-  const [address, setAddressState] = useState<SavedAddress>({ text: 'Tashkent, Amir Temur Avenue 14', inZone: true, confirmed: false, ...TASHKENT_CENTER });
+  const [address, setAddressState] = useState<SavedAddress>({
+    text: 'Tashkent, Amir Temur Avenue 14',
+    inZone: true,
+    confirmed: false,
+    source: 'suggestion',
+    ...TASHKENT_CENTER,
+  });
   const [favorites, setFavorites] = useState<string[]>([]);
   const [orders, setOrders] = useState<LocalOrder[]>([]);
   const [promo, setPromo] = useState<Promo | null>(null);
@@ -121,7 +136,13 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   useEffect(() => {
     setCart(readStorage<CartLine[]>('marketplace_cart', []));
     setUser(readStorage<MockUser | null>('marketplace_user', null));
-    setAddressState(readStorage<SavedAddress>('marketplace_address', { text: 'Tashkent, Amir Temur Avenue 14', inZone: true, confirmed: false, ...TASHKENT_CENTER }));
+    setAddressState(readStorage<SavedAddress>('marketplace_address', {
+      text: 'Tashkent, Amir Temur Avenue 14',
+      inZone: true,
+      confirmed: false,
+      source: 'suggestion',
+      ...TASHKENT_CENTER,
+    }));
     setFavorites(readStorage<string[]>('marketplace_favorites', []));
     if (!isFirestoreDataSource()) {
       setOrders(readStorage<LocalOrder[]>('marketplace_orders', []));
@@ -164,10 +185,11 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       phone: firebaseUser?.phoneNumber || undefined,
     });
     if (firebaseUser) {
+      const storedProfile = readStoredCustomerProfile(firebaseUser.uid);
       setUser((current) => ({
-        name: firebaseUser.displayName || current?.name || firebaseUser.email?.split('@')[0] || 'Customer',
-        phone: firebaseUser.phoneNumber || current?.phone || '',
-        email: firebaseUser.email || current?.email,
+        name: storedProfile?.fullName || firebaseUser.displayName || current?.name || firebaseUser.email?.split('@')[0] || 'Customer',
+        phone: storedProfile?.phone || firebaseUser.phoneNumber || current?.phone || '',
+        email: storedProfile?.email || firebaseUser.email || current?.email,
       }));
     } else if (isFirestoreDataSource()) {
       setUser(null);
@@ -312,6 +334,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     promo,
     marketplacePromos,
     deliveryMode,
+    storageHydrated: loaded,
     dataLoading,
     dataError,
     addDish,
@@ -333,7 +356,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     discount,
     total,
     cartCount,
-  }), [address, cart, cartCount, dataError, dataLoading, deliveryFee, deliveryMode, discount, favorites, marketplacePromos, orders, placeOrder, promo, reloadOrders, restaurants, serviceFee, subtotal, total, user]);
+  }), [address, cart, cartCount, dataError, dataLoading, deliveryFee, deliveryMode, discount, favorites, loaded, marketplacePromos, orders, placeOrder, promo, reloadOrders, restaurants, serviceFee, subtotal, total, user]);
 
   return <MarketplaceContext.Provider value={value}>{children}</MarketplaceContext.Provider>;
 }

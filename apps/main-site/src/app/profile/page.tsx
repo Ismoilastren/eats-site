@@ -2,10 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { 
-  auth, db, doc, getDoc, setDoc, addDoc, deleteDoc, collection, query, where, getDocs, signOut, onAuthStateChanged, onSnapshot, updateProfile, writeBatch
+import {
+  auth,
+  signOut,
+  onAuthStateChanged,
+  updateProfile,
+  type FirebaseUser,
 } from "@repo/firebase-config";
-import { COLLECTIONS } from "@repo/shared-types";
 import { LogOut, User as UserIcon, Mail, Phone, Package, Clock, ChevronRight, Edit2, Check, X, Loader2, CreditCard, Plus, Trash2, MapPin, CheckCircle2, Home } from "lucide-react";
 import toast from 'react-hot-toast';
 import Link from 'next/link';
@@ -18,71 +21,31 @@ import {
   isValidRecentOrderTotal,
 } from '@/lib/orderDisplay';
 import { geocodeAddress, reverseGeocode } from '@/lib/yandexGeocoder';
-
-type PaymentMethod = {
-  id: string;
-  brand: string;
-  last4: string;
-  expiry: string;
-  holderName: string;
-  createdAt: string;
-};
-
-type SavedLocation = {
-  id: string;
-  label: string;
-  address: string;
-  lat?: number;
-  lng?: number;
-  createdAt: string;
-};
-
-const localPaymentKey = (uid: string) => `profile_payment_methods_${uid}`;
-const localAddressKey = (uid: string) => `profile_saved_locations_${uid}`;
-const isMockMarketplace = process.env.NEXT_PUBLIC_MARKETPLACE_DATA_SOURCE === 'mock';
-
-function readLocalList<T>(key: string): T[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const parsed = JSON.parse(localStorage.getItem(key) || '[]');
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeLocalList<T>(key: string, items: T[]) {
-  localStorage.setItem(key, JSON.stringify(items));
-}
-
-function mergeById<T extends { id: string }>(remote: T[], local: T[]) {
-  return [...remote, ...local].filter((item, index, list) => list.findIndex((entry) => entry.id === item.id) === index);
-}
-
-function passesLuhn(number: string) {
-  let sum = 0;
-  let doubleDigit = false;
-  for (let index = number.length - 1; index >= 0; index -= 1) {
-    let digit = Number(number[index]);
-    if (doubleDigit) {
-      digit *= 2;
-      if (digit > 9) digit -= 9;
-    }
-    sum += digit;
-    doubleDigit = !doubleDigit;
-  }
-  return sum % 10 === 0;
-}
-
-const getCardBrand = (number: string) => {
-  if (!number) return 'Unknown';
-  if (/^4/.test(number)) return 'Visa';
-  if (/^5[1-5]/.test(number)) return 'Mastercard';
-  if (/^3[47]/.test(number)) return 'Amex';
-  if (/^8600/.test(number)) return 'Uzcard'; // Uzbek local
-  if (/^9860/.test(number)) return 'Humo';   // Uzbek local
-  return 'Other';
-};
+import {
+  createCustomerRecordId,
+  getCardBrand,
+  loadCustomerProfile,
+  loadPaymentMethods,
+  loadSavedLocations,
+  maskCardNumber,
+  normalizeCardNumber,
+  normalizeUzbekPhone,
+  readStoredCustomerProfile,
+  readStoredLocations,
+  readStoredPaymentMethods,
+  removePaymentMethod,
+  removeSavedLocation,
+  saveCustomerProfile,
+  savePaymentMethod,
+  saveSavedLocation,
+  subscribeCustomerProfileStorage,
+  validateCardNumber,
+  validateExpiry,
+  type CustomerProfile,
+  type PaymentMethod,
+  type SavedLocation,
+  type SavedLocationSource,
+} from '@/services/customerProfile';
 
 const getBrandColor = (brand: string) => {
   switch (brand) {
@@ -97,10 +60,14 @@ const getBrandColor = (brand: string) => {
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { user: marketplaceUser } = useMarketplace();
+  const {
+    user: marketplaceUser,
+    login: updateMarketplaceUser,
+    address: currentDeliveryAddress,
+  } = useMarketplace();
   
-  const [user, setUser] = useState<any>(null);
-  const [profileData, setProfileData] = useState<any>(null);
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [profileData, setProfileData] = useState<CustomerProfile | null>(null);
   const [orders, setOrders] = useState<LocalOrder[]>([]);
   
   const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -126,7 +93,13 @@ export default function ProfilePage() {
   // Address States
   const [addresses, setAddresses] = useState<SavedLocation[]>([]);
   const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
-  const [newAddress, setNewAddress] = useState<{ label: string; address: string; lat?: number; lng?: number }>({ label: '', address: '' });
+  const [newAddress, setNewAddress] = useState<{
+    label: string;
+    address: string;
+    lat?: number;
+    lng?: number;
+    source: SavedLocationSource;
+  }>({ label: '', address: '', source: 'manual' });
   const [addressErrors, setAddressErrors] = useState<Record<string, string>>({});
   const [isAddingAddress, setIsAddingAddress] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
@@ -145,94 +118,65 @@ export default function ProfilePage() {
     return () => unsubscribe();
   }, [router]);
 
-  // Real-time listener for addresses
+  // 2. Fetch profile data without making the page depend on Firestore availability.
   useEffect(() => {
-    if (!user) return;
-    const localAddresses = isMockMarketplace ? readLocalList<SavedLocation>(localAddressKey(user.uid)) : [];
-    setAddresses(localAddresses);
-    const unsubscribe = onSnapshot(
-      collection(db, 'users', user.uid, 'addresses'),
-      (snapshot) => {
-        const fetchedAddresses: SavedLocation[] = [];
-        snapshot.forEach((addressDoc) => {
-          const data = addressDoc.data();
-          fetchedAddresses.push({
-            id: addressDoc.id,
-            label: String(data.label || 'Saved location'),
-            address: String(data.address || ''),
-            lat: Number.isFinite(Number(data.lat)) ? Number(data.lat) : undefined,
-            lng: Number.isFinite(Number(data.lng)) ? Number(data.lng) : undefined,
-            createdAt: String(data.createdAt || ''),
-          });
-        });
-        setAddresses(mergeById(
-          fetchedAddresses,
-          isMockMarketplace ? readLocalList<SavedLocation>(localAddressKey(user.uid)) : [],
-        ));
-      },
-      () => setAddresses(isMockMarketplace ? readLocalList<SavedLocation>(localAddressKey(user.uid)) : []),
-    );
-    return () => unsubscribe();
-  }, [user]);
-
-  // 2. Fetch User Profile & Orders
-  useEffect(() => {
+    let cancelled = false;
     const fetchData = async () => {
       if (!user) return;
-      
-      try {
-        let storedProfile: Record<string, unknown> = {};
-        const userDoc = await getDoc(doc(db, COLLECTIONS.USERS, user.uid));
-        if (userDoc.exists()) {
-          const data = userDoc.data();
-          storedProfile = data;
-          setProfileData(data);
-          setEditForm({
-            fullName: data.fullName || user.displayName || "",
-            phone: data.phone || ""
-          });
-        }
 
-        const fetchedOrders = await getOrdersForCustomer({
+      const localProfile = readStoredCustomerProfile(user.uid);
+      const initialProfile: CustomerProfile = {
+        fullName: localProfile?.fullName || user.displayName || marketplaceUser?.name || '',
+        phone: localProfile?.phone || user.phoneNumber || marketplaceUser?.phone || '',
+        email: localProfile?.email || user.email || marketplaceUser?.email || '',
+        role: localProfile?.role || 'client',
+      };
+      setProfileData(initialProfile);
+      setEditForm({ fullName: initialProfile.fullName, phone: initialProfile.phone });
+      setPaymentMethods(readStoredPaymentMethods(user.uid));
+      setAddresses(readStoredLocations(user.uid));
+
+      const [loadedProfile, loadedCards, loadedLocations, loadedOrders] = await Promise.all([
+        loadCustomerProfile(user.uid),
+        loadPaymentMethods(user.uid),
+        loadSavedLocations(user.uid),
+        getOrdersForCustomer({
           userId: user.uid,
           emails: [user.email, marketplaceUser?.email],
           phones: [
-            typeof storedProfile.phone === 'string' ? storedProfile.phone : null,
+            initialProfile.phone,
             marketplaceUser?.phone,
           ],
-        });
-        setOrders(fetchedOrders);
+        }).catch(() => []),
+      ]);
 
-        const pmQuery = query(collection(db, COLLECTIONS.USERS, user.uid, 'paymentMethods'));
-        const pmSnapshot = await getDocs(pmQuery);
-        const fetchedPMs: PaymentMethod[] = [];
-        pmSnapshot.forEach((paymentDoc) => {
-          const data = paymentDoc.data();
-          fetchedPMs.push({
-            id: paymentDoc.id,
-            brand: String(data.brand || 'Other'),
-            last4: String(data.last4 || ''),
-            expiry: String(data.expiry || ''),
-            holderName: String(data.holderName || ''),
-            createdAt: String(data.createdAt || ''),
-          });
-        });
-        setPaymentMethods(mergeById(
-          fetchedPMs,
-          isMockMarketplace ? readLocalList<PaymentMethod>(localPaymentKey(user.uid)) : [],
-        ));
-      } catch (error: any) {
-        console.error("Failed to fetch profile or orders:", error);
-        setPaymentMethods(isMockMarketplace ? readLocalList<PaymentMethod>(localPaymentKey(user.uid)) : []);
-      } finally {
-        setIsDataLoading(false);
-      }
+      if (cancelled) return;
+      const nextProfile = loadedProfile || initialProfile;
+      setProfileData(nextProfile);
+      setEditForm({ fullName: nextProfile.fullName, phone: nextProfile.phone });
+      setPaymentMethods(loadedCards);
+      setAddresses(loadedLocations);
+      setOrders(loadedOrders);
+      setIsDataLoading(false);
     };
 
     if (!isAuthLoading && user) {
       fetchData();
     }
-  }, [user, isAuthLoading, marketplaceUser?.email, marketplaceUser?.phone]);
+    return () => {
+      cancelled = true;
+    };
+  }, [user, isAuthLoading, marketplaceUser?.email, marketplaceUser?.name, marketplaceUser?.phone]);
+
+  useEffect(() => {
+    if (!user) return;
+    return subscribeCustomerProfileStorage(() => {
+      setPaymentMethods(readStoredPaymentMethods(user.uid));
+      setAddresses(readStoredLocations(user.uid));
+      const storedProfile = readStoredCustomerProfile(user.uid);
+      if (storedProfile) setProfileData(storedProfile);
+    });
+  }, [user]);
 
   const recentOrders = useMemo(
     () => orders.filter((order) => isValidRecentOrderTotal(order.total)).slice(0, 3),
@@ -257,12 +201,17 @@ export default function ProfilePage() {
     };
   }, [orders]);
 
+  const canUseCurrentDeliveryAddress = Boolean(
+    currentDeliveryAddress.confirmed
+    && currentDeliveryAddress.text.trim()
+    && !/^selected point/i.test(currentDeliveryAddress.text)
+  );
+
   const handleSignOut = async () => {
     try {
       await signOut(auth);
       router.push("/auth/login");
-    } catch (error) {
-      console.error("Error signing out:", error);
+    } catch {
       toast.error("Failed to sign out.");
     }
   };
@@ -271,18 +220,11 @@ export default function ProfilePage() {
     if (!user) return;
 
     try {
-      if (isMockMarketplace) {
-        const nextLocal = readLocalList<SavedLocation>(localAddressKey(user.uid))
-          .filter((item) => item.id !== id);
-        writeLocalList(localAddressKey(user.uid), nextLocal);
-      } else {
-        await deleteDoc(doc(db, 'users', user.uid, 'addresses', id));
-      }
+      await removeSavedLocation(user.uid, id);
       setAddresses((current) => current.filter((item) => item.id !== id));
       toast.success("Address deleted");
-    } catch (error) {
-      console.error('Failed to delete address:', error);
-      toast.error('Failed to delete address. Please try again.');
+    } catch {
+      toast.error('Could not remove this address from browser storage.');
     }
   };
 
@@ -301,51 +243,38 @@ export default function ProfilePage() {
       let lat = newAddress.lat;
       let lng = newAddress.lng;
 
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-        const geocoded = await geocodeAddress(resolvedAddress);
-        if (!geocoded[0]) {
-          setAddressErrors((current) => ({
-            ...current,
-            address: 'Address could not be resolved. Enter a more specific Tashkent address.',
-          }));
-          return;
+      if (newAddress.source === 'manual' && (!Number.isFinite(lat) || !Number.isFinite(lng))) {
+        try {
+          const geocoded = await geocodeAddress(resolvedAddress);
+          if (geocoded[0]) {
+            resolvedAddress = geocoded[0].fullAddress;
+            lat = geocoded[0].lat;
+            lng = geocoded[0].lng;
+          }
+        } catch {
+          // A typed address remains valid even when optional coordinate lookup is unavailable.
         }
-        resolvedAddress = geocoded[0].fullAddress;
-        lat = geocoded[0].lat;
-        lng = geocoded[0].lng;
       }
 
-      const safeAddress = {
+      const safeAddress: SavedLocation = {
+        id: createCustomerRecordId('location'),
         label: newAddress.label.trim(),
         address: resolvedAddress,
         lat,
         lng,
+        source: newAddress.source,
         createdAt: new Date().toISOString(),
       };
 
-      if (isMockMarketplace) {
-        const localLocation: SavedLocation = {
-          id: `local_address_${Date.now()}`,
-          ...safeAddress,
-        };
-        const localAddresses = [
-          ...readLocalList<SavedLocation>(localAddressKey(user.uid)),
-          localLocation,
-        ];
-        writeLocalList(localAddressKey(user.uid), localAddresses);
-        setAddresses((current) => mergeById(current, [localLocation]));
-      } else {
-        const docRef = await addDoc(collection(db, 'users', user.uid, 'addresses'), safeAddress);
-        setAddresses((current) => mergeById(current, [{ id: docRef.id, ...safeAddress }]));
-      }
+      const result = await saveSavedLocation(user.uid, safeAddress);
+      setAddresses((current) => [...current.filter((item) => item.id !== result.value.id), result.value]);
 
       toast.success("Address saved");
       setIsAddressModalOpen(false);
-      setNewAddress({ label: '', address: '' });
+      setNewAddress({ label: '', address: '', source: 'manual' });
       setAddressErrors({});
-    } catch (error) {
-      console.error('Failed to save address:', error);
-      toast.error('Failed to save address. Please try again.');
+    } catch {
+      toast.error('Could not save this address on this device.');
     } finally {
       setIsAddingAddress(false);
     }
@@ -361,7 +290,12 @@ export default function ProfilePage() {
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         const { latitude, longitude } = position.coords;
-        setNewAddress((previous) => ({ ...previous, lat: latitude, lng: longitude }));
+        setNewAddress((previous) => ({
+          ...previous,
+          lat: latitude,
+          lng: longitude,
+          source: 'current_location',
+        }));
         try {
           const result = await reverseGeocode(latitude, longitude);
           if (!result) {
@@ -370,6 +304,7 @@ export default function ProfilePage() {
               address: '',
               lat: latitude,
               lng: longitude,
+              source: 'current_location',
             }));
             setAddressErrors((current) => ({
               ...current,
@@ -383,6 +318,7 @@ export default function ProfilePage() {
             address: result.fullAddress,
             lat: latitude,
             lng: longitude,
+            source: 'current_location',
           }));
           setAddressErrors((current) => ({ ...current, address: '' }));
           toast.success("Location found");
@@ -392,6 +328,7 @@ export default function ProfilePage() {
             address: '',
             lat: latitude,
             lng: longitude,
+            source: 'current_location',
           }));
           setAddressErrors((current) => ({
             ...current,
@@ -402,7 +339,7 @@ export default function ProfilePage() {
           setIsLocating(false);
         }
       },
-      (error) => {
+      () => {
         setIsLocating(false);
         toast.error("Location access denied.");
       }
@@ -410,98 +347,51 @@ export default function ProfilePage() {
   };
 
   const handleSaveProfile = async () => {
-    console.log("DEBUG: Save button clicked!");
-
-    const newNickname = editForm.fullName.trim();
-    if (!newNickname) return toast.error("Name cannot be empty");
-
-    const phoneRegex = /^\+?[1-9]\d{8,12}$/;
-    const cleanPhone = editForm.phone.replace(/\s+/g, '');
-
-    if (!phoneRegex.test(cleanPhone) || cleanPhone.includes("000000")) {
-        toast.error("Invalid phone format. Enter a real number (e.g., +998901234567).");
-        return; // BLOCK DATABASE UPDATE
+    const fullName = editForm.fullName.trim();
+    if (!fullName) {
+      toast.error("Name cannot be empty");
+      return;
     }
-
+    const phone = normalizeUzbekPhone(editForm.phone);
+    if (!phone) {
+      toast.error("Enter a valid Uzbekistan phone number, for example +998901234567.");
+      return;
+    }
+    if (!user) {
+      toast.error('Authentication error. Please sign in again.');
+      return;
+    }
     setIsSaving(true);
-    
     try {
-        console.log("DEBUG: Attempting Firebase updateDoc & Batch Fan-Out...");
-        
-        if (!user || !user.uid) {
-            console.error("DEBUG: No User UID found!");
-            toast.error('Authentication error. Please re-login.');
-            return;
-        }
-
-        // 1. Update Standard Auth & User Document
-        if (auth.currentUser) {
-            await updateProfile(auth.currentUser, { displayName: newNickname });
-        }
-        await setDoc(doc(db, COLLECTIONS.USERS, user.uid), {
-            fullName: newNickname,
-            phone: cleanPhone,
-            role: profileData?.role || 'client'
-        }, { merge: true });
-        
-        // 2. LOGIC LEVEL MAX: Data Fan-Out to all associated Orders
-        const batch = writeBatch(db);
-        const ordersRef = collection(db, 'orders');
-        
-        // Find all orders belonging to this exact user
-        const q = query(ordersRef, where('userId', '==', user.uid));
-        const querySnapshot = await getDocs(q);
-        
-        // Queue up the name change for every single order they've ever made
-        querySnapshot.forEach((orderDoc) => {
-            batch.update(orderDoc.ref, { 
-                customerName: newNickname,
-                "customer.name": newNickname
-            });
-        });
-
-        // Commit the batch to the database instantly
-        await batch.commit();
-        
-        console.log("DEBUG: Firebase Batch Fan-Out SUCCESS!");
-        
-        setProfileData((prev: any) => ({
-          ...prev,
-          fullName: newNickname,
-          phone: cleanPhone
-        }));
-        
-        setIsEditing(false);
-        toast.success("Profile and Order History synced successfully!");
-    } catch (error) {
-        console.error("DEBUG: Firebase Batch FAILED!", error);
-        toast.error("Failed to sync profile updates.");
+      const nextProfile: CustomerProfile = {
+        fullName,
+        phone,
+        email: profileData?.email || user.email || marketplaceUser?.email || '',
+        role: profileData?.role || 'client',
+      };
+      const saved = await saveCustomerProfile(user.uid, nextProfile);
+      setProfileData(saved.value);
+      setEditForm({ fullName: saved.value.fullName, phone: saved.value.phone });
+      updateMarketplaceUser(saved.value.fullName, saved.value.phone, saved.value.email);
+      setIsEditing(false);
+      toast.success("Profile updated");
+      if (auth.currentUser) {
+        updateProfile(auth.currentUser, { displayName: saved.value.fullName }).catch(() => undefined);
+      }
+    } catch {
+      toast.error("Could not save profile changes on this device.");
     } finally {
-        console.log("DEBUG: Saving process finished.");
-        setIsSaving(false);
+      setIsSaving(false);
     }
-  };
-
-  const validateExpiry = (expiry: string) => {
-    if (!/^(0[1-9]|1[0-2])\/([0-9]{2})$/.test(expiry)) return false;
-    
-    const [month, year] = expiry.split('/').map(n => parseInt(n, 10));
-    const now = new Date();
-    const currentMonth = now.getMonth() + 1;
-    const currentYear = parseInt(now.getFullYear().toString().slice(-2), 10);
-    
-    if (year < currentYear) return false;
-    if (year === currentYear && month <= currentMonth) return false;
-    return true;
   };
 
   const handleAddCard = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user || !user.uid) return toast.error('Authentication error.');
 
-    const cleanNumber = cardForm.number.replace(/\s+/g, '');
+    const cleanNumber = normalizeCardNumber(cardForm.number);
     const nextErrors: Record<string, string> = {};
-    if (!/^\d{13,19}$/.test(cleanNumber) || !passesLuhn(cleanNumber)) {
+    if (!validateCardNumber(cleanNumber)) {
       nextErrors.number = 'Enter a valid card number.';
     }
     if (!validateExpiry(cardForm.expiry)) {
@@ -517,37 +407,28 @@ export default function ProfilePage() {
     if (Object.keys(nextErrors).length > 0) return;
 
     setIsAddingCard(true);
-    const safeCard = {
+    const safeCard: PaymentMethod = {
+      id: createCustomerRecordId('card'),
       brand: getCardBrand(cleanNumber),
       last4: cleanNumber.slice(-4),
+      maskedNumber: maskCardNumber(cleanNumber),
       expiry: cardForm.expiry,
-      holderName: cardForm.holder.trim().toUpperCase(),
+      cardholderName: cardForm.holder.trim().toUpperCase(),
       createdAt: new Date().toISOString(),
     };
     try {
-      if (isMockMarketplace) {
-        const localCard: PaymentMethod = {
-          id: `local_card_${Date.now()}`,
-          ...safeCard,
-        };
-        const localCards = [
-          ...readLocalList<PaymentMethod>(localPaymentKey(user.uid)),
-          localCard,
-        ];
-        writeLocalList(localPaymentKey(user.uid), localCards);
-        setPaymentMethods((current) => mergeById(current, [localCard]));
-      } else {
-        const docRef = await addDoc(collection(db, COLLECTIONS.USERS, user.uid, 'paymentMethods'), safeCard);
-        setPaymentMethods((current) => mergeById(current, [{ id: docRef.id, ...safeCard }]));
-      }
+      const result = await savePaymentMethod(user.uid, safeCard);
+      setPaymentMethods((current) => [
+        ...current.filter((item) => item.id !== result.value.id),
+        result.value,
+      ]);
 
       setCardForm({ number: '', expiry: '', cvv: '', holder: '' });
       setErrors({});
       setIsCardModalOpen(false);
       toast.success('Card added');
-    } catch (error) {
-      console.error('Failed to save card:', error);
-      toast.error('Failed to save card. Please try again.');
+    } catch {
+      toast.error('Could not save this card on this device.');
     } finally {
       setIsAddingCard(false);
     }
@@ -561,19 +442,12 @@ export default function ProfilePage() {
     if (!user || !user.uid || !cardToDelete) return;
 
     try {
-      if (isMockMarketplace) {
-        const nextLocal = readLocalList<PaymentMethod>(localPaymentKey(user.uid))
-          .filter((item) => item.id !== cardToDelete);
-        writeLocalList(localPaymentKey(user.uid), nextLocal);
-      } else {
-        await deleteDoc(doc(db, COLLECTIONS.USERS, user.uid, 'paymentMethods', cardToDelete));
-      }
+      await removePaymentMethod(user.uid, cardToDelete);
       setPaymentMethods((current) => current.filter((card) => card.id !== cardToDelete));
       toast.success('Card removed');
       setCardToDelete(null);
-    } catch (error) {
-      console.error('Failed to remove card:', error);
-      toast.error('Failed to remove card. Please try again.');
+    } catch {
+      toast.error('Could not remove this card from browser storage.');
     }
   };
 
@@ -713,7 +587,7 @@ export default function ProfilePage() {
                   </div>
                   <div className="min-w-0">
                     <span className="text-xs font-extrabold uppercase tracking-wider text-gray-400">Email address</span>
-                    <span className="mt-1 block truncate font-bold text-gray-800" title={profileData?.email || user?.email}>
+                    <span className="mt-1 block truncate font-bold text-gray-800" title={profileData?.email || user?.email || undefined}>
                       {profileData?.email || user?.email || "No email provided"}
                     </span>
                   </div>
@@ -787,8 +661,8 @@ export default function ProfilePage() {
                           {card.brand}
                         </div>
                         <div className="flex flex-col">
-                          <span className="text-sm font-bold text-gray-900">**** **** **** {card.last4}</span>
-                          <span className="text-xs text-gray-400">{card.holderName}{card.expiry ? ` · ${card.expiry}` : ''}</span>
+                          <span className="text-sm font-bold text-gray-900">{card.maskedNumber}</span>
+                          <span className="text-xs text-gray-400">{card.cardholderName}{card.expiry ? ` · ${card.expiry}` : ''}</span>
                         </div>
                       </div>
                       <button 
@@ -1056,7 +930,7 @@ export default function ProfilePage() {
               onClick={() => {
                 setIsAddressModalOpen(false);
                 setAddressErrors({});
-                setNewAddress({ label: '', address: '' });
+                setNewAddress({ label: '', address: '', source: 'manual' });
               }}
               className="absolute right-4 top-4 text-gray-400 hover:text-gray-600 bg-transparent border-none cursor-pointer"
             >
@@ -1067,6 +941,30 @@ export default function ProfilePage() {
             </h3>
             
             <form onSubmit={handleAddAddress} className="space-y-4">
+              {canUseCurrentDeliveryAddress && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewAddress((current) => ({
+                      ...current,
+                      address: currentDeliveryAddress.text,
+                      lat: currentDeliveryAddress.lat,
+                      lng: currentDeliveryAddress.lng,
+                      source: currentDeliveryAddress.source || 'suggestion',
+                    }));
+                    setAddressErrors((current) => ({ ...current, address: '' }));
+                  }}
+                  className="flex w-full items-center gap-3 rounded-2xl bg-orange-50 px-4 py-3 text-left transition hover:bg-orange-100"
+                >
+                  <MapPin size={19} className="shrink-0 text-primary" />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-black text-gray-900">Use selected delivery address</span>
+                    <span className="block truncate text-xs font-bold text-gray-500">
+                      {currentDeliveryAddress.text.replace(/^Tashkent,\s*/i, '')}
+                    </span>
+                  </span>
+                </button>
+              )}
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Label (e.g. Home, Work)</label>
                 <input 
@@ -1096,7 +994,13 @@ export default function ProfilePage() {
                 <textarea 
                   value={newAddress.address}
                   onChange={(e) => {
-                    setNewAddress({...newAddress, address: e.target.value, lat: undefined, lng: undefined});
+                    setNewAddress({
+                      ...newAddress,
+                      address: e.target.value,
+                      lat: undefined,
+                      lng: undefined,
+                      source: 'manual',
+                    });
                     if (addressErrors.address) setAddressErrors((current) => ({ ...current, address: '' }));
                   }}
                   className={`w-full px-3 py-2 border rounded-xl focus:ring-2 focus:ring-primary/20 transition-all outline-none resize-none h-24 ${addressErrors.address ? 'border-red-500 bg-red-50' : 'border-gray-300 focus:border-primary'}`}

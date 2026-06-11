@@ -5,11 +5,19 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { ArrowLeft, CreditCard, MapPin, Minus, Plus, ShoppingBasket, Store, Ticket, Trash2, Truck, Wallet } from 'lucide-react';
 import { formatCurrencyUZS } from '@repo/shared-types';
+import { auth, onAuthStateChanged } from '@repo/firebase-config';
 import { AddressMapPicker } from '@/components/marketplace/AddressMapPicker';
 import { MarketplaceHeader } from '@/components/marketplace/MarketplaceHeader';
 import { YandexMapPreview } from '@/components/marketplace/YandexMapPreview';
 import { useMarketplace } from '@/context/MarketplaceContext';
 import { TASHKENT_CENTER } from '@/lib/yandexMaps';
+import {
+  isStoredPaymentMethodValid,
+  loadPaymentMethods,
+  readStoredPaymentMethods,
+  subscribeCustomerProfileStorage,
+  type PaymentMethod,
+} from '@/services/customerProfile';
 
 export default function CartPage() {
   const router = useRouter();
@@ -31,6 +39,7 @@ export default function CartPage() {
     placeOrder,
     setAddress,
     deliveryMode,
+    storageHydrated,
   } = useMarketplace();
   const [name, setName] = useState(user?.name || '');
   const [phone, setPhone] = useState(user?.phone || '+998');
@@ -40,29 +49,38 @@ export default function CartPage() {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [addressPickerOpen, setAddressPickerOpen] = useState(false);
+  const [savedCards, setSavedCards] = useState<PaymentMethod[]>([]);
+  const [cardsLoading, setCardsLoading] = useState(true);
 
   const minOrder = cart[0]?.restaurantMinOrder || 0;
   const belowMinimum = cart.length > 0 && subtotal < minOrder;
   const phoneValid = /^\+?998\d{9}$/.test(phone.replace(/\s/g, ''));
   const isDelivery = deliveryMode === 'delivery';
   const looksLikeCoordinates = /^(lat:|lng:)|^-?\d{1,3}\.\d+[,;\s]+-?\d{1,3}\.\d+$/i.test(address.text.trim());
+  const looksUnresolved = /^(selected point|address not resolved|current location)\b/i.test(address.text.trim());
   const hasConfirmedAddress = Boolean(
     address.confirmed
     && address.inZone
     && address.text.trim()
     && !looksLikeCoordinates
+    && !looksUnresolved
   );
+  const validSavedCards = savedCards.filter(isStoredPaymentMethodValid);
+  const selectedCard = validSavedCards[0];
   const displayAddress = address.text === 'Current location'
     ? 'Detected location, Tashkent'
     : address.text.replace(/^Tashkent,\s*/i, '') || 'No address selected';
   const placeOrderDisabled = cart.length === 0
     || belowMinimum
     || isSubmitting
-    || (isDelivery && !hasConfirmedAddress);
+    || (isDelivery && !hasConfirmedAddress)
+    || (payment === 'card' && !selectedCard);
   const placeOrderHelper = cart.length === 0
     ? 'Add items to place an order.'
     : isDelivery && !hasConfirmedAddress
       ? 'Select delivery address.'
+      : payment === 'card' && !selectedCard
+        ? 'Add a valid card in your profile or choose cash.'
       : '';
 
   useEffect(() => {
@@ -70,6 +88,36 @@ export default function CartPage() {
     setName(user.name || '');
     setPhone(user.phone || '+998');
   }, [user]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refreshCards = async () => {
+      const uid = auth.currentUser?.uid;
+      if (!uid) {
+        if (!cancelled) {
+          setSavedCards([]);
+          setCardsLoading(false);
+        }
+        return;
+      }
+      if (!cancelled) setSavedCards(readStoredPaymentMethods(uid));
+      const loadedCards = await loadPaymentMethods(uid);
+      if (!cancelled) {
+        setSavedCards(loadedCards);
+        setCardsLoading(false);
+      }
+    };
+    const unsubscribeAuth = onAuthStateChanged(auth, () => {
+      setCardsLoading(true);
+      refreshCards();
+    });
+    const unsubscribeStorage = subscribeCustomerProfileStorage(refreshCards);
+    return () => {
+      cancelled = true;
+      unsubscribeAuth();
+      unsubscribeStorage();
+    };
+  }, []);
 
   const submit = async () => {
     if (cart.length === 0) return;
@@ -85,6 +133,10 @@ export default function CartPage() {
     }
     if (isDelivery && !hasConfirmedAddress) {
       setError('Select and confirm a delivery address before checkout.');
+      return;
+    }
+    if (payment === 'card' && !selectedCard) {
+      setError('Add a valid payment card in your profile or choose cash.');
       return;
     }
     if (!phoneValid) {
@@ -121,7 +173,13 @@ export default function CartPage() {
               {cart.length > 0 && <button onClick={clearCart} className="rounded-full bg-red-50 p-3 text-red-500"><Trash2 size={20} /></button>}
             </div>
 
-            {cart.length === 0 ? (
+            {!storageHydrated ? (
+              <div className="mt-8 min-h-[430px] animate-pulse rounded-[32px] bg-gray-50 p-6">
+                <div className="mx-auto mt-20 h-24 w-24 rounded-[30px] bg-gray-200" />
+                <div className="mx-auto mt-7 h-8 w-56 rounded-xl bg-gray-200" />
+                <div className="mx-auto mt-4 h-5 w-80 max-w-full rounded-lg bg-gray-100" />
+              </div>
+            ) : cart.length === 0 ? (
               <div className="mt-8 flex min-h-[430px] flex-col items-center justify-center rounded-[32px] bg-[linear-gradient(145deg,#faf9f6,#fff7df)] px-6 py-12 text-center">
                 <div className="flex h-24 w-24 items-center justify-center rounded-[30px] bg-white text-orange-500 shadow-[0_18px_45px_rgba(17,24,39,0.10)]">
                   <ShoppingBasket size={42} />
@@ -204,6 +262,31 @@ export default function CartPage() {
               <button onClick={() => setPayment('cash')} className={`rounded-2xl px-4 py-4 font-black ${payment === 'cash' ? 'bg-yellow-300' : 'bg-gray-100'}`}><Wallet className="mx-auto mb-1" /> Cash</button>
               <button onClick={() => setPayment('card')} className={`rounded-2xl px-4 py-4 font-black ${payment === 'card' ? 'bg-yellow-300' : 'bg-gray-100'}`}><CreditCard className="mx-auto mb-1" /> Card</button>
             </div>
+            {payment === 'card' && (
+              <div className={`mt-3 rounded-2xl px-4 py-3 ${selectedCard ? 'bg-emerald-50' : 'bg-orange-50'}`}>
+                {cardsLoading ? (
+                  <p className="text-sm font-black text-gray-500">Loading saved cards...</p>
+                ) : selectedCard ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-black text-gray-950">{selectedCard.brand} {selectedCard.maskedNumber}</p>
+                      <p className="mt-1 text-xs font-bold text-gray-500">{selectedCard.cardholderName} · {selectedCard.expiry}</p>
+                    </div>
+                    <CreditCard className="shrink-0 text-emerald-600" size={22} />
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-black text-gray-950">No valid card saved</p>
+                      <p className="mt-1 text-xs font-bold text-gray-500">Add a card before using card payment.</p>
+                    </div>
+                    <Link href="/profile" className="shrink-0 rounded-xl bg-gray-950 px-3 py-2 text-sm font-black text-white">
+                      Add card
+                    </Link>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="mt-4 flex gap-2">
               <input value={promoInput} onChange={(event) => setPromoInput(event.target.value)} placeholder="Promo code" className="min-w-0 flex-1 rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none" />
               <button onClick={() => { if (!applyPromo(promoInput)) setError('Promo code not found. Try FIRST21.'); else setError(''); }} className="flex items-center gap-2 rounded-2xl bg-gray-950 px-4 font-black text-white"><Ticket size={18} /> Apply</button>

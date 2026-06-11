@@ -1,24 +1,19 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, Filter, Gift, Search, SlidersHorizontal, Timer, Utensils } from 'lucide-react';
-import { categories, deliveryTimeFilters, priceLevels, type PriceLevel, type Restaurant } from '@/data/marketplace';
+import { useMemo, useState } from 'react';
+import { Filter, Gift, Search, SlidersHorizontal, Timer, Utensils } from 'lucide-react';
+import { categories, type Restaurant } from '@/data/marketplace';
 import { MarketplaceHeader } from '@/components/marketplace/MarketplaceHeader';
 import { RestaurantCard } from '@/components/marketplace/RestaurantCard';
 import { useMarketplace } from '@/context/MarketplaceContext';
 
-type SortMode = 'recommended' | 'fastest' | 'rating' | 'delivery';
-
 export default function HomeClient() {
   const { favorites, address, deliveryMode, restaurants, marketplacePromos, dataLoading, dataError } = useMarketplace();
   const [selectedCategory, setSelectedCategory] = useState('Restaurants');
-  const [sortMode, setSortMode] = useState<SortMode>('recommended');
   const [freeDelivery, setFreeDelivery] = useState(false);
   const [discounts, setDiscounts] = useState(false);
   const [openNow, setOpenNow] = useState(false);
   const [ratingOnly, setRatingOnly] = useState(false);
-  const [deliveryTime, setDeliveryTime] = useState('any');
-  const [priceLevel, setPriceLevel] = useState<PriceLevel | 'any'>('any');
   const [query, setQuery] = useState('');
 
   const filtered = useMemo(() => {
@@ -49,16 +44,8 @@ export default function HomeClient() {
     if (discounts) list = list.filter((item) => item.hasDiscount);
     if (openNow) list = list.filter((item) => item.isOpen);
     if (ratingOnly) list = list.filter((item) => item.rating >= 4.6);
-    if (deliveryTime !== 'any') list = list.filter((item) => item.etaMax <= Number(deliveryTime));
-    if (priceLevel !== 'any') list = list.filter((item) => item.priceLevel === priceLevel);
-
-    return [...list].sort((a, b) => {
-      if (sortMode === 'fastest') return a.etaMin - b.etaMin;
-      if (sortMode === 'rating') return b.rating - a.rating;
-      if (sortMode === 'delivery') return a.deliveryFee - b.deliveryFee;
-      return Number(b.hasDiscount) - Number(a.hasDiscount) || b.rating - a.rating;
-    });
-  }, [address.inZone, deliveryMode, deliveryTime, discounts, freeDelivery, openNow, priceLevel, query, ratingOnly, restaurants, selectedCategory, sortMode]);
+    return [...list].sort((a, b) => Number(b.hasDiscount) - Number(a.hasDiscount) || b.rating - a.rating);
+  }, [address.inZone, deliveryMode, discounts, freeDelivery, openNow, query, ratingOnly, restaurants, selectedCategory]);
 
   const recommended = filtered.filter((restaurant) => restaurant.rating >= 4.6).slice(0, 4);
   const fast = filtered.filter((restaurant) => restaurant.etaMin <= 26).slice(0, 4);
@@ -124,29 +111,6 @@ export default function HomeClient() {
               <FilterButton active={discounts} onClick={() => setDiscounts((value) => !value)}>Discounts</FilterButton>
               <FilterButton active={openNow} onClick={() => setOpenNow((value) => !value)}>Open now</FilterButton>
               <FilterButton active={ratingOnly} onClick={() => setRatingOnly((value) => !value)}>4.6+</FilterButton>
-              <CustomSelect
-                label="Delivery time"
-                value={deliveryTime}
-                options={deliveryTimeFilters}
-                onChange={setDeliveryTime}
-              />
-              <CustomSelect
-                label="Price"
-                value={priceLevel}
-                options={priceLevels}
-                onChange={(value) => setPriceLevel(value as PriceLevel | 'any')}
-              />
-              <CustomSelect
-                label="Sort"
-                value={sortMode}
-                options={[
-                  { label: 'Recommended', value: 'recommended' },
-                  { label: 'Fastest delivery', value: 'fastest' },
-                  { label: 'Highest rating', value: 'rating' },
-                  { label: 'Cheapest delivery', value: 'delivery' },
-                ]}
-                onChange={(value) => setSortMode(value as SortMode)}
-              />
             </div>
           </div>
         </section>
@@ -201,82 +165,6 @@ function RestaurantSection({ title, restaurants: sectionRestaurants }: { title: 
 
 function FilterButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return <button onClick={onClick} className={`shrink-0 rounded-2xl px-4 py-3 font-black ${active ? 'bg-yellow-300 text-gray-950' : 'bg-white text-gray-700'}`}>{children}</button>;
-}
-
-function CustomSelect({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: ReadonlyArray<{ label: string; value: string }>;
-  onChange: (value: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const selected = options.find((option) => option.value === value) || options[0];
-
-  useEffect(() => {
-    if (!open) return;
-    const closeOnOutside = (event: MouseEvent) => {
-      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('mousedown', closeOnOutside);
-    document.addEventListener('keydown', closeOnEscape);
-    return () => {
-      document.removeEventListener('mousedown', closeOnOutside);
-      document.removeEventListener('keydown', closeOnEscape);
-    };
-  }, [open]);
-
-  return (
-    <div ref={containerRef} className="relative shrink-0">
-      <button
-        type="button"
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
-        className={`flex min-h-12 items-center gap-2 rounded-2xl px-4 py-3 font-black ring-1 transition ${
-          open || value !== 'any'
-            ? 'bg-yellow-300 text-gray-950 ring-yellow-300'
-            : 'bg-white text-gray-700 ring-black/5'
-        }`}
-      >
-        <span className="max-w-40 truncate">{selected?.label || label}</span>
-        <ChevronDown size={17} className={`transition ${open ? 'rotate-180' : ''}`} />
-      </button>
-      {open && (
-        <div role="listbox" aria-label={label} className="absolute right-0 top-[calc(100%+8px)] z-50 min-w-56 overflow-hidden rounded-[22px] bg-white p-2 shadow-[0_20px_50px_rgba(17,24,39,0.18)] ring-1 ring-black/5">
-          {options.map((option) => {
-            const active = option.value === value;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                role="option"
-                aria-selected={active}
-                onClick={() => {
-                  onChange(option.value);
-                  setOpen(false);
-                }}
-                className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left font-bold transition ${
-                  active ? 'bg-yellow-300 text-gray-950' : 'text-gray-700 hover:bg-orange-50'
-                }`}
-              >
-                {option.label}
-                {active && <Check size={17} />}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
 }
 
 function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {

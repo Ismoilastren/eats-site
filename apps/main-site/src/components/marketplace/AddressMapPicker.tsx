@@ -9,6 +9,7 @@ import type { SavedAddress } from '@/context/MarketplaceContext';
 
 type AddressOption = SavedAddress & { label: string };
 type SelectedMeta = 'preset' | 'current' | 'map';
+type ResolutionState = 'idle' | 'loading' | 'resolved' | 'error';
 
 const addressCoordinates: Record<string, { lat: number; lng: number }> = {
   'Tashkent, Amir Temur Avenue 14': { lat: 41.311081, lng: 69.240562 },
@@ -31,14 +32,21 @@ const primarySuggestions = [
 ];
 
 function cleanAddressTitle(text: string) {
-  if (!text) return 'Selected point, Tashkent';
-  if (text === 'Current location') return 'Current location';
+  if (!text) return '';
   return text.replace(/^Tashkent,\s*/i, '').trim() || text;
+}
+
+function isPlaceholderAddress(text?: string) {
+  return !text
+    || /^selected point/i.test(text)
+    || /^near selected point/i.test(text)
+    || text === 'Current location';
 }
 
 function normalizeAddress(text: string, coords?: { lat: number; lng: number }): SavedAddress {
   const nextCoords = coords || addressCoordinates[text] || TASHKENT_CENTER;
-  const inZone = text.toLowerCase().includes('tashkent') || text.toLowerCase().includes('toshkent') || text === 'Current location';
+  const normalizedText = text.toLowerCase();
+  const inZone = normalizedText.includes('tashkent') || normalizedText.includes('toshkent');
   return {
     text,
     inZone,
@@ -61,13 +69,16 @@ export function AddressMapPicker({
   const [geocodedSuggestions, setGeocodedSuggestions] = useState<AddressOption[]>([]);
   const [detectingAddress, setDetectingAddress] = useState(false);
   const [searchingAddress, setSearchingAddress] = useState(false);
-  const [selected, setSelected] = useState<SavedAddress>(() => normalizeAddress(initialAddress.text || 'Tashkent, Amir Temur Avenue 14', {
+  const [selected, setSelected] = useState<SavedAddress>(() => normalizeAddress(isPlaceholderAddress(initialAddress.text) ? '' : initialAddress.text, {
     lat: initialAddress.lat || TASHKENT_CENTER.lat,
     lng: initialAddress.lng || TASHKENT_CENTER.lng,
   }));
-  const [selectedMeta, setSelectedMeta] = useState<SelectedMeta>(initialAddress.text === 'Current location' ? 'current' : 'preset');
+  const [selectedMeta, setSelectedMeta] = useState<SelectedMeta>(isPlaceholderAddress(initialAddress.text) ? 'map' : 'preset');
+  const [resolutionState, setResolutionState] = useState<ResolutionState>(isPlaceholderAddress(initialAddress.text) ? 'idle' : 'resolved');
+  const [confirmingAddress, setConfirmingAddress] = useState(false);
   const [error, setError] = useState('');
   const reverseRequestRef = useRef(0);
+  const reverseTimerRef = useRef<number | null>(null);
 
   const suggestions: AddressOption[] = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -109,10 +120,40 @@ export function AddressMapPicker({
     };
   }, [geocodeQuery]);
 
+  useEffect(() => {
+    if (resolutionState !== 'idle') return;
+    const coords = {
+      lat: selected.lat || TASHKENT_CENTER.lat,
+      lng: selected.lng || TASHKENT_CENTER.lng,
+    };
+    const requestId = ++reverseRequestRef.current;
+    setResolutionState('loading');
+    setDetectingAddress(true);
+    reverseGeocode(coords.lat, coords.lng)
+      .then((result) => {
+        if (requestId !== reverseRequestRef.current) return;
+        if (!result) {
+          setResolutionState('error');
+          setError('Address could not be resolved. Move the map or choose a suggested address.');
+          return;
+        }
+        setSelected(normalizeAddress(result.fullAddress, coords));
+        setResolutionState('resolved');
+      })
+      .finally(() => {
+        if (requestId === reverseRequestRef.current) setDetectingAddress(false);
+      });
+  }, [resolutionState, selected.lat, selected.lng]);
+
+  useEffect(() => () => {
+    if (reverseTimerRef.current) window.clearTimeout(reverseTimerRef.current);
+  }, []);
+
   const selectAddress = (item: AddressOption) => {
     const next = normalizeAddress(item.label, { lat: item.lat || TASHKENT_CENTER.lat, lng: item.lng || TASHKENT_CENTER.lng });
     setSelected(next);
     setSelectedMeta('preset');
+    setResolutionState('resolved');
     setQuery('');
     setError('');
   };
@@ -126,18 +167,29 @@ export function AddressMapPicker({
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const coords = { lat: position.coords.latitude, lng: position.coords.longitude };
-        const next = normalizeAddress('Current location', coords);
-        setSelected(next);
+        setSelected(normalizeAddress('', coords));
         setSelectedMeta('current');
+        setResolutionState('loading');
         setQuery('');
         setDetectingAddress(true);
         const requestId = ++reverseRequestRef.current;
         reverseGeocode(coords.lat, coords.lng)
           .then((result) => {
             if (requestId !== reverseRequestRef.current) return;
-            setSelected(normalizeAddress(result?.fullAddress || 'Selected point, Tashkent', coords));
+            if (!result) {
+              setResolutionState('error');
+              setError('Address could not be resolved. Move the map or choose a suggested address.');
+              return;
+            }
+            setSelected(normalizeAddress(result.fullAddress, coords));
+            setResolutionState('resolved');
           })
-          .catch(() => undefined)
+          .catch(() => {
+            if (requestId === reverseRequestRef.current) {
+              setResolutionState('error');
+              setError('Address could not be resolved. Move the map or choose a suggested address.');
+            }
+          })
           .finally(() => {
             if (requestId === reverseRequestRef.current) setDetectingAddress(false);
           });
@@ -148,11 +200,31 @@ export function AddressMapPicker({
   };
 
   const showEmptySuggestions = query.trim().length > 0 && suggestions.length === 0;
-  const selectedDisplayText = showEmptySuggestions ? query.trim() : selected.text;
 
-  const confirm = () => {
-    const text = selectedDisplayText;
-    const next = normalizeAddress(text, { lat: selected.lat || TASHKENT_CENTER.lat, lng: selected.lng || TASHKENT_CENTER.lng });
+  const confirm = async () => {
+    if (detectingAddress || confirmingAddress) return;
+    let next = selected;
+    const typedQuery = query.trim();
+    if (typedQuery) {
+      setConfirmingAddress(true);
+      setError('');
+      const results = await geocodeAddress(typedQuery);
+      setConfirmingAddress(false);
+      if (!results[0]) {
+        setError('Address could not be resolved. Enter a more specific Tashkent address.');
+        return;
+      }
+      next = normalizeAddress(results[0].fullAddress, results[0]);
+      setSelected(next);
+      setSelectedMeta('preset');
+      setResolutionState('resolved');
+      setQuery('');
+    }
+
+    if (!next.text) {
+      setError('Resolve or choose an exact address before confirming.');
+      return;
+    }
     if (!next.inZone) {
       setError('Delivery is available inside Tashkent. Choose a Tashkent address.');
       return;
@@ -160,33 +232,40 @@ export function AddressMapPicker({
     onConfirm({ ...next, confirmed: true });
   };
 
-  const selectedSecondary = selectedMeta === 'current' ? 'Detected location in Tashkent' : selectedMeta === 'map' ? 'Near selected point' : 'Tashkent delivery area';
-  const selectedTitle = selectedMeta === 'current' ? 'Current location' : cleanAddressTitle(selectedDisplayText);
+  const selectedSecondary = selectedMeta === 'current' ? 'Detected location in Tashkent' : 'Tashkent delivery area';
+  const selectedTitle = cleanAddressTitle(selected.text);
 
   const handleMapSelect = useCallback((coords: { lat: number; lng: number }) => {
+    if (reverseTimerRef.current) window.clearTimeout(reverseTimerRef.current);
     const requestId = ++reverseRequestRef.current;
-    setSelected((current) => ({ ...current, text: 'Selected point, Tashkent', ...coords }));
+    setSelected((current) => ({ ...current, text: '', inZone: false, ...coords }));
     setSelectedMeta('map');
+    setResolutionState('loading');
     setQuery('');
     setError('');
     setDetectingAddress(true);
-    reverseGeocode(coords.lat, coords.lng)
-      .then((result) => {
-        if (requestId !== reverseRequestRef.current) return;
-        setSelected((current) => ({
-          ...current,
-          text: result?.fullAddress || 'Selected point, Tashkent',
-          ...coords,
-        }));
-      })
-      .catch(() => {
-        if (requestId === reverseRequestRef.current) {
-          setSelected((current) => ({ ...current, text: 'Selected point, Tashkent', ...coords }));
-        }
-      })
-      .finally(() => {
-        if (requestId === reverseRequestRef.current) setDetectingAddress(false);
-      });
+    reverseTimerRef.current = window.setTimeout(() => {
+      reverseGeocode(coords.lat, coords.lng)
+        .then((result) => {
+          if (requestId !== reverseRequestRef.current) return;
+          if (!result) {
+            setResolutionState('error');
+            setError('Address could not be resolved. Move the map or choose a suggested address.');
+            return;
+          }
+          setSelected(normalizeAddress(result.fullAddress, coords));
+          setResolutionState('resolved');
+        })
+        .catch(() => {
+          if (requestId === reverseRequestRef.current) {
+            setResolutionState('error');
+            setError('Address could not be resolved. Move the map or choose a suggested address.');
+          }
+        })
+        .finally(() => {
+          if (requestId === reverseRequestRef.current) setDetectingAddress(false);
+        });
+    }, 300);
   }, []);
 
   return (
@@ -247,7 +326,7 @@ export function AddressMapPicker({
                 })}
                 {showEmptySuggestions && (
                   <div className="rounded-[22px] bg-gray-50 px-4 py-5 text-center font-bold text-gray-500">
-                    No matching address found. You can confirm the typed address.
+                    No matching address found. Enter a more specific address or choose a point on the map.
                   </div>
                 )}
               </div>
@@ -260,15 +339,25 @@ export function AddressMapPicker({
                 </div>
                 <div className="min-w-0">
                   <p className="text-xs font-black uppercase tracking-widest text-orange-300">Selected address</p>
-                  <p className="mt-1 line-clamp-2 font-black leading-snug">{detectingAddress ? 'Detecting address...' : selectedTitle}</p>
-                  <p className="mt-1 text-sm font-bold text-gray-300">{selectedSecondary}</p>
+                  <p className="mt-1 line-clamp-2 font-black leading-snug">
+                    {detectingAddress ? 'Resolving exact address...' : selectedTitle || 'Address not resolved'}
+                  </p>
+                  <p className="mt-1 text-sm font-bold text-gray-300">
+                    {resolutionState === 'error' ? 'Choose another point or search again' : selectedSecondary}
+                  </p>
                   <p className="mt-1 text-xs font-bold text-gray-500">{(selected.lat || TASHKENT_CENTER.lat).toFixed(5)}, {(selected.lng || TASHKENT_CENTER.lng).toFixed(5)}</p>
                 </div>
               </div>
             </div>
 
             <div className="sticky bottom-0 -mx-4 mt-4 bg-white px-4 pb-4 pt-2 md:static md:mx-0 md:mt-auto md:p-0 md:pt-4">
-              <button onClick={confirm} className="w-full rounded-[22px] bg-yellow-300 px-4 py-4 font-black text-gray-950 shadow-sm hover:bg-yellow-200">Confirm address</button>
+              <button
+                onClick={confirm}
+                disabled={detectingAddress || confirmingAddress || (!selected.text && !query.trim())}
+                className="w-full rounded-[22px] bg-yellow-300 px-4 py-4 font-black text-gray-950 shadow-sm hover:bg-yellow-200 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400"
+              >
+                {confirmingAddress ? 'Resolving address...' : 'Confirm address'}
+              </button>
             </div>
           </aside>
 

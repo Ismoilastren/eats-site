@@ -470,10 +470,10 @@ export default function CouriersPage() {
                       {/* Earnings */}
                       <td className="px-5 py-4">
                         <p className="text-emerald-600 dark:text-emerald-400 font-bold">
-                          Balance: {Number(courier.totalEarnings || 0).toLocaleString('ru-RU')} UZS
+                          Earned: {metrics.deliveryEarnings.toLocaleString('ru-RU')} UZS
                         </p>
                         <p className="text-xs text-gray-500 dark:text-slate-500">
-                          {metrics.completedOrders} delivered · {metrics.deliveryEarnings.toLocaleString('ru-RU')} UZS earned
+                          {metrics.completedOrders} delivered · Admin balance: {Number(courier.totalEarnings || 0).toLocaleString('ru-RU')} UZS
                         </p>
                       </td>
 

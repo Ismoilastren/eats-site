@@ -16,6 +16,7 @@ import {
 } from '@repo/firebase-config';
 import type { CartLine, LocalOrder } from '@/context/MarketplaceContext';
 import type { DeliveryMode } from '@/data/marketplace';
+import { COURIER_RADAR_STATUSES } from '@repo/shared-types';
 import { isFirestoreDataSource, MOCK_CUSTOMER_ID } from './config';
 import { normalizeOrderStatus, statusIndex, type OrderActor, type OrderStatus } from './status';
 
@@ -30,6 +31,7 @@ export type DemoCourier = {
 
 export type MarketplaceOrderInput = {
   userId?: string;
+  customerEmail?: string;
   restaurantId: string;
   restaurantName: string;
   restaurantLocation?: { lat: number; lng: number; address?: string };
@@ -146,6 +148,7 @@ export async function createOrder(orderInput: MarketplaceOrderInput): Promise<Lo
     return {
       id: `213-${Date.now().toString().slice(-6)}`,
       userId: orderInput.userId || MOCK_CUSTOMER_ID,
+      customerEmail: orderInput.customerEmail,
       restaurantId: orderInput.restaurantId,
       restaurantName: orderInput.restaurantName,
       items: orderInput.items,
@@ -184,6 +187,7 @@ export async function createOrder(orderInput: MarketplaceOrderInput): Promise<Lo
   const payload = {
     id: orderRef.id,
     userId: orderInput.userId || MOCK_CUSTOMER_ID,
+    customerEmail: orderInput.customerEmail || null,
     restaurantId: orderInput.restaurantId,
     restaurantName: orderInput.restaurantName,
     restaurantLocation: orderInput.restaurantLocation || { lat: 41.311081, lng: 69.240562 },
@@ -335,7 +339,7 @@ export async function getOrdersByRestaurant(restaurantId: string): Promise<Local
 
 export async function getAvailableCourierOrders(): Promise<LocalOrder[]> {
   const orders = await getAllOrders();
-  return orders.filter((order) => ['preparing', 'ready_for_pickup'].includes(order.status) && !order.assignedCourier);
+  return orders.filter((order) => COURIER_RADAR_STATUSES.includes(order.status) && !order.assignedCourier);
 }
 
 export async function assignOrderToCourier(orderId: string, courier: DemoCourier): Promise<void> {

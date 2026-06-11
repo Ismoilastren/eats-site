@@ -20,6 +20,7 @@ import {
 import type { Unsubscribe } from '@repo/firebase-config';
 import {
   ACTIVE_COURIER_STATUSES,
+  COURIER_RADAR_STATUSES,
   isTerminalOrderStatus,
   normalizeOrderStatus,
 } from '@repo/shared-types';
@@ -56,7 +57,7 @@ export const useDeliveryStore = create<DeliveryState>()((set, get) => ({
     const ordersRef = collection(db, COLLECTIONS.ORDERS);
     const q = query(
       ordersRef,
-      where('status', 'in', ['preparing', 'ready_for_pickup']),
+      where('status', 'in', COURIER_RADAR_STATUSES),
       where('assignedCourier', '==', null),
       limit(PAGE_SIZE)
     );
@@ -67,7 +68,7 @@ export const useDeliveryStore = create<DeliveryState>()((set, get) => ({
         const deliveries: Order[] = [];
         snapshot.forEach((docSnap) => {
           const data = docSnap.data();
-          if (['preparing', 'ready_for_pickup'].includes(normalizeOrderStatus(data.status)) && !data.courierId && !data.assignedCourier) {
+          if (COURIER_RADAR_STATUSES.includes(normalizeOrderStatus(data.status)) && !data.courierId && !data.assignedCourier) {
             deliveries.push({ id: docSnap.id, ...data } as Order);
           }
         });
@@ -153,7 +154,7 @@ export const useDeliveryStore = create<DeliveryState>()((set, get) => ({
 
         const orderData = orderSnap.data();
         const status = normalizeOrderStatus(orderData.status);
-        if (!['preparing', 'ready_for_pickup'].includes(status) || orderData.courierId || orderData.assignedCourier) {
+        if (!COURIER_RADAR_STATUSES.includes(status) || orderData.courierId || orderData.assignedCourier) {
           throw new Error('Order is no longer available');
         }
 

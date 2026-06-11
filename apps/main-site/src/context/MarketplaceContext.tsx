@@ -1,10 +1,11 @@
 'use client';
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { auth, onAuthStateChanged } from '@repo/firebase-config';
 import { DeliveryMode, Dish, Promo, Restaurant } from '@/data/marketplace';
 import {
   createOrder,
-  getOrdersByUser,
+  getOrdersForCustomer,
   getPromos,
   isFirestoreDataSource,
   MOCK_CUSTOMER_ID,
@@ -111,6 +112,11 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   const [dataLoading, setDataLoading] = useState(true);
   const [dataError, setDataError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [firebaseIdentity, setFirebaseIdentity] = useState<{
+    uid?: string;
+    email?: string;
+    phone?: string;
+  }>({});
 
   useEffect(() => {
     setCart(readStorage<CartLine[]>('marketplace_cart', []));
@@ -151,15 +157,36 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     };
   }, []);
 
+  useEffect(() => onAuthStateChanged(auth, (firebaseUser) => {
+    setFirebaseIdentity({
+      uid: firebaseUser?.uid,
+      email: firebaseUser?.email || undefined,
+      phone: firebaseUser?.phoneNumber || undefined,
+    });
+    if (firebaseUser) {
+      setUser((current) => ({
+        name: firebaseUser.displayName || current?.name || firebaseUser.email?.split('@')[0] || 'Customer',
+        phone: firebaseUser.phoneNumber || current?.phone || '',
+        email: firebaseUser.email || current?.email,
+      }));
+    } else if (isFirestoreDataSource()) {
+      setUser(null);
+    }
+  }), []);
+
   const reloadOrders = useCallback(async () => {
     try {
-      const records = await getOrdersByUser(MOCK_CUSTOMER_ID);
+      const records = await getOrdersForCustomer({
+        userId: firebaseIdentity.uid || (!isFirestoreDataSource() ? MOCK_CUSTOMER_ID : undefined),
+        emails: [firebaseIdentity.email, user?.email],
+        phones: [firebaseIdentity.phone, user?.phone],
+      });
       setOrders(records);
     } catch (error) {
       console.error('Marketplace orders load failed:', error);
       setOrders([]);
     }
-  }, []);
+  }, [firebaseIdentity.email, firebaseIdentity.phone, firebaseIdentity.uid, user?.email, user?.phone]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -248,7 +275,8 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       ? restaurant?.location || TASHKENT_CENTER
       : { lat: address.lat || TASHKENT_CENTER.lat, lng: address.lng || TASHKENT_CENTER.lng };
     const orderInput: MarketplaceOrderInput = {
-      userId: MOCK_CUSTOMER_ID,
+      userId: firebaseIdentity.uid || MOCK_CUSTOMER_ID,
+      customerEmail: (firebaseIdentity.email || user?.email || '').trim().toLowerCase() || undefined,
       restaurantId: restaurant?.id || cart[0]?.restaurantId || 'unknown',
       restaurantName: restaurant?.name || cart[0]?.restaurantName || 'Restaurant',
       restaurantLocation: restaurant?.location,
@@ -272,7 +300,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     clearCart();
     setPromo(null);
     return order;
-  }, [address.lat, address.lng, cart, deliveryFee, deliveryMode, discount, promo?.code, restaurants, serviceFee, subtotal, total]);
+  }, [address.lat, address.lng, cart, deliveryFee, deliveryMode, discount, firebaseIdentity.email, firebaseIdentity.uid, promo?.code, restaurants, serviceFee, subtotal, total, user?.email]);
 
   const value = useMemo<MarketplaceContextValue>(() => ({
     cart,

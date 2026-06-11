@@ -2,7 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LocateFixed, MapPin, Minus, Plus } from 'lucide-react';
-import { loadYandexMaps, TASHKENT_CENTER, type YMapInstance } from '@/lib/yandexMaps';
+import {
+  loadYandexMaps,
+  TASHKENT_CENTER,
+  type YandexMaps3,
+  type YMapInstance,
+} from '@/lib/yandexMaps';
 
 export type MapPoint = {
   id: string;
@@ -28,21 +33,22 @@ type YandexMapProps = {
 function markerElement(point: MapPoint) {
   const element = document.createElement('div');
   element.className = 'ymaps-demo-marker';
-  element.innerHTML = `
-    <div style="
-      width: 34px;
-      height: 34px;
-      border-radius: 999px;
-      background: ${point.color || '#f97316'};
-      border: 4px solid white;
-      box-shadow: 0 14px 28px rgba(15, 23, 42, .28);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      font: 900 14px system-ui;
-    ">${point.label.slice(0, 1).toUpperCase()}</div>
+  const marker = document.createElement('div');
+  marker.style.cssText = `
+    width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    background: ${point.color || '#f97316'};
+    border: 4px solid white;
+    box-shadow: 0 14px 28px rgba(15, 23, 42, .28);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font: 900 14px system-ui;
   `;
+  marker.textContent = point.label.slice(0, 1).toUpperCase();
+  element.appendChild(marker);
   return element;
 }
 
@@ -60,12 +66,19 @@ export function YandexMap({
 }: YandexMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<YMapInstance | null>(null);
+  const mapsApiRef = useRef<YandexMaps3 | null>(null);
+  const dynamicChildrenRef = useRef<unknown[]>([]);
+  const onSelectRef = useRef(onSelect);
   const lastReportedCenterRef = useRef<[number, number]>([center.lng, center.lat]);
   const [status, setStatus] = useState<'not_loaded' | 'loading' | 'loaded' | 'error'>('not_loaded');
-  const [, setError] = useState('');
   const [zoom, setZoom] = useState(13);
   const mapCenter = points[0] || center;
-  const signature = useMemo(() => JSON.stringify({ center, points, line, interactive, dark, zoom }), [center, dark, interactive, line, points, zoom]);
+  const pointsSignature = useMemo(() => JSON.stringify(points), [points]);
+  const lineSignature = useMemo(() => JSON.stringify(line || []), [line]);
+
+  useEffect(() => {
+    onSelectRef.current = onSelect;
+  }, [onSelect]);
 
   useEffect(() => {
     onStatusChange?.(status);
@@ -77,13 +90,11 @@ export function YandexMap({
     async function init() {
       if (!containerRef.current) return;
       setStatus('loading');
-      setError('');
 
       try {
         const ymaps3 = await loadYandexMaps();
         if (cancelled || !containerRef.current) return;
 
-        mapRef.current?.destroy();
         const map = new ymaps3.YMap(containerRef.current, {
           location: { center: [mapCenter.lng, mapCenter.lat], zoom },
           theme: dark ? 'dark' : 'light',
@@ -91,25 +102,11 @@ export function YandexMap({
         map.addChild(new ymaps3.YMapDefaultSchemeLayer({ theme: dark ? 'dark' : 'light' }));
         map.addChild(new ymaps3.YMapDefaultFeaturesLayer());
 
-        if (line && line.length > 1) {
-          map.addChild(new ymaps3.YMapFeature({
-            geometry: {
-              type: 'LineString',
-              coordinates: line.map((point) => [point.lng, point.lat]),
-            },
-            style: { stroke: [{ color: '#f97316', width: 5, dash: [8, 6] }] },
-          }));
-        }
-
-        points.forEach((point) => {
-          map.addChild(new ymaps3.YMapMarker({ coordinates: [point.lng, point.lat] }, markerElement(point)));
-        });
-
         if (interactive) {
           map.addChild(new ymaps3.YMapListener({
             onClick: (_object: unknown, event: { coordinates?: [number, number] }) => {
               const coordinates = event.coordinates;
-              if (coordinates) onSelect?.({ lng: coordinates[0], lat: coordinates[1] });
+              if (coordinates) onSelectRef.current?.({ lng: coordinates[0], lat: coordinates[1] });
             },
             onUpdate: (event: { location?: { center?: [number, number] }; mapInAction?: boolean }) => {
               const nextCenter = event.location?.center;
@@ -119,18 +116,19 @@ export function YandexMap({
                 || Math.abs(nextCenter[1] - previousLat) > 0.00001;
               if (!moved) return;
               lastReportedCenterRef.current = nextCenter;
-              onSelect?.({ lng: nextCenter[0], lat: nextCenter[1] });
+              onSelectRef.current?.({ lng: nextCenter[0], lat: nextCenter[1] });
             },
           }));
         }
 
         lastReportedCenterRef.current = [mapCenter.lng, mapCenter.lat];
+        mapsApiRef.current = ymaps3;
         mapRef.current = map;
         setStatus('loaded');
       } catch (loadError) {
         if (cancelled) return;
         setStatus('error');
-        setError(loadError instanceof Error ? loadError.message : 'Could not load Yandex Maps.');
+        if (process.env.NODE_ENV !== 'production') console.warn(loadError);
       }
     }
 
@@ -139,13 +137,58 @@ export function YandexMap({
       cancelled = true;
       mapRef.current?.destroy();
       mapRef.current = null;
+      mapsApiRef.current = null;
+      dynamicChildrenRef.current = [];
     };
-  }, [signature, mapCenter.lat, mapCenter.lng, onSelect, zoom]);
+  }, [dark, interactive]);
+
+  useEffect(() => {
+    if (status !== 'loaded' || !mapRef.current) return;
+    lastReportedCenterRef.current = [mapCenter.lng, mapCenter.lat];
+    mapRef.current.update({
+      location: {
+        center: [mapCenter.lng, mapCenter.lat],
+        zoom,
+        duration: 220,
+      },
+    });
+  }, [mapCenter.lat, mapCenter.lng, status, zoom]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const ymaps3 = mapsApiRef.current;
+    if (status !== 'loaded' || !map || !ymaps3) return;
+
+    dynamicChildrenRef.current.forEach((child) => map.removeChild?.(child));
+    const nextChildren: unknown[] = [];
+
+    if (line && line.length > 1) {
+      const feature = new ymaps3.YMapFeature({
+        geometry: {
+          type: 'LineString',
+          coordinates: line.map((point) => [point.lng, point.lat]),
+        },
+        style: { stroke: [{ color: '#f97316', width: 5, dash: [8, 6] }] },
+      });
+      map.addChild(feature);
+      nextChildren.push(feature);
+    }
+
+    points.forEach((point) => {
+      const marker = new ymaps3.YMapMarker(
+        { coordinates: [point.lng, point.lat] },
+        markerElement(point),
+      );
+      map.addChild(marker);
+      nextChildren.push(marker);
+    });
+
+    dynamicChildrenRef.current = nextChildren;
+  }, [line, lineSignature, points, pointsSignature, status]);
 
   const updateZoom = (nextZoom: number) => {
     const bounded = Math.min(18, Math.max(4, nextZoom));
     setZoom(bounded);
-    mapRef.current?.update({ location: { center: [mapCenter.lng, mapCenter.lat], zoom: bounded } });
   };
 
   return (

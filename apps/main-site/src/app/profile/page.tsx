@@ -17,7 +17,7 @@ import {
   getCustomerOrderStatus,
   isValidRecentOrderTotal,
 } from '@/lib/orderDisplay';
-import { reverseGeocode } from '@/lib/yandexGeocoder';
+import { geocodeAddress, reverseGeocode } from '@/lib/yandexGeocoder';
 
 type PaymentMethod = {
   id: string;
@@ -39,6 +39,7 @@ type SavedLocation = {
 
 const localPaymentKey = (uid: string) => `profile_payment_methods_${uid}`;
 const localAddressKey = (uid: string) => `profile_saved_locations_${uid}`;
+const isMockMarketplace = process.env.NEXT_PUBLIC_MARKETPLACE_DATA_SOURCE === 'mock';
 
 function readLocalList<T>(key: string): T[] {
   if (typeof window === 'undefined') return [];
@@ -147,7 +148,7 @@ export default function ProfilePage() {
   // Real-time listener for addresses
   useEffect(() => {
     if (!user) return;
-    const localAddresses = readLocalList<SavedLocation>(localAddressKey(user.uid));
+    const localAddresses = isMockMarketplace ? readLocalList<SavedLocation>(localAddressKey(user.uid)) : [];
     setAddresses(localAddresses);
     const unsubscribe = onSnapshot(
       collection(db, 'users', user.uid, 'addresses'),
@@ -164,9 +165,12 @@ export default function ProfilePage() {
             createdAt: String(data.createdAt || ''),
           });
         });
-        setAddresses(mergeById(fetchedAddresses, readLocalList<SavedLocation>(localAddressKey(user.uid))));
+        setAddresses(mergeById(
+          fetchedAddresses,
+          isMockMarketplace ? readLocalList<SavedLocation>(localAddressKey(user.uid)) : [],
+        ));
       },
-      () => setAddresses(readLocalList<SavedLocation>(localAddressKey(user.uid))),
+      () => setAddresses(isMockMarketplace ? readLocalList<SavedLocation>(localAddressKey(user.uid)) : []),
     );
     return () => unsubscribe();
   }, [user]);
@@ -213,10 +217,13 @@ export default function ProfilePage() {
             createdAt: String(data.createdAt || ''),
           });
         });
-        setPaymentMethods(mergeById(fetchedPMs, readLocalList<PaymentMethod>(localPaymentKey(user.uid))));
+        setPaymentMethods(mergeById(
+          fetchedPMs,
+          isMockMarketplace ? readLocalList<PaymentMethod>(localPaymentKey(user.uid)) : [],
+        ));
       } catch (error: any) {
         console.error("Failed to fetch profile or orders:", error);
-        setPaymentMethods(readLocalList<PaymentMethod>(localPaymentKey(user.uid)));
+        setPaymentMethods(isMockMarketplace ? readLocalList<PaymentMethod>(localPaymentKey(user.uid)) : []);
       } finally {
         setIsDataLoading(false);
       }
@@ -262,15 +269,21 @@ export default function ProfilePage() {
 
   const handleDeleteAddress = async (id: string) => {
     if (!user) return;
-    const nextLocal = readLocalList<SavedLocation>(localAddressKey(user.uid)).filter((item) => item.id !== id);
-    writeLocalList(localAddressKey(user.uid), nextLocal);
-    setAddresses((current) => current.filter((item) => item.id !== id));
+
     try {
-      await deleteDoc(doc(db, 'users', user.uid, 'addresses', id));
-    } catch {
-      // Local demo storage remains the source of truth when Firestore writes are unavailable.
+      if (isMockMarketplace) {
+        const nextLocal = readLocalList<SavedLocation>(localAddressKey(user.uid))
+          .filter((item) => item.id !== id);
+        writeLocalList(localAddressKey(user.uid), nextLocal);
+      } else {
+        await deleteDoc(doc(db, 'users', user.uid, 'addresses', id));
+      }
+      setAddresses((current) => current.filter((item) => item.id !== id));
+      toast.success("Address deleted");
+    } catch (error) {
+      console.error('Failed to delete address:', error);
+      toast.error('Failed to delete address. Please try again.');
     }
-    toast.success("Address deleted");
   };
 
   const handleAddAddress = async (e: React.FormEvent) => {
@@ -283,29 +296,57 @@ export default function ProfilePage() {
     if (Object.keys(nextErrors).length > 0) return;
 
     setIsAddingAddress(true);
-    const safeAddress = {
-      label: newAddress.label.trim(),
-      address: newAddress.address.trim(),
-      ...(Number.isFinite(newAddress.lat) ? { lat: newAddress.lat } : {}),
-      ...(Number.isFinite(newAddress.lng) ? { lng: newAddress.lng } : {}),
-      createdAt: new Date().toISOString(),
-    };
     try {
-      const docRef = await addDoc(collection(db, 'users', user.uid, 'addresses'), safeAddress);
-      setAddresses((current) => mergeById(current, [{ id: docRef.id, ...safeAddress }]));
-    } catch {
-      const localLocation: SavedLocation = {
-        id: `local_address_${Date.now()}`,
-        ...safeAddress,
+      let resolvedAddress = newAddress.address.trim();
+      let lat = newAddress.lat;
+      let lng = newAddress.lng;
+
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        const geocoded = await geocodeAddress(resolvedAddress);
+        if (!geocoded[0]) {
+          setAddressErrors((current) => ({
+            ...current,
+            address: 'Address could not be resolved. Enter a more specific Tashkent address.',
+          }));
+          return;
+        }
+        resolvedAddress = geocoded[0].fullAddress;
+        lat = geocoded[0].lat;
+        lng = geocoded[0].lng;
+      }
+
+      const safeAddress = {
+        label: newAddress.label.trim(),
+        address: resolvedAddress,
+        lat,
+        lng,
+        createdAt: new Date().toISOString(),
       };
-      const localAddresses = [...readLocalList<SavedLocation>(localAddressKey(user.uid)), localLocation];
-      writeLocalList(localAddressKey(user.uid), localAddresses);
-      setAddresses((current) => mergeById(current, [localLocation]));
-    } finally {
+
+      if (isMockMarketplace) {
+        const localLocation: SavedLocation = {
+          id: `local_address_${Date.now()}`,
+          ...safeAddress,
+        };
+        const localAddresses = [
+          ...readLocalList<SavedLocation>(localAddressKey(user.uid)),
+          localLocation,
+        ];
+        writeLocalList(localAddressKey(user.uid), localAddresses);
+        setAddresses((current) => mergeById(current, [localLocation]));
+      } else {
+        const docRef = await addDoc(collection(db, 'users', user.uid, 'addresses'), safeAddress);
+        setAddresses((current) => mergeById(current, [{ id: docRef.id, ...safeAddress }]));
+      }
+
       toast.success("Address saved");
       setIsAddressModalOpen(false);
       setNewAddress({ label: '', address: '' });
       setAddressErrors({});
+    } catch (error) {
+      console.error('Failed to save address:', error);
+      toast.error('Failed to save address. Please try again.');
+    } finally {
       setIsAddingAddress(false);
     }
   };
@@ -323,9 +364,23 @@ export default function ProfilePage() {
         setNewAddress((previous) => ({ ...previous, lat: latitude, lng: longitude }));
         try {
           const result = await reverseGeocode(latitude, longitude);
+          if (!result) {
+            setNewAddress((previous) => ({
+              ...previous,
+              address: '',
+              lat: latitude,
+              lng: longitude,
+            }));
+            setAddressErrors((current) => ({
+              ...current,
+              address: 'Address could not be resolved. Enter the exact address manually.',
+            }));
+            toast.error("Address could not be resolved");
+            return;
+          }
           setNewAddress((previous) => ({
             ...previous,
-            address: result?.fullAddress || 'Selected point, Tashkent',
+            address: result.fullAddress,
             lat: latitude,
             lng: longitude,
           }));
@@ -334,10 +389,15 @@ export default function ProfilePage() {
         } catch {
           setNewAddress((previous) => ({
             ...previous,
-            address: 'Selected point, Tashkent',
+            address: '',
             lat: latitude,
             lng: longitude,
           }));
+          setAddressErrors((current) => ({
+            ...current,
+            address: 'Address could not be resolved. Enter the exact address manually.',
+          }));
+          toast.error("Address could not be resolved");
         } finally {
           setIsLocating(false);
         }
@@ -431,7 +491,7 @@ export default function ProfilePage() {
     const currentYear = parseInt(now.getFullYear().toString().slice(-2), 10);
     
     if (year < currentYear) return false;
-    if (year === currentYear && month < currentMonth) return false;
+    if (year === currentYear && month <= currentMonth) return false;
     return true;
   };
 
@@ -465,21 +525,30 @@ export default function ProfilePage() {
       createdAt: new Date().toISOString(),
     };
     try {
-      const docRef = await addDoc(collection(db, COLLECTIONS.USERS, user.uid, 'paymentMethods'), safeCard);
-      setPaymentMethods((current) => mergeById(current, [{ id: docRef.id, ...safeCard }]));
-    } catch {
-      const localCard: PaymentMethod = {
-        id: `local_card_${Date.now()}`,
-        ...safeCard,
-      };
-      const localCards = [...readLocalList<PaymentMethod>(localPaymentKey(user.uid)), localCard];
-      writeLocalList(localPaymentKey(user.uid), localCards);
-      setPaymentMethods((current) => mergeById(current, [localCard]));
-    } finally {
+      if (isMockMarketplace) {
+        const localCard: PaymentMethod = {
+          id: `local_card_${Date.now()}`,
+          ...safeCard,
+        };
+        const localCards = [
+          ...readLocalList<PaymentMethod>(localPaymentKey(user.uid)),
+          localCard,
+        ];
+        writeLocalList(localPaymentKey(user.uid), localCards);
+        setPaymentMethods((current) => mergeById(current, [localCard]));
+      } else {
+        const docRef = await addDoc(collection(db, COLLECTIONS.USERS, user.uid, 'paymentMethods'), safeCard);
+        setPaymentMethods((current) => mergeById(current, [{ id: docRef.id, ...safeCard }]));
+      }
+
       setCardForm({ number: '', expiry: '', cvv: '', holder: '' });
       setErrors({});
       setIsCardModalOpen(false);
       toast.success('Card added');
+    } catch (error) {
+      console.error('Failed to save card:', error);
+      toast.error('Failed to save card. Please try again.');
+    } finally {
       setIsAddingCard(false);
     }
   };
@@ -490,16 +559,21 @@ export default function ProfilePage() {
 
   const confirmDeleteCard = async () => {
     if (!user || !user.uid || !cardToDelete) return;
-    const nextLocal = readLocalList<PaymentMethod>(localPaymentKey(user.uid)).filter((item) => item.id !== cardToDelete);
-    writeLocalList(localPaymentKey(user.uid), nextLocal);
-    setPaymentMethods((current) => current.filter((card) => card.id !== cardToDelete));
+
     try {
-      await deleteDoc(doc(db, COLLECTIONS.USERS, user.uid, 'paymentMethods', cardToDelete));
-    } catch {
-      // Local demo storage remains the source of truth when Firestore writes are unavailable.
-    } finally {
+      if (isMockMarketplace) {
+        const nextLocal = readLocalList<PaymentMethod>(localPaymentKey(user.uid))
+          .filter((item) => item.id !== cardToDelete);
+        writeLocalList(localPaymentKey(user.uid), nextLocal);
+      } else {
+        await deleteDoc(doc(db, COLLECTIONS.USERS, user.uid, 'paymentMethods', cardToDelete));
+      }
+      setPaymentMethods((current) => current.filter((card) => card.id !== cardToDelete));
       toast.success('Card removed');
       setCardToDelete(null);
+    } catch (error) {
+      console.error('Failed to remove card:', error);
+      toast.error('Failed to remove card. Please try again.');
     }
   };
 

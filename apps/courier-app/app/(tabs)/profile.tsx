@@ -221,10 +221,13 @@ export default function ProfileScreen() {
   //  PROFILE VIEW
   // ═══════════════════════════════════════════
   const name = courier?.name || '';
-  const earnings = toMoneyNumber(courier?.totalEarnings);
+  const earnings = deliveredOrders.reduce(
+    (sum, order) => sum + toMoneyNumber(order.deliveryFee),
+    0
+  );
   const todayStart = getStartOfToday().getTime();
   const todayEarnings = deliveredOrders.reduce((sum, order) => {
-    const date = toDate(order.createdAt) || toDate(order.deliveredAt) || toDate(order.updatedAt);
+    const date = toDate(order.deliveredAt) || toDate(order.updatedAt) || toDate(order.createdAt);
     if (!date || date.getTime() < todayStart) return sum;
     return sum + toMoneyNumber(order.deliveryFee);
   }, 0);

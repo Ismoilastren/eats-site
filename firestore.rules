@@ -231,6 +231,14 @@ service cloud.firestore {
       allow update: if isAuth() && (isOwner(userId) || isAdmin());
       // Only admins can delete users
       allow delete: if isAdmin();
+
+      match /addresses/{addressId} {
+        allow read, create, update, delete: if isAuth() && isOwner(userId);
+      }
+
+      match /paymentMethods/{paymentMethodId} {
+        allow read, create, update, delete: if isAuth() && isOwner(userId);
+      }
     }
 
     // =============================================

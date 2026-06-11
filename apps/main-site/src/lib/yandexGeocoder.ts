@@ -1,7 +1,5 @@
 'use client';
 
-import { TASHKENT_CENTER } from './yandexMaps';
-
 export type AddressResult = {
   title: string;
   subtitle: string;
@@ -43,23 +41,24 @@ function apiKey() {
 function parseResult(geoObject?: YandexGeoObject): AddressResult | null {
   const [lng, lat] = (geoObject?.Point?.pos || '').split(' ').map(Number);
   if (!geoObject?.name || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  const description = geoObject.description || 'Tashkent';
-  const fullAddress = `${geoObject.name}${description.toLowerCase().includes('tashkent') ? ', Tashkent' : ''}`;
+  const metadataAddress = geoObject.metaDataProperty?.GeocoderMetaData?.text?.trim();
+  const description = geoObject.description?.trim() || 'Tashkent';
+  const fullAddress = metadataAddress || `${geoObject.name}, ${description}`;
   return {
     title: geoObject.name,
-    subtitle: 'Tashkent delivery area',
+    subtitle: description,
     fullAddress,
     lat,
     lng,
   };
 }
 
-async function requestGeocoder(params: URLSearchParams, cacheKey: string) {
+async function requestGeocoder(path: string, cacheKey: string) {
   if (!apiKey()) return [];
   if (cache.has(cacheKey)) return cache.get(cacheKey) || [];
 
   try {
-    const response = await fetch(`https://geocode-maps.yandex.ru/1.x/?${params.toString()}`);
+    const response = await fetch(path);
     if (!response.ok) return [];
     const data = await response.json() as YandexGeocoderResponse;
     const results = (data.response?.GeoObjectCollection?.featureMember || [])
@@ -76,36 +75,18 @@ export async function geocodeAddress(query: string): Promise<AddressResult[]> {
   const normalized = query.trim();
   if (normalized.length < 3 || !apiKey()) return [];
 
-  const params = new URLSearchParams({
-    apikey: apiKey(),
-    format: 'json',
-    lang: 'en_US',
-    geocode: `${normalized}, Tashkent`,
-    bbox: '69.1200,41.1900~69.4200,41.4200',
-    rspn: '1',
-    results: '4',
-  });
-
-  return requestGeocoder(params, `search:${normalized.toLowerCase()}`);
+  return requestGeocoder(
+    `/api/geocode?query=${encodeURIComponent(normalized)}`,
+    `search:${normalized.toLowerCase()}`,
+  );
 }
 
 export async function reverseGeocode(lat: number, lng: number): Promise<AddressResult | null> {
   if (!apiKey()) return null;
 
-  const params = new URLSearchParams({
-    apikey: apiKey(),
-    format: 'json',
-    lang: 'en_US',
-    geocode: `${lng},${lat}`,
-    results: '1',
-  });
-
-  const results = await requestGeocoder(params, `reverse:${lat.toFixed(5)},${lng.toFixed(5)}`);
-  return results[0] || {
-    title: 'Selected point',
-    subtitle: 'Tashkent delivery area',
-    fullAddress: 'Selected point, Tashkent',
-    lat: lat || TASHKENT_CENTER.lat,
-    lng: lng || TASHKENT_CENTER.lng,
-  };
+  const results = await requestGeocoder(
+    `/api/geocode?lat=${encodeURIComponent(String(lat))}&lng=${encodeURIComponent(String(lng))}`,
+    `reverse:${lat.toFixed(5)},${lng.toFixed(5)}`,
+  );
+  return results[0] || null;
 }

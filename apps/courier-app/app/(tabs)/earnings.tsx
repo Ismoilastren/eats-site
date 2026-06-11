@@ -161,12 +161,14 @@ export default function EarningsScreen() {
     const weekStart = getStartOfWeek().getTime();
     let today = 0;
     let week = 0;
+    let totalEarnings = 0;
 
     history.forEach((order) => {
+      const fee = toMoneyNumber(order.deliveryFee);
+      totalEarnings += fee;
       const deliveredDate = toDate(order.deliveredAt) || toDate(order.updatedAt) || toDate(order.createdAt);
       if (!deliveredDate) return;
       const timestamp = deliveredDate.getTime();
-      const fee = toMoneyNumber(order.deliveryFee);
       if (timestamp >= todayStart) today += fee;
       if (timestamp >= weekStart) week += fee;
     });
@@ -175,7 +177,7 @@ export default function EarningsScreen() {
       today,
       week,
       deliveriesCount: history.length,
-      totalEarnings: toMoneyNumber(courier?.totalEarnings),
+      totalEarnings,
       courierName: courier?.name || '',
     };
   }, [courier, history]);
@@ -232,7 +234,7 @@ export default function EarningsScreen() {
         <View style={styles.glowCard}>
           <View style={styles.glowTopRow}>
             <View>
-              <Text style={styles.cardLabel}>COURIER BALANCE</Text>
+              <Text style={styles.cardLabel}>TOTAL EARNED</Text>
               <Text style={styles.totalAmount}>
                 {formatCurrencyUZS(stats.totalEarnings)}
               </Text>

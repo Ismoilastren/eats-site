@@ -19,7 +19,11 @@ import {
   runTransaction,
   serverTimestamp,
 } from '@repo/firebase-config';
-import { formatCurrencyUZS, normalizeOrderStatus } from '@repo/shared-types';
+import {
+  COURIER_RADAR_STATUSES,
+  formatCurrencyUZS,
+  normalizeOrderStatus,
+} from '@repo/shared-types';
 import { useAuthStore } from '../../stores/authStore';
 
 interface OrderDoc {
@@ -55,7 +59,7 @@ export default function RadarScreen() {
     setIsLoadingOrders(true);
     const q = query(
       collection(db, 'orders'),
-      where('status', 'in', ['preparing', 'ready_for_pickup']),
+      where('status', 'in', COURIER_RADAR_STATUSES),
       where('assignedCourier', '==', null)
     );
 
@@ -65,7 +69,7 @@ export default function RadarScreen() {
         const data = d.data();
         const status = normalizeOrderStatus(data.status);
         const hasCourier = data.courierId || data.assignedCourier;
-        if (['preparing', 'ready_for_pickup'].includes(status) && !hasCourier) {
+        if (COURIER_RADAR_STATUSES.includes(status) && !hasCourier) {
           result.push({ id: d.id, ...data } as OrderDoc);
         }
       });
@@ -106,7 +110,7 @@ export default function RadarScreen() {
 
         const orderData = orderSnap.data();
         const status = normalizeOrderStatus(orderData.status);
-        if (!['preparing', 'ready_for_pickup'].includes(status) || orderData.assignedCourier || orderData.courierId) {
+        if (!COURIER_RADAR_STATUSES.includes(status) || orderData.assignedCourier || orderData.courierId) {
           throw new Error('This order was already accepted or cancelled.');
         }
 

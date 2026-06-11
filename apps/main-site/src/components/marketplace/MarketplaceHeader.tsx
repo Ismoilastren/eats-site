@@ -1,152 +1,24 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { Bell, ChevronDown, LogOut, Mail, MapPin, PackageCheck, Phone, Search, ShoppingCart, Store, Truck, UserRound, X } from 'lucide-react';
-import { auth, GoogleAuthProvider, signInWithPopup } from '@repo/firebase-config';
+import { Bell, ChevronDown, MapPin, PackageCheck, Search, ShoppingCart, Store, Truck, UserRound, X } from 'lucide-react';
 import { useMarketplace } from '@/context/MarketplaceContext';
 import { AddressMapPicker } from './AddressMapPicker';
 
 export function MarketplaceHeader() {
-  const { address, setAddress, cartCount, user, login, logout, deliveryMode, setDeliveryMode, orders } = useMarketplace();
+  const router = useRouter();
+  const { address, setAddress, cartCount, user, deliveryMode, setDeliveryMode, orders } = useMarketplace();
   const [addressOpen, setAddressOpen] = useState(false);
-  const [authOpen, setAuthOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
-  const [name, setName] = useState(user?.name || '');
-  const [phone, setPhone] = useState(user?.phone || '+998');
-  const [email, setEmail] = useState(user?.email || '');
-  const [password, setPassword] = useState('');
-  const [otp, setOtp] = useState('');
-  const [authMode, setAuthMode] = useState<'phone' | 'email'>('phone');
-  const [authView, setAuthView] = useState<'signin' | 'signup'>('signin');
-  const [authStep, setAuthStep] = useState<'details' | 'otp'>('details');
-  const [authError, setAuthError] = useState('');
-  const [authBusy, setAuthBusy] = useState(false);
 
   useEffect(() => {
-    if (!authOpen) return;
-    setName(user?.name || '');
-    setPhone(user?.phone || '+998');
-    setEmail(user?.email || '');
-    setPassword('');
-    setOtp('');
-    setAuthMode('phone');
-    setAuthView('signin');
-    setAuthStep('details');
-    setAuthError('');
-  }, [authOpen, user?.email, user?.name, user?.phone]);
-
-  useEffect(() => {
-    const openAuth = () => setAuthOpen(true);
+    const openAuth = () => router.push('/auth/login');
     window.addEventListener('marketplace:open-auth', openAuth);
     return () => window.removeEventListener('marketplace:open-auth', openAuth);
-  }, []);
-
-  const normalizePhone = (value: string) => value.replace(/[^\d+]/g, '');
-  const formatUzPhone = (value: string) => {
-    const digits = normalizePhone(value).replace(/^\+?998/, '').replace(/\D/g, '').slice(0, 9);
-    const a = digits.slice(0, 2);
-    const b = digits.slice(2, 5);
-    const c = digits.slice(5, 7);
-    const d = digits.slice(7, 9);
-    return `+998${a ? ` (${a}` : ' ('}${a.length === 2 ? ')' : ''}${b ? ` ${b}` : ''}${c ? `-${c}` : ''}${d ? `-${d}` : ''}`;
-  };
-  const phoneLooksValid = (value: string) => /^\+?998\d{9}$/.test(normalizePhone(value));
-  const emailLooksValid = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
-  const continueAuth = () => {
-    setAuthError('');
-    if (!name.trim()) {
-      setAuthError('Name is required.');
-      return;
-    }
-    if (!phone.trim()) {
-      setAuthError('Phone number is required.');
-      return;
-    }
-    if (!phoneLooksValid(phone)) {
-      setAuthError('Enter a valid Uzbekistan phone number, for example +998 90 123 45 67.');
-      return;
-    }
-    setAuthBusy(true);
-    window.setTimeout(() => {
-      setAuthBusy(false);
-      setAuthStep('otp');
-    }, 250);
-  };
-  const continueEmailAuth = () => {
-    setAuthError('');
-    if (!emailLooksValid(email)) {
-      setAuthError('Enter a valid email address.');
-      return;
-    }
-    if (password.trim().length < 4) {
-      setAuthError('Enter your password.');
-      return;
-    }
-    setAuthBusy(true);
-    window.setTimeout(() => {
-      const accountName = name.trim() || email.trim().split('@')[0] || 'Customer';
-      login(accountName, '+998901111111', email.trim());
-      setAuthBusy(false);
-      setAuthOpen(false);
-    }, 250);
-  };
-  const createEmailAccount = () => {
-    setAuthError('');
-    if (!name.trim()) {
-      setAuthError('Name is required.');
-      return;
-    }
-    if (!emailLooksValid(email)) {
-      setAuthError('Enter a valid email address.');
-      return;
-    }
-    if (password.trim().length > 0 && password.trim().length < 4) {
-      setAuthError('Password must contain at least 4 characters.');
-      return;
-    }
-    if (phone !== '+998' && phone.trim() && !phoneLooksValid(phone)) {
-      setAuthError('Enter a valid Uzbekistan phone number or leave it empty.');
-      return;
-    }
-    setAuthBusy(true);
-    window.setTimeout(() => {
-      login(name.trim(), phoneLooksValid(phone) ? normalizePhone(phone) : '+998901111111', email.trim());
-      setAuthBusy(false);
-      setAuthOpen(false);
-    }, 250);
-  };
-  const verifyAuth = () => {
-    setAuthError('');
-    if (otp.trim() !== '1111') {
-      setAuthError('Incorrect verification code. Demo code is 1111.');
-      return;
-    }
-    setAuthBusy(true);
-    window.setTimeout(() => {
-      login(name.trim(), normalizePhone(phone));
-      setAuthBusy(false);
-      setAuthOpen(false);
-    }, 250);
-  };
-  const googleDemoLogin = async () => {
-    setAuthError('');
-    setAuthBusy(true);
-    try {
-      const credential = await signInWithPopup(auth, new GoogleAuthProvider());
-      login(
-        credential.user.displayName || 'Google User',
-        credential.user.phoneNumber || '',
-        credential.user.email || '',
-      );
-    } catch {
-      login('Google User', '', 'demo.google@example.com');
-    } finally {
-      setAuthBusy(false);
-      setAuthOpen(false);
-    }
-  };
+  }, [router]);
 
   const activeNotifications = useMemo(() => orders
     .filter((order) => order.status !== 'delivered' && order.status !== 'cancelled' && order.status !== 'rejected')
@@ -200,10 +72,10 @@ export function MarketplaceHeader() {
             {cartCount > 0 && <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-yellow-300 px-1 text-xs font-black text-gray-950">{cartCount}</span>}
           </Link>
 
-          <button onClick={() => setAuthOpen(true)} className="hidden h-12 items-center gap-2 rounded-2xl bg-gray-100 px-4 font-black text-gray-800 hover:bg-gray-200 sm:flex">
+          <Link href={user ? '/profile' : '/auth/login'} className="hidden h-12 items-center gap-2 rounded-2xl bg-gray-100 px-4 font-black text-gray-800 hover:bg-gray-200 sm:flex">
             <UserRound size={18} />
             {user ? user.name.split(' ')[0] : 'Login'}
-          </button>
+          </Link>
         </div>
         {notificationsOpen && (
           <div className="absolute right-4 top-[74px] z-[65] w-[min(360px,calc(100vw-32px))] rounded-[28px] bg-white p-4 shadow-2xl ring-1 ring-black/5 lg:right-8">
@@ -243,113 +115,6 @@ export function MarketplaceHeader() {
             setAddressOpen(false);
           }}
         />
-      )}
-
-      {authOpen && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center overflow-y-auto bg-black/50 p-4 backdrop-blur-sm">
-          <div className="max-h-[calc(100vh-2rem)] w-full max-w-md overflow-y-auto rounded-[34px] bg-white shadow-2xl">
-            <div className="bg-gray-950 p-6 text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                  <p className="text-sm font-black uppercase tracking-widest text-yellow-300">2(13) Delivery</p>
-                  <h2 className="mt-1 text-3xl font-black">{user ? 'Account' : authStep === 'otp' ? 'Enter verification code' : 'Sign in to 2(13) Delivery'}</h2>
-                  {!user && <p className="mt-2 font-bold text-gray-300">{authStep === 'otp' ? 'Enter the 4-digit code sent to your phone.' : 'Use your phone number, email, or Google account to continue.'}</p>}
-              </div>
-                <button aria-label="Close login" onClick={() => setAuthOpen(false)} className="rounded-full bg-white/10 p-3 text-white hover:bg-white/20"><X size={20} /></button>
-              </div>
-            </div>
-            <div className="p-6">
-            {user ? (
-              <div className="mt-5 space-y-3">
-                <p className="rounded-3xl bg-gray-50 p-4 font-bold">{user.name}<br /><span className="text-gray-500">{user.email || user.phone}</span></p>
-                <Link onClick={() => setAuthOpen(false)} href="/profile" className="block rounded-2xl bg-gray-100 px-4 py-4 font-black text-gray-950">Profile</Link>
-                <Link onClick={() => setAuthOpen(false)} href="/orders" className="block rounded-2xl bg-gray-100 px-4 py-4 font-black text-gray-950">Orders</Link>
-                <button onClick={() => { logout(); setAuthOpen(false); }} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gray-950 px-4 py-4 font-black text-white"><LogOut size={18} /> Logout</button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {authStep === 'details' ? (
-                  <>
-                    <button disabled={authBusy} onClick={googleDemoLogin} className="flex w-full items-center justify-center gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-4 font-black text-gray-950 shadow-sm hover:bg-gray-50 disabled:opacity-60">
-                      <span className="flex h-7 w-7 items-center justify-center rounded-full bg-gray-950 text-sm font-black text-white">G</span>
-                      Continue with Google
-                    </button>
-                    <div className="grid grid-cols-2 rounded-2xl bg-gray-100 p-1 font-black text-gray-600">
-                      <button onClick={() => { setAuthMode('phone'); setAuthError(''); }} className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2 ${authMode === 'phone' ? 'bg-white text-gray-950 shadow-sm' : ''}`}><Phone size={16} /> Phone</button>
-                      <button onClick={() => { setAuthMode('email'); setAuthError(''); }} className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2 ${authMode === 'email' ? 'bg-white text-gray-950 shadow-sm' : ''}`}><Mail size={16} /> Email</button>
-                    </div>
-                    {authMode === 'phone' ? (
-                      <>
-                        <label className="block">
-                          <span className="text-sm font-black text-gray-500">Name</span>
-                          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-yellow-300" />
-                        </label>
-                        <label className="block">
-                          <span className="text-sm font-black text-gray-500">Phone number</span>
-                          <input value={phone} onChange={(event) => setPhone(formatUzPhone(event.target.value))} placeholder="+998 (__) ___-__-__" inputMode="tel" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-yellow-300" />
-                        </label>
-                      </>
-                    ) : (
-                      <>
-                        {authView === 'signup' && (
-                          <label className="block">
-                            <span className="text-sm font-black text-gray-500">Name</span>
-                            <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-yellow-300" />
-                          </label>
-                        )}
-                        <label className="block">
-                          <span className="text-sm font-black text-gray-500">Email</span>
-                          <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@example.com" inputMode="email" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-yellow-300" />
-                        </label>
-                        {authView === 'signup' && (
-                          <label className="block">
-                            <span className="text-sm font-black text-gray-500">Phone number <span className="text-gray-400">(optional)</span></span>
-                            <input value={phone} onChange={(event) => setPhone(formatUzPhone(event.target.value))} placeholder="+998 (__) ___-__-__" inputMode="tel" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-yellow-300" />
-                          </label>
-                        )}
-                        <label className="block">
-                          <span className="text-sm font-black text-gray-500">Password {authView === 'signup' && <span className="text-gray-400">(optional)</span>}</span>
-                          <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter password" type="password" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none focus:ring-2 focus:ring-yellow-300" />
-                        </label>
-                      </>
-                    )}
-                    {authError && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-black text-red-600">{authError}</p>}
-                    <button
-                      disabled={authBusy}
-                      onClick={authMode === 'phone' ? continueAuth : authView === 'signup' ? createEmailAccount : continueEmailAuth}
-                      className="w-full rounded-2xl bg-yellow-300 px-4 py-4 font-black text-gray-950 disabled:opacity-60"
-                    >
-                      {authBusy ? 'Please wait...' : authMode === 'phone' ? 'Continue' : authView === 'signup' ? 'Create account' : 'Continue with email'}
-                    </button>
-                    {authMode === 'email' && (
-                      <button
-                        onClick={() => {
-                          setAuthView((value) => value === 'signin' ? 'signup' : 'signin');
-                          setAuthError('');
-                          setPassword('');
-                        }}
-                        className="w-full rounded-2xl px-4 py-2 text-sm font-black text-gray-600 hover:bg-gray-50"
-                      >
-                        {authView === 'signin' ? 'No account yet? Sign up' : 'Already have an account? Sign in'}
-                      </button>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <label className="block">
-                      <span className="text-sm font-black text-gray-500">Verification code</span>
-                      <input value={otp} onChange={(event) => setOtp(event.target.value)} placeholder="1111" inputMode="numeric" maxLength={4} className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 text-center text-2xl font-black tracking-[0.4em] outline-none focus:ring-2 focus:ring-yellow-300" />
-                    </label>
-                    {authError && <p className="rounded-2xl bg-red-50 px-4 py-3 text-sm font-black text-red-600">{authError}</p>}
-                    <button disabled={authBusy} onClick={verifyAuth} className="w-full rounded-2xl bg-yellow-300 px-4 py-4 font-black text-gray-950 disabled:opacity-60">{authBusy ? 'Signing in...' : 'Verify and sign in'}</button>
-                    <button onClick={() => { setAuthStep('details'); setAuthError(''); }} className="w-full rounded-2xl bg-gray-100 px-4 py-4 font-black text-gray-700">Change phone number</button>
-                  </>
-                )}
-              </div>
-            )}
-            </div>
-          </div>
-        </div>
       )}
 
       {searchOpen && <SearchOverlay onClose={() => setSearchOpen(false)} />}

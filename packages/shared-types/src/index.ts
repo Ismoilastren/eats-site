@@ -78,3 +78,5 @@ export const DEMO_COURIER = {
   phone: '+998 90 123 45 67',
   vehicleType: 'bicycle',
 } as const;
+
+export * from './address';

@@ -35,9 +35,7 @@ type YandexGeoObject = {
 // Only cache successful (non-empty) results to allow retries on failure.
 const cache = new Map<string, AddressResult[]>();
 
-function apiKey() {
-  return process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY || '';
-}
+
 
 function parseResult(geoObject?: YandexGeoObject): AddressResult | null {
   if (!geoObject?.Point?.pos) return null;
@@ -61,16 +59,16 @@ function parseResult(geoObject?: YandexGeoObject): AddressResult | null {
 }
 
 async function requestGeocoder(path: string, cacheKey: string): Promise<AddressResult[]> {
-  if (!apiKey()) return [];
-
   // Return cached results (only set for successful non-empty responses)
   if (cache.has(cacheKey)) return cache.get(cacheKey)!;
 
   try {
     const response = await fetch(path);
-    if (!response.ok) return [];
+    const json = await response.json();
 
-    const data = await response.json() as YandexGeocoderResponse;
+    if (!response.ok || !json.ok) return [];
+
+    const data = json.results as YandexGeocoderResponse;
     const results = (data.response?.GeoObjectCollection?.featureMember || [])
       .map((item) => parseResult(item.GeoObject))
       .filter((item): item is AddressResult => Boolean(item));
@@ -88,7 +86,7 @@ async function requestGeocoder(path: string, cacheKey: string): Promise<AddressR
 
 export async function geocodeAddress(query: string): Promise<AddressResult[]> {
   const normalized = query.trim();
-  if (normalized.length < 3 || !apiKey()) return [];
+  if (normalized.length < 3) return [];
 
   return requestGeocoder(
     `/api/geocode?query=${encodeURIComponent(normalized)}`,
@@ -97,7 +95,7 @@ export async function geocodeAddress(query: string): Promise<AddressResult[]> {
 }
 
 export async function reverseGeocode(lat: number, lng: number): Promise<AddressResult | null> {
-  if (!apiKey()) return null;
+
 
   const results = await requestGeocoder(
     `/api/geocode?lat=${encodeURIComponent(String(lat))}&lng=${encodeURIComponent(String(lng))}`,

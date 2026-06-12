@@ -211,11 +211,10 @@ export function YandexMap({
     // touch-action: none prevents the mobile browser from intercepting pinch gestures.
     // We keep overflow-hidden on outer wrapper for border-radius clipping only — that's fine
     // because wheel events are not blocked by overflow:hidden, only by pointer-events:none.
-    <div className={`relative overflow-hidden rounded-[32px] bg-[#111827] ${heightClassName}`}>
+    <div className={`relative overflow-hidden overscroll-none rounded-[32px] bg-[#111827] ${heightClassName}`}>
       <div
         ref={containerRef}
         className="h-full w-full"
-        style={{ touchAction: interactive ? 'none' : undefined }}
       />
 
       {status === 'loading' && (

@@ -15,6 +15,7 @@ import {
 } from '@/services/marketplace';
 import { readStoredCustomerProfile } from '@/services/customerProfile';
 import { TASHKENT_CENTER } from '@/lib/yandexMaps';
+import { isPlaceholderAddress, type AppAddress } from '@repo/shared-types';
 
 export type CartLine = Dish & {
   quantity: number;
@@ -31,7 +32,7 @@ export type SavedAddress = {
   lat?: number;
   lng?: number;
   confirmed?: boolean;
-  source?: 'manual' | 'map' | 'current_location' | 'suggestion';
+  source?: AppAddress['source'];
 };
 export type LocalOrder = {
   id: string;
@@ -290,6 +291,11 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   const placeOrder = useCallback(async (payload: { name: string; phone: string; address: string; paymentMethod?: 'cash' | 'card' }) => {
     const restaurant = restaurants.find((item) => item.slug === cart[0]?.restaurantSlug || item.id === cart[0]?.restaurantId);
     const isPickup = deliveryMode === 'pickup';
+
+    if (!isPickup && isPlaceholderAddress(payload.address)) {
+      throw new Error('Please select a valid delivery address before checking out.');
+    }
+
     const orderAddress = isPickup
       ? `Pickup from ${restaurant?.name || cart[0]?.restaurantName || 'restaurant'}`
       : payload.address;

@@ -6,9 +6,10 @@ import { TASHKENT_CENTER } from '@/lib/yandexMaps';
 import { geocodeAddress, reverseGeocode } from '@/lib/yandexGeocoder';
 import { YandexMap } from './YandexMap';
 import type { SavedAddress } from '@/context/MarketplaceContext';
+import { isPlaceholderAddress, type AppAddress } from '@repo/shared-types';
 
 type AddressOption = SavedAddress & { label: string };
-type SelectedMeta = 'manual' | 'map' | 'current_location' | 'suggestion';
+type SelectedMeta = NonNullable<AppAddress['source']>;
 
 // Resolution state for the currently selected address text
 type ResolutionState = 'idle' | 'loading' | 'resolved' | 'error';
@@ -38,13 +39,7 @@ function cleanAddressTitle(text: string) {
   return text.replace(/^Tashkent,\s*/i, '').trim() || text;
 }
 
-function isPlaceholderAddress(text?: string) {
-  return !text
-    || /^selected point/i.test(text)
-    || /^near selected point/i.test(text)
-    || /^address not resolved/i.test(text)
-    || text === 'Current location';
-}
+
 
 function isInsideTashkent(coords: { lat: number; lng: number }) {
   return coords.lat >= 40.95 && coords.lat <= 41.55 && coords.lng >= 68.95 && coords.lng <= 69.55;

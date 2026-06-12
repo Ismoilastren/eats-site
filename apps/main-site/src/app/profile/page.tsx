@@ -950,7 +950,7 @@ export default function ProfilePage() {
                       address: currentDeliveryAddress.text,
                       lat: currentDeliveryAddress.lat,
                       lng: currentDeliveryAddress.lng,
-                      source: currentDeliveryAddress.source || 'suggestion',
+                      source: 'suggestion',
                     }));
                     setAddressErrors((current) => ({ ...current, address: '' }));
                   }}

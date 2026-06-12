@@ -110,6 +110,24 @@ function mapFirestoreOrder(data: DocumentData, id: string): LocalOrder {
       vehicle: data.assignedCourier.vehicle ? String(data.assignedCourier.vehicle) : 'Bicycle',
     }
     : null;
+  const rawCourier = data.courier && typeof data.courier === 'object' ? data.courier : null;
+  const hasRawCourier = Boolean(
+    rawCourier
+    && (rawCourier.id || rawCourier.uid || rawCourier.name || rawCourier.phone || rawCourier.vehicle)
+  );
+  const courier = assignedCourier
+    ? {
+      name: String(assignedCourier.name || 'Courier'),
+      vehicle: String(assignedCourier.vehicle || 'Bicycle'),
+      phone: String(assignedCourier.phone || ''),
+    }
+    : hasRawCourier
+      ? {
+        name: String(rawCourier.name || 'Courier'),
+        vehicle: String(rawCourier.vehicle || 'Bicycle'),
+        phone: String(rawCourier.phone || ''),
+      }
+      : null;
 
   return {
     id: String(data.id || id),
@@ -134,11 +152,7 @@ function mapFirestoreOrder(data: DocumentData, id: string): LocalOrder {
     updatedAt: dateFromFirestore(data.updatedAt),
     statusIndex: statusIndex(status),
     assignedCourier,
-    courier: {
-      name: String(assignedCourier?.name || data.courier?.name || 'Courier'),
-      vehicle: String(assignedCourier?.vehicle || data.courier?.vehicle || 'Bicycle'),
-      phone: String(assignedCourier?.phone || data.courier?.phone || ''),
-    },
+    courier,
     etaMinutes: Number(data.etaMinutes || 24),
   };
 }
@@ -168,11 +182,7 @@ export async function createOrder(orderInput: MarketplaceOrderInput): Promise<Lo
       updatedAt: new Date().toISOString(),
       statusIndex: 0,
       assignedCourier: null,
-      courier: {
-        name: 'Akmal R.',
-        vehicle: 'Bicycle',
-        phone: '+998 90 777 21 13',
-      },
+      courier: null,
       etaMinutes: orderInput.etaMinutes || 24,
     };
   }

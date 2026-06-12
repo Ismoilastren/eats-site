@@ -6,22 +6,39 @@ import toast from 'react-hot-toast';
 interface Category {
   id: string;
   name: string;
+  source: 'system' | 'settings';
 }
+
+const SYSTEM_CATEGORIES_COLLECTION = 'system_categories';
+const SETTINGS_CATEGORIES_COLLECTION = 'settings/restaurant_categories/items';
 
 export default function CategoriesPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [newCatName, setNewCatName] = useState('');
   const [isAdding, setIsAdding] = useState(false);
+  const [categorySource, setCategorySource] = useState<'system' | 'settings'>('system');
+
+  const readCategories = async (path: string, source: Category['source']) => {
+    const q = query(collection(db, path), orderBy('name', 'asc'));
+    const snap = await getDocs(q);
+    const data: Category[] = [];
+    snap.forEach(d => data.push({ id: d.id, name: String(d.data().name || ''), source }));
+    return data.filter(category => category.name.trim().length > 0);
+  };
 
   const fetchCategories = async () => {
     try {
       setIsLoading(true);
-      const q = query(collection(db, 'system_categories'), orderBy('name', 'asc'));
-      const snap = await getDocs(q);
-      const data: Category[] = [];
-      snap.forEach(d => data.push({ id: d.id, name: d.data().name }));
-      setCategories(data);
+      try {
+        const data = await readCategories(SYSTEM_CATEGORIES_COLLECTION, 'system');
+        setCategories(data);
+        setCategorySource('system');
+      } catch {
+        const fallbackData = await readCategories(SETTINGS_CATEGORIES_COLLECTION, 'settings');
+        setCategories(fallbackData);
+        setCategorySource('settings');
+      }
     } catch (error) {
       console.error(error);
       toast.error('Failed to load categories');
@@ -39,7 +56,13 @@ export default function CategoriesPage() {
     if (!newCatName.trim()) return;
     setIsAdding(true);
     try {
-      await addDoc(collection(db, 'system_categories'), { name: newCatName.trim() });
+      await addDoc(
+        collection(
+          db,
+          categorySource === 'settings' ? SETTINGS_CATEGORIES_COLLECTION : SYSTEM_CATEGORIES_COLLECTION
+        ),
+        { name: newCatName.trim() }
+      );
       toast.success('Category added to Firestore!');
       setNewCatName('');
       fetchCategories();
@@ -52,8 +75,13 @@ export default function CategoriesPage() {
   };
 
   const handleDelete = async (id: string) => {
+    const category = categories.find(c => c.id === id);
     try {
-      await deleteDoc(doc(db, 'system_categories', id));
+      await deleteDoc(doc(
+        db,
+        category?.source === 'settings' ? SETTINGS_CATEGORIES_COLLECTION : SYSTEM_CATEGORIES_COLLECTION,
+        id
+      ));
       toast.success('Category removed');
       setCategories(categories.filter(c => c.id !== id));
     } catch (error) {

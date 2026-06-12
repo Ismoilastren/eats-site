@@ -36,6 +36,8 @@ export default function OrderTrackingPage() {
   }, [order]);
 
   const eta = useMemo(() => Math.max(4, Number(order?.etaMinutes || 24) - step * 4), [order?.etaMinutes, step]);
+  const courier = order?.assignedCourier || order?.courier || null;
+  const hasCourier = Boolean(courier && (order?.assignedCourier?.id || courier.name || courier.phone || courier.vehicle));
 
   return (
     <div className="min-h-screen bg-[#f6f6f3] text-gray-950">
@@ -64,7 +66,7 @@ export default function OrderTrackingPage() {
                   <div className="text-center">
                     <MapPin className="mx-auto text-yellow-300" size={54} />
                     <p className="mt-4 text-2xl font-black">Tashkent delivery route</p>
-                    <p className="mt-2 font-bold text-gray-300">Restaurant → Courier → Customer</p>
+                    <p className="mt-2 font-bold text-gray-300">{hasCourier ? 'Restaurant → Courier → Customer' : 'Restaurant → Customer'}</p>
                     <p className="mt-2 text-sm font-black text-yellow-200">Live status: {ORDER_STATUS_LABELS[order.status]}</p>
                   </div>
                 </div>
@@ -85,12 +87,16 @@ export default function OrderTrackingPage() {
               <Clock className="text-yellow-500" size={28} />
               <h2 className="mt-3 text-3xl font-black">{order.restaurantName}</h2>
               <p className="mt-2 font-bold text-gray-500">{order.address}</p>
-              {step >= 2 && (
+              {hasCourier && (
                 <div className="mt-5 rounded-3xl bg-gray-950 p-4 text-white">
                   <p className="text-sm font-black uppercase tracking-widest text-yellow-300">Courier</p>
-                  <p className="mt-2 text-xl font-black">{order.courier.name}</p>
-                  <p className="mt-1 flex items-center gap-2 font-bold text-gray-300"><Bike size={18} /> {order.courier.vehicle}</p>
-                  <p className="mt-2 flex items-center gap-2 font-bold text-gray-300"><Phone size={18} /> {order.courier.phone}</p>
+                  <p className="mt-2 text-xl font-black">{courier?.name || 'Assigned courier'}</p>
+                  {courier?.vehicle ? (
+                    <p className="mt-1 flex items-center gap-2 font-bold text-gray-300"><Bike size={18} /> {courier.vehicle}</p>
+                  ) : null}
+                  {courier?.phone ? (
+                    <p className="mt-2 flex items-center gap-2 font-bold text-gray-300"><Phone size={18} /> {courier.phone}</p>
+                  ) : null}
                 </div>
               )}
               <div className="mt-5 space-y-2">

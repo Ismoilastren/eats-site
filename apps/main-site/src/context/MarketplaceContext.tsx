@@ -58,7 +58,7 @@ export type LocalOrder = {
   statusIndex: number;
   assignedCourier: { id: string; name: string; phone?: string; vehicle?: string } | null;
   courierId?: string;
-  courier: { name: string; vehicle: string; phone: string };
+  courier: { name: string; vehicle: string; phone: string } | null;
   etaMinutes?: number;
 };
 

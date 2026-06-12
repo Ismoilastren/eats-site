@@ -9,6 +9,8 @@ import type { SavedAddress } from '@/context/MarketplaceContext';
 
 type AddressOption = SavedAddress & { label: string };
 type SelectedMeta = 'manual' | 'map' | 'current_location' | 'suggestion';
+
+// Resolution state for the currently selected address text
 type ResolutionState = 'idle' | 'loading' | 'resolved' | 'error';
 
 const addressCoordinates: Record<string, { lat: number; lng: number }> = {
@@ -40,6 +42,7 @@ function isPlaceholderAddress(text?: string) {
   return !text
     || /^selected point/i.test(text)
     || /^near selected point/i.test(text)
+    || /^address not resolved/i.test(text)
     || text === 'Current location';
 }
 
@@ -87,23 +90,38 @@ export function AddressMapPicker({
   const [detectingAddress, setDetectingAddress] = useState(false);
   const [searchingAddress, setSearchingAddress] = useState(false);
   const [manualAddress, setManualAddress] = useState('');
-  const [selected, setSelected] = useState<SavedAddress>(() => normalizeAddress(
-    isPlaceholderAddress(initialAddress.text) ? '' : initialAddress.text,
-    {
-      lat: initialAddress.lat || TASHKENT_CENTER.lat,
-      lng: initialAddress.lng || TASHKENT_CENTER.lng,
-    },
-    initialAddress.source || (isPlaceholderAddress(initialAddress.text) ? 'map' : 'suggestion'),
-  ));
+
+  // `selected` holds coordinates + resolved text (or empty text while resolving)
+  const [selected, setSelected] = useState<SavedAddress>(() => {
+    const hasRealAddress = !isPlaceholderAddress(initialAddress.text);
+    return normalizeAddress(
+      hasRealAddress ? initialAddress.text : '',
+      {
+        lat: initialAddress.lat || TASHKENT_CENTER.lat,
+        lng: initialAddress.lng || TASHKENT_CENTER.lng,
+      },
+      initialAddress.source || (hasRealAddress ? 'suggestion' : 'map'),
+    );
+  });
+
   const [selectedMeta, setSelectedMeta] = useState<SelectedMeta>(
     initialAddress.source || (isPlaceholderAddress(initialAddress.text) ? 'map' : 'suggestion'),
   );
-  const [resolutionState, setResolutionState] = useState<ResolutionState>(isPlaceholderAddress(initialAddress.text) ? 'idle' : 'resolved');
+
+  // resolutionState tracks whether we have a readable address text for the selected coords
+  const [resolutionState, setResolutionState] = useState<ResolutionState>(
+    isPlaceholderAddress(initialAddress.text) ? 'idle' : 'resolved',
+  );
+
   const [confirmingAddress, setConfirmingAddress] = useState(false);
   const [error, setError] = useState('');
-  const reverseRequestRef = useRef(0);
-  const reverseTimerRef = useRef<number | null>(null);
 
+  // Request counter to cancel stale geocode responses
+  const geocodeRequestRef = useRef(0);
+  // Debounce timer for map-click geocoding
+  const geocodeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ─── Search suggestions ───────────────────────────────────────────────────
   const suggestions: AddressOption[] = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     const localSuggestions = primarySuggestions
@@ -113,6 +131,7 @@ export function AddressMapPicker({
     return merged.filter((item, index, list) => list.findIndex((entry) => entry.label === item.label) === index);
   }, [geocodedSuggestions, query]);
 
+  // Debounce search query → geocoder
   useEffect(() => {
     const normalized = query.trim();
     if (normalized.length < 3) {
@@ -121,8 +140,8 @@ export function AddressMapPicker({
       setSearchingAddress(false);
       return;
     }
-    const id = window.setTimeout(() => setGeocodeQuery(normalized), 350);
-    return () => window.clearTimeout(id);
+    const id = setTimeout(() => setGeocodeQuery(normalized), 350);
+    return () => clearTimeout(id);
   }, [query]);
 
   useEffect(() => {
@@ -144,45 +163,60 @@ export function AddressMapPicker({
       .finally(() => {
         if (!cancelled) setSearchingAddress(false);
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [geocodeQuery]);
 
+  // ─── FIX: Remove the old `resolutionState === 'idle'` useEffect that was
+  // double-triggering geocoding and conflicting with handleMapSelect.
+  // Initial geocoding (when modal opens with a map point but no address) is
+  // handled once here, and only once.
+  const didInitialGeocodeRef = useRef(false);
   useEffect(() => {
-    if (resolutionState !== 'idle') return;
+    if (didInitialGeocodeRef.current) return;
+    if (resolutionState !== 'idle') {
+      didInitialGeocodeRef.current = true;
+      return;
+    }
+    didInitialGeocodeRef.current = true;
+
     const coords = {
       lat: selected.lat || TASHKENT_CENTER.lat,
       lng: selected.lng || TASHKENT_CENTER.lng,
     };
-    const requestId = ++reverseRequestRef.current;
+    const requestId = ++geocodeRequestRef.current;
     setResolutionState('loading');
     setDetectingAddress(true);
+
     reverseGeocode(coords.lat, coords.lng)
       .then((result) => {
-        if (requestId !== reverseRequestRef.current) return;
-        if (!result) {
+        if (requestId !== geocodeRequestRef.current) return;
+        if (!result || isPlaceholderAddress(result.fullAddress)) {
           setResolutionState('error');
-          setError('Address could not be resolved. Move the map or choose a suggested address.');
+          setError('We could not detect the exact address. Enter it manually below.');
           return;
         }
         setSelected(normalizeAddress(result.fullAddress, coords, 'map'));
         setResolutionState('resolved');
+        setError('');
       })
       .catch(() => {
-        if (requestId !== reverseRequestRef.current) return;
+        if (requestId !== geocodeRequestRef.current) return;
         setResolutionState('error');
-        setError('Address could not be resolved. Enter the exact address manually.');
+        setError('We could not detect the exact address. Enter it manually below.');
       })
       .finally(() => {
-        if (requestId === reverseRequestRef.current) setDetectingAddress(false);
+        if (requestId === geocodeRequestRef.current) setDetectingAddress(false);
       });
-  }, [resolutionState, selected.lat, selected.lng]);
-
-  useEffect(() => () => {
-    if (reverseTimerRef.current) window.clearTimeout(reverseTimerRef.current);
+  // Run only on mount
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Cleanup debounce timer on unmount
+  useEffect(() => () => {
+    if (geocodeTimerRef.current) clearTimeout(geocodeTimerRef.current);
+  }, []);
+
+  // ─── Select from suggestion list ─────────────────────────────────────────
   const selectAddress = (item: AddressOption) => {
     const next = normalizeAddress(
       item.label,
@@ -197,6 +231,7 @@ export function AddressMapPicker({
     setError('');
   };
 
+  // ─── Use current GPS location ─────────────────────────────────────────────
   const useCurrentLocation = () => {
     setError('');
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
@@ -206,61 +241,115 @@ export function AddressMapPicker({
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const coords = { lat: position.coords.latitude, lng: position.coords.longitude };
-        setSelected(normalizeAddress('', coords, 'current_location'));
         setSelectedMeta('current_location');
         setResolutionState('loading');
         setQuery('');
         setManualAddress('');
+        setError('');
         setDetectingAddress(true);
-        const requestId = ++reverseRequestRef.current;
+        setSelected(normalizeAddress('', coords, 'current_location'));
+
+        const requestId = ++geocodeRequestRef.current;
         reverseGeocode(coords.lat, coords.lng)
           .then((result) => {
-            if (requestId !== reverseRequestRef.current) return;
-            if (!result) {
+            if (requestId !== geocodeRequestRef.current) return;
+            if (!result || isPlaceholderAddress(result.fullAddress)) {
               setResolutionState('error');
-              setError('Address could not be resolved. Enter the exact address manually.');
+              setError('We could not detect the exact address. Enter it manually below.');
               return;
             }
             setSelected(normalizeAddress(result.fullAddress, coords, 'current_location'));
             setResolutionState('resolved');
+            setError('');
           })
           .catch(() => {
-            if (requestId === reverseRequestRef.current) {
+            if (requestId === geocodeRequestRef.current) {
               setResolutionState('error');
-              setError('Address could not be resolved. Enter the exact address manually.');
+              setError('We could not detect the exact address. Enter it manually below.');
             }
           })
           .finally(() => {
-            if (requestId === reverseRequestRef.current) setDetectingAddress(false);
+            if (requestId === geocodeRequestRef.current) setDetectingAddress(false);
           });
       },
       () => {
         setDetectingAddress(false);
         setError('Could not access your location. Select an address manually.');
       },
-      { enableHighAccuracy: true, timeout: 7000 }
+      { enableHighAccuracy: true, timeout: 7000 },
     );
   };
 
-  const showEmptySuggestions = query.trim().length > 0 && suggestions.length === 0;
+  // ─── Map click handler ────────────────────────────────────────────────────
+  // FIX: This is now the ONLY place that triggers geocoding from map interaction.
+  // The previous approach of using onUpdate (fired on every pan frame) caused
+  // constant geocode spam and race conditions.
+  const handleMapSelect = useCallback((coords: { lat: number; lng: number }) => {
+    // Cancel any previous in-flight debounce
+    if (geocodeTimerRef.current) clearTimeout(geocodeTimerRef.current);
 
+    // Immediately update coordinates and show resolving state
+    setSelected((current) => ({ ...current, text: '', inZone: false, source: 'map', lat: coords.lat, lng: coords.lng }));
+    setSelectedMeta('map');
+    setResolutionState('loading');
+    setQuery('');
+    setManualAddress('');
+    setError('');
+    setDetectingAddress(true);
+
+    // Debounce the actual geocode call to absorb rapid clicks
+    const requestId = ++geocodeRequestRef.current;
+    geocodeTimerRef.current = setTimeout(() => {
+      reverseGeocode(coords.lat, coords.lng)
+        .then((result) => {
+          if (requestId !== geocodeRequestRef.current) return;
+          if (!result || isPlaceholderAddress(result.fullAddress)) {
+            setResolutionState('error');
+            setError('We could not detect the exact address. Enter it manually below.');
+            return;
+          }
+          setSelected(normalizeAddress(result.fullAddress, coords, 'map'));
+          setResolutionState('resolved');
+          setError('');
+        })
+        .catch(() => {
+          if (requestId === geocodeRequestRef.current) {
+            setResolutionState('error');
+            setError('We could not detect the exact address. Enter it manually below.');
+          }
+        })
+        .finally(() => {
+          if (requestId === geocodeRequestRef.current) setDetectingAddress(false);
+        });
+    }, 250);
+  }, []);
+
+  // ─── Confirm / save ───────────────────────────────────────────────────────
   const confirm = async () => {
     if (detectingAddress || confirmingAddress) return;
+
     let next = selected;
     const typedQuery = query.trim();
+    const manualTrimmed = manualAddress.trim();
+
+    // If there's something in the search box, try to geocode it first
     if (typedQuery) {
       setConfirmingAddress(true);
       setError('');
       const results = await geocodeAddress(typedQuery);
       setConfirmingAddress(false);
-      if (!results[0]) {
+      if (results[0]) {
+        next = normalizeAddress(results[0].fullAddress, results[0], 'suggestion');
+        setSelected(next);
+        setSelectedMeta('suggestion');
+        setResolutionState('resolved');
+        setQuery('');
+      } else {
+        // Treat typed text as manual address with current map coords
         const manualText = normalizeManualAddress(typedQuery);
         next = normalizeAddress(
           manualText,
-          {
-            lat: selected.lat || TASHKENT_CENTER.lat,
-            lng: selected.lng || TASHKENT_CENTER.lng,
-          },
+          { lat: selected.lat || TASHKENT_CENTER.lat, lng: selected.lng || TASHKENT_CENTER.lng },
           'manual',
         );
         setManualAddress(manualText);
@@ -268,21 +357,13 @@ export function AddressMapPicker({
         setSelectedMeta('manual');
         setResolutionState('resolved');
         setQuery('');
-      } else {
-        next = normalizeAddress(results[0].fullAddress, results[0], 'suggestion');
-        setSelected(next);
-        setSelectedMeta('suggestion');
-        setResolutionState('resolved');
-        setQuery('');
       }
-    } else if (manualAddress.trim()) {
-      const manualText = normalizeManualAddress(manualAddress);
+    } else if (manualTrimmed) {
+      // User typed in the manual address field while geocoding failed
+      const manualText = normalizeManualAddress(manualTrimmed);
       next = normalizeAddress(
         manualText,
-        {
-          lat: selected.lat || TASHKENT_CENTER.lat,
-          lng: selected.lng || TASHKENT_CENTER.lng,
-        },
+        { lat: selected.lat || TASHKENT_CENTER.lat, lng: selected.lng || TASHKENT_CENTER.lng },
         'manual',
       );
       setSelected(next);
@@ -290,8 +371,9 @@ export function AddressMapPicker({
       setResolutionState('resolved');
     }
 
+    // Final validation
     if (!next.text) {
-      setError('Resolve or choose an exact address before confirming.');
+      setError('Choose or enter an address before confirming.');
       return;
     }
     if (!next.inZone) {
@@ -301,6 +383,7 @@ export function AddressMapPicker({
     onConfirm({ ...next, confirmed: true });
   };
 
+  // ─── Derived display values ───────────────────────────────────────────────
   const selectedSecondary = selectedMeta === 'current_location'
     ? 'Detected location in Tashkent'
     : selectedMeta === 'manual'
@@ -308,45 +391,20 @@ export function AddressMapPicker({
       : selectedMeta === 'map'
         ? 'Address detected from selected point'
         : 'Tashkent delivery area';
-  const selectedTitle = cleanAddressTitle(selected.text || manualAddress);
 
-  const handleMapSelect = useCallback((coords: { lat: number; lng: number }) => {
-    if (reverseTimerRef.current) window.clearTimeout(reverseTimerRef.current);
-    const requestId = ++reverseRequestRef.current;
-    setSelected((current) => ({ ...current, text: '', inZone: false, source: 'map', ...coords }));
-    setSelectedMeta('map');
-    setResolutionState('loading');
-    setQuery('');
-    setManualAddress('');
-    setError('');
-    setDetectingAddress(true);
-    reverseTimerRef.current = window.setTimeout(() => {
-      reverseGeocode(coords.lat, coords.lng)
-        .then((result) => {
-          if (requestId !== reverseRequestRef.current) return;
-          if (!result) {
-            setResolutionState('error');
-            setError('Address could not be resolved. Enter the exact address manually.');
-            return;
-          }
-          setSelected(normalizeAddress(result.fullAddress, coords, 'map'));
-          setResolutionState('resolved');
-        })
-        .catch(() => {
-          if (requestId === reverseRequestRef.current) {
-            setResolutionState('error');
-            setError('Address could not be resolved. Enter the exact address manually.');
-          }
-        })
-        .finally(() => {
-          if (requestId === reverseRequestRef.current) setDetectingAddress(false);
-        });
-    }, 300);
-  }, []);
+  const selectedTitle = cleanAddressTitle(selected.text || manualAddress);
+  const showEmptySuggestions = query.trim().length > 0 && suggestions.length === 0 && !searchingAddress;
+
+  // Confirm button is enabled when:
+  // - not currently resolving
+  // - AND ( have a resolved readable address OR have typed something )
+  const hasConfirmableAddress = Boolean(selected.text) || query.trim().length > 0 || manualAddress.trim().length > 0;
+  const confirmDisabled = detectingAddress || confirmingAddress || !hasConfirmableAddress;
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/65 p-0 md:p-4">
       <div className="mx-auto flex h-full max-h-none max-w-6xl flex-col overflow-hidden bg-white shadow-2xl md:mt-6 md:h-[calc(100vh-48px)] md:rounded-[36px]">
+        {/* Header */}
         <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-5 py-4 md:px-6">
           <div>
             <p className="text-sm font-black uppercase tracking-widest text-orange-500">Tashkent</p>
@@ -356,7 +414,9 @@ export function AddressMapPicker({
         </div>
 
         <div className="grid min-h-0 flex-1 overflow-y-auto md:grid-cols-[390px_1fr] md:overflow-hidden">
+          {/* Left panel */}
           <aside className="flex min-h-0 flex-col border-r border-gray-100 bg-white p-4 md:p-5">
+            {/* Search */}
             <div className="flex items-center gap-3 rounded-[24px] bg-gray-100 px-4 py-3.5 ring-1 ring-transparent focus-within:bg-white focus-within:ring-orange-200">
               <Search size={20} className="shrink-0 text-gray-500" />
               <input
@@ -364,7 +424,6 @@ export function AddressMapPicker({
                 onChange={(event) => {
                   setQuery(event.target.value);
                   setError('');
-                  setManualAddress('');
                 }}
                 placeholder="Search address"
                 className="min-w-0 flex-1 bg-transparent font-bold outline-none"
@@ -372,33 +431,38 @@ export function AddressMapPicker({
               {query && <button onClick={() => setQuery('')} className="rounded-full bg-white p-1 text-gray-500"><X size={16} /></button>}
             </div>
 
+            {/* Error + manual input */}
             {error && (
-              <div className="mt-3 rounded-2xl bg-red-50 p-3">
-                <p className="text-sm font-black text-red-600">{error}</p>
+              <div className="mt-3 rounded-2xl bg-amber-50 p-3 border border-amber-100">
+                <p className="text-sm font-bold text-amber-800">{error}</p>
                 {resolutionState === 'error' && (
                   <label className="mt-3 block">
-                    <span className="text-xs font-black uppercase tracking-wider text-red-500">Manual address</span>
+                    <span className="text-xs font-black uppercase tracking-wider text-amber-700">Enter address manually</span>
                     <input
                       value={manualAddress}
                       onChange={(event) => setManualAddress(event.target.value)}
                       placeholder="Street, building, apartment"
-                      className="mt-1.5 w-full rounded-xl bg-white px-3 py-3 font-bold text-gray-950 outline-none ring-1 ring-red-100 focus:ring-2 focus:ring-orange-300"
+                      className="mt-1.5 w-full rounded-xl bg-white px-3 py-3 font-bold text-gray-950 outline-none ring-1 ring-amber-200 focus:ring-2 focus:ring-orange-300"
                     />
                   </label>
                 )}
               </div>
             )}
 
+            {/* Current location */}
             <button onClick={useCurrentLocation} className="mt-3 flex w-full items-center justify-center gap-2 rounded-[22px] bg-gray-950 px-4 py-3.5 font-black text-white shadow-sm hover:bg-gray-800">
               <LocateFixed size={18} /> Use current location
             </button>
 
+            {/* Suggestions */}
             <div className="mt-4">
               <div className="mb-2 flex items-center justify-between">
                 <p className="text-xs font-black uppercase tracking-widest text-gray-400">Popular addresses</p>
-                <span className="rounded-full bg-orange-50 px-2.5 py-1 text-xs font-black text-orange-600">{searchingAddress ? 'Searching' : suggestions.length}</span>
+                <span className="rounded-full bg-orange-50 px-2.5 py-1 text-xs font-black text-orange-600">
+                  {searchingAddress ? 'Searching…' : suggestions.length}
+                </span>
               </div>
-              <div className="space-y-2 md:max-h-[260px] md:overflow-y-auto md:pr-1">
+              <div className="space-y-2 md:max-h-[240px] md:overflow-y-auto md:pr-1">
                 {suggestions.map((item) => {
                   const active = selected.text === item.label;
                   return (
@@ -421,12 +485,13 @@ export function AddressMapPicker({
                 })}
                 {showEmptySuggestions && (
                   <div className="rounded-[22px] bg-gray-50 px-4 py-5 text-center font-bold text-gray-500">
-                    No matching address found. You can confirm the typed address.
+                    No matching address found. Try typing differently or enter manually.
                   </div>
                 )}
               </div>
             </div>
 
+            {/* Selected address card */}
             <div className="mt-4 rounded-[26px] bg-gray-950 p-4 text-white shadow-sm">
               <div className="flex items-start gap-3">
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-orange-500 text-white">
@@ -435,29 +500,35 @@ export function AddressMapPicker({
                 <div className="min-w-0">
                   <p className="text-xs font-black uppercase tracking-widest text-orange-300">Selected address</p>
                   <p className="mt-1 line-clamp-2 font-black leading-snug">
-                    {detectingAddress ? 'Resolving exact address...' : selectedTitle || 'Address not resolved'}
+                    {detectingAddress
+                      ? 'Detecting address…'
+                      : selectedTitle || (resolutionState === 'error' ? 'Tap to enter manually →' : 'Choose a point on the map')}
                   </p>
                   <p className="mt-1 text-sm font-bold text-gray-300">
                     {resolutionState === 'error' && !manualAddress.trim()
-                      ? 'Enter the exact address manually'
+                      ? 'Use the manual input above'
                       : selectedSecondary}
                   </p>
-                  <p className="mt-1 text-xs font-bold text-gray-500">{(selected.lat || TASHKENT_CENTER.lat).toFixed(5)}, {(selected.lng || TASHKENT_CENTER.lng).toFixed(5)}</p>
+                  <p className="mt-1 text-xs font-bold text-gray-600">
+                    {(selected.lat || TASHKENT_CENTER.lat).toFixed(5)}, {(selected.lng || TASHKENT_CENTER.lng).toFixed(5)}
+                  </p>
                 </div>
               </div>
             </div>
 
+            {/* Confirm button */}
             <div className="sticky bottom-0 -mx-4 mt-4 bg-white px-4 pb-4 pt-2 md:static md:mx-0 md:mt-auto md:p-0 md:pt-4">
               <button
                 onClick={confirm}
-                disabled={detectingAddress || confirmingAddress || (!selected.text && !query.trim() && !manualAddress.trim())}
+                disabled={confirmDisabled}
                 className="w-full rounded-[22px] bg-yellow-300 px-4 py-4 font-black text-gray-950 shadow-sm hover:bg-yellow-200 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400"
               >
-                {confirmingAddress ? 'Resolving address...' : 'Confirm address'}
+                {confirmingAddress ? 'Resolving address…' : detectingAddress ? 'Detecting…' : 'Confirm address'}
               </button>
             </div>
           </aside>
 
+          {/* Map panel */}
           <section className="min-h-[360px] bg-gray-950 p-3 md:min-h-[420px] md:p-5">
             <YandexMap
               center={{ lat: selected.lat || TASHKENT_CENTER.lat, lng: selected.lng || TASHKENT_CENTER.lng }}

@@ -69,9 +69,12 @@ export function YandexMap({
   const mapsApiRef = useRef<YandexMaps3 | null>(null);
   const dynamicChildrenRef = useRef<unknown[]>([]);
   const onSelectRef = useRef(onSelect);
-  const lastReportedCenterRef = useRef<[number, number]>([center.lng, center.lat]);
+  // Track the last coords we reported so we don't fire on tiny floating-point drift
+  const lastClickCoordsRef = useRef<[number, number]>([center.lng, center.lat]);
+  // Debounce timer for pan-end reporting
+  const panDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [status, setStatus] = useState<'not_loaded' | 'loading' | 'loaded' | 'error'>('not_loaded');
-  const [zoom, setZoom] = useState(13);
+  const [zoom, setZoom] = useState(14);
   const mapCenter = points[0] || center;
   const pointsSignature = useMemo(() => JSON.stringify(points), [points]);
   const lineSignature = useMemo(() => JSON.stringify(line || []), [line]);
@@ -95,65 +98,77 @@ export function YandexMap({
         const ymaps3 = await loadYandexMaps();
         if (cancelled || !containerRef.current) return;
 
+        // FIX P0: Pass behaviors array so trackpad/mouse-wheel zoom works.
+        // In Yandex Maps JS API v3, behaviors must be explicitly listed.
+        // 'scrollZoom' enables trackpad pinch and mouse-wheel zoom.
+        // 'drag' enables map panning.
+        // Non-interactive maps still need 'drag' for normal mouse pan.
+        const behaviors = interactive
+          ? ['drag', 'scrollZoom', 'pinchZoom', 'dblClick']
+          : ['drag'];
+
         const map = new ymaps3.YMap(containerRef.current, {
           location: { center: [mapCenter.lng, mapCenter.lat], zoom },
           theme: dark ? 'dark' : 'light',
-        });
+          behaviors,
+        } as Record<string, unknown>);
+
         map.addChild(new ymaps3.YMapDefaultSchemeLayer({ theme: dark ? 'dark' : 'light' }));
         map.addChild(new ymaps3.YMapDefaultFeaturesLayer());
 
         if (interactive) {
+          // FIX P0: Only fire onSelect on explicit click events, NOT on pan/zoom.
+          // The onUpdate approach was causing reverse-geocode spam on every pan frame.
+          // A user clicking the map is a deliberate intent to select a point.
+          // Panning to reposition is not — we use the center-pin metaphor instead.
           map.addChild(new ymaps3.YMapListener({
             onClick: (_object: unknown, event: { coordinates?: [number, number] }) => {
               const coordinates = event.coordinates;
-              if (coordinates) onSelectRef.current?.({ lng: coordinates[0], lat: coordinates[1] });
+              if (!coordinates) return;
+              const [lng, lat] = coordinates;
+              lastClickCoordsRef.current = [lng, lat];
+              onSelectRef.current?.({ lng, lat });
             },
-            onUpdate: (event: { location?: { center?: [number, number] }; mapInAction?: boolean }) => {
-              const nextCenter = event.location?.center;
-              if (event.mapInAction || !nextCenter) return;
-              const [previousLng, previousLat] = lastReportedCenterRef.current;
-              const moved = Math.abs(nextCenter[0] - previousLng) > 0.00001
-                || Math.abs(nextCenter[1] - previousLat) > 0.00001;
-              if (!moved) return;
-              lastReportedCenterRef.current = nextCenter;
-              onSelectRef.current?.({ lng: nextCenter[0], lat: nextCenter[1] });
-            },
-          }));
+          } as Record<string, unknown>));
         }
 
-        lastReportedCenterRef.current = [mapCenter.lng, mapCenter.lat];
+        lastClickCoordsRef.current = [mapCenter.lng, mapCenter.lat];
         mapsApiRef.current = ymaps3;
         mapRef.current = map;
         setStatus('loaded');
       } catch (loadError) {
         if (cancelled) return;
         setStatus('error');
-        if (process.env.NODE_ENV !== 'production') console.warn(loadError);
+        if (process.env.NODE_ENV !== 'production') console.warn('[YandexMap]', loadError);
       }
     }
 
     init();
     return () => {
       cancelled = true;
+      if (panDebounceRef.current) clearTimeout(panDebounceRef.current);
       mapRef.current?.destroy();
       mapRef.current = null;
       mapsApiRef.current = null;
       dynamicChildrenRef.current = [];
     };
+    // Only reinit if dark/interactive flags change — center/zoom handled separately below
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dark, interactive]);
 
+  // Smoothly pan to center when parent changes selected address
   useEffect(() => {
     if (status !== 'loaded' || !mapRef.current) return;
-    lastReportedCenterRef.current = [mapCenter.lng, mapCenter.lat];
     mapRef.current.update({
       location: {
         center: [mapCenter.lng, mapCenter.lat],
         zoom,
-        duration: 220,
+        duration: 250,
       },
     });
   }, [mapCenter.lat, mapCenter.lng, status, zoom]);
 
+  // Update markers/lines without remounting
   useEffect(() => {
     const map = mapRef.current;
     const ymaps3 = mapsApiRef.current;
@@ -192,11 +207,19 @@ export function YandexMap({
   };
 
   return (
+    // FIX P0: The container must NOT have overflow-hidden while the map needs wheel events.
+    // touch-action: none prevents the mobile browser from intercepting pinch gestures.
+    // We keep overflow-hidden on outer wrapper for border-radius clipping only — that's fine
+    // because wheel events are not blocked by overflow:hidden, only by pointer-events:none.
     <div className={`relative overflow-hidden rounded-[32px] bg-[#111827] ${heightClassName}`}>
-      <div ref={containerRef} className="h-full w-full" />
+      <div
+        ref={containerRef}
+        className="h-full w-full"
+        style={{ touchAction: interactive ? 'none' : undefined }}
+      />
 
       {status === 'loading' && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-950/80 text-white">
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-950/80 text-white pointer-events-none">
           <div className="text-center">
             <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-white/20 border-t-orange-500" />
             <p className="mt-3 font-black">Loading map...</p>
@@ -205,7 +228,7 @@ export function YandexMap({
       )}
 
       {status === 'error' && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-950 p-6 text-white">
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-950 p-6 text-white pointer-events-none">
           <div className="max-w-sm text-center">
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-500/15 text-orange-400">
               <MapPin size={26} />
@@ -218,6 +241,7 @@ export function YandexMap({
         </div>
       )}
 
+      {/* Center crosshair pin — pointer-events:none so wheel events pass through to map */}
       {interactive && status === 'loaded' && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="address-picker-pin -mt-8 flex flex-col items-center">
@@ -227,7 +251,8 @@ export function YandexMap({
         </div>
       )}
 
-      <div className="absolute right-4 top-4 flex flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
+      {/* Zoom controls — these sit on top but have explicit pointer-events:auto */}
+      <div className="absolute right-4 top-4 flex flex-col overflow-hidden rounded-2xl bg-white shadow-xl" style={{ pointerEvents: 'auto' }}>
         <button aria-label="Zoom in" onClick={() => updateZoom(zoom + 1)} className="p-3 text-gray-950 hover:bg-gray-100"><Plus size={18} /></button>
         <button aria-label="Zoom out" onClick={() => updateZoom(zoom - 1)} className="border-t border-gray-100 p-3 text-gray-950 hover:bg-gray-100"><Minus size={18} /></button>
       </div>
@@ -235,6 +260,7 @@ export function YandexMap({
       {interactive && showLocateControl && (
         <button
           type="button"
+          style={{ pointerEvents: 'auto' }}
           onClick={() => navigator.geolocation?.getCurrentPosition((position) => onSelect?.({ lat: position.coords.latitude, lng: position.coords.longitude }))}
           className="absolute bottom-4 right-4 flex items-center gap-2 rounded-2xl bg-white px-4 py-3 font-black text-gray-950 shadow-xl hover:bg-gray-100"
         >

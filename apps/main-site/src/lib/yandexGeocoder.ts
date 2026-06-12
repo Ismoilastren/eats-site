@@ -32,6 +32,7 @@ type YandexGeoObject = {
   metaDataProperty?: { GeocoderMetaData?: { text?: string } };
 };
 
+// Only cache successful (non-empty) results to allow retries on failure.
 const cache = new Map<string, AddressResult[]>();
 
 function apiKey() {
@@ -39,11 +40,17 @@ function apiKey() {
 }
 
 function parseResult(geoObject?: YandexGeoObject): AddressResult | null {
-  const [lng, lat] = (geoObject?.Point?.pos || '').split(' ').map(Number);
-  if (!geoObject?.name || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (!geoObject?.Point?.pos) return null;
+  // Yandex geocoder returns coordinates as "lng lat" (longitude first)
+  const parts = geoObject.Point.pos.split(' ').map(Number);
+  const lng = parts[0];
+  const lat = parts[1];
+  if (!geoObject.name || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
   const metadataAddress = geoObject.metaDataProperty?.GeocoderMetaData?.text?.trim();
   const description = geoObject.description?.trim() || 'Tashkent';
   const fullAddress = metadataAddress || `${geoObject.name}, ${description}`;
+
   return {
     title: geoObject.name,
     subtitle: description,
@@ -53,18 +60,26 @@ function parseResult(geoObject?: YandexGeoObject): AddressResult | null {
   };
 }
 
-async function requestGeocoder(path: string, cacheKey: string) {
+async function requestGeocoder(path: string, cacheKey: string): Promise<AddressResult[]> {
   if (!apiKey()) return [];
-  if (cache.has(cacheKey)) return cache.get(cacheKey) || [];
+
+  // Return cached results (only set for successful non-empty responses)
+  if (cache.has(cacheKey)) return cache.get(cacheKey)!;
 
   try {
     const response = await fetch(path);
     if (!response.ok) return [];
+
     const data = await response.json() as YandexGeocoderResponse;
     const results = (data.response?.GeoObjectCollection?.featureMember || [])
       .map((item) => parseResult(item.GeoObject))
       .filter((item): item is AddressResult => Boolean(item));
-    cache.set(cacheKey, results);
+
+    // FIX: Only cache non-empty results so failed lookups can be retried
+    if (results.length > 0) {
+      cache.set(cacheKey, results);
+    }
+
     return results;
   } catch {
     return [];
@@ -88,5 +103,5 @@ export async function reverseGeocode(lat: number, lng: number): Promise<AddressR
     `/api/geocode?lat=${encodeURIComponent(String(lat))}&lng=${encodeURIComponent(String(lng))}`,
     `reverse:${lat.toFixed(5)},${lng.toFixed(5)}`,
   );
-  return results[0] || null;
+  return results[0] ?? null;
 }

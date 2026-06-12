@@ -73,11 +73,17 @@ export function loadYandexMaps(): Promise<YandexMaps3> {
     };
 
     if (existing) {
-      existing.addEventListener('load', onReady, { once: true });
-      existing.addEventListener('error', () => {
-        window.__ymaps3Status = 'error';
-        reject(new Error('Could not load Yandex Maps.'));
-      }, { once: true });
+      // Script tag exists — it may have already loaded (no pending load event).
+      if (window.ymaps3) {
+        // Already loaded — call onReady synchronously this tick.
+        void onReady();
+      } else {
+        existing.addEventListener('load', onReady, { once: true });
+        existing.addEventListener('error', () => {
+          window.__ymaps3Status = 'error';
+          reject(new Error('Could not load Yandex Maps.'));
+        }, { once: true });
+      }
       return;
     }
 

@@ -241,7 +241,7 @@ export function YandexMap({
       )}
 
       {/* Center crosshair pin — pointer-events:none so wheel events pass through to map */}
-      {interactive && status === 'loaded' && (
+      {interactive && status === 'loaded' && points.length === 0 && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="address-picker-pin -mt-8 flex flex-col items-center">
             <div className="h-8 w-8 rounded-full bg-orange-500 shadow-xl ring-[3px] ring-white" />

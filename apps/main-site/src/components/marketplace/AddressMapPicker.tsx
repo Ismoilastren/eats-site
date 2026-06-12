@@ -6,7 +6,7 @@ import { TASHKENT_CENTER } from '@/lib/yandexMaps';
 import { geocodeAddress, reverseGeocode } from '@/lib/yandexGeocoder';
 import { YandexMap } from './YandexMap';
 import type { SavedAddress } from '@/context/MarketplaceContext';
-import { isPlaceholderAddress, type AppAddress } from '@repo/shared-types';
+import { isPlaceholderAddress, isReadableAddress, type AppAddress } from '@repo/shared-types';
 
 type AddressOption = SavedAddress & { label: string };
 type SelectedMeta = NonNullable<AppAddress['source']>;
@@ -331,8 +331,9 @@ export function AddressMapPicker({
     if (typedQuery) {
       setConfirmingAddress(true);
       setError('');
-      const results = await geocodeAddress(typedQuery);
-      setConfirmingAddress(false);
+      const results = await geocodeAddress(typedQuery)
+        .catch(() => [])
+        .finally(() => setConfirmingAddress(false));
       if (results[0]) {
         next = normalizeAddress(results[0].fullAddress, results[0], 'suggestion');
         setSelected(next);
@@ -367,8 +368,9 @@ export function AddressMapPicker({
     }
 
     // Final validation
-    if (!next.text) {
-      setError('Choose or enter an address before confirming.');
+    if (!isReadableAddress(next.text)) {
+      setResolutionState('error');
+      setError('Enter a readable delivery address before confirming.');
       return;
     }
     if (!next.inZone) {
@@ -384,16 +386,16 @@ export function AddressMapPicker({
     : selectedMeta === 'manual'
       ? 'Manually entered delivery address'
       : selectedMeta === 'map'
-        ? 'Address detected from selected point'
+        ? 'Near selected point'
         : 'Tashkent delivery area';
 
-  const selectedTitle = cleanAddressTitle(selected.text || manualAddress);
+  const selectedTitle = cleanAddressTitle(isReadableAddress(selected.text) ? selected.text : manualAddress);
   const showEmptySuggestions = query.trim().length > 0 && suggestions.length === 0 && !searchingAddress;
 
   // Confirm button is enabled when:
   // - not currently resolving
   // - AND ( have a resolved readable address OR have typed something )
-  const hasConfirmableAddress = Boolean(selected.text) || query.trim().length > 0 || manualAddress.trim().length > 0;
+  const hasConfirmableAddress = isReadableAddress(selected.text) || query.trim().length > 0 || manualAddress.trim().length > 0;
   const confirmDisabled = detectingAddress || confirmingAddress || !hasConfirmableAddress;
 
   return (
@@ -435,7 +437,10 @@ export function AddressMapPicker({
                     <span className="text-xs font-black uppercase tracking-wider text-amber-700">Enter address manually</span>
                     <input
                       value={manualAddress}
-                      onChange={(event) => setManualAddress(event.target.value)}
+                      onChange={(event) => {
+                        setManualAddress(event.target.value);
+                        setError('');
+                      }}
                       placeholder="Street, building, apartment"
                       className="mt-1.5 w-full rounded-xl bg-white px-3 py-3 font-bold text-gray-950 outline-none ring-1 ring-amber-200 focus:ring-2 focus:ring-orange-300"
                     />
@@ -480,7 +485,7 @@ export function AddressMapPicker({
                 })}
                 {showEmptySuggestions && (
                   <div className="rounded-[22px] bg-gray-50 px-4 py-5 text-center font-bold text-gray-500">
-                    No matching address found. Try typing differently or enter manually.
+                    No matching address found. You can confirm the typed address.
                   </div>
                 )}
               </div>
@@ -527,6 +532,13 @@ export function AddressMapPicker({
           <section className="min-h-[360px] bg-gray-950 p-3 md:min-h-[420px] md:p-5">
             <YandexMap
               center={{ lat: selected.lat || TASHKENT_CENTER.lat, lng: selected.lng || TASHKENT_CENTER.lng }}
+              points={[{
+                id: 'selected-address',
+                label: selectedTitle || 'Address',
+                lat: selected.lat || TASHKENT_CENTER.lat,
+                lng: selected.lng || TASHKENT_CENTER.lng,
+                color: '#f97316',
+              }]}
               interactive
               dark
               showLocateControl={false}

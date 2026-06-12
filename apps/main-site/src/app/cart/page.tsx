@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { ArrowLeft, CreditCard, MapPin, Minus, Plus, ShoppingBasket, Store, Ticket, Trash2, Truck, Wallet } from 'lucide-react';
-import { formatCurrencyUZS } from '@repo/shared-types';
+import { formatCurrencyUZS, isReadableAddress } from '@repo/shared-types';
 import { auth, onAuthStateChanged } from '@repo/firebase-config';
 import { AddressMapPicker } from '@/components/marketplace/AddressMapPicker';
 import { MarketplaceHeader } from '@/components/marketplace/MarketplaceHeader';
@@ -56,14 +56,10 @@ export default function CartPage() {
   const belowMinimum = cart.length > 0 && subtotal < minOrder;
   const phoneValid = /^\+?998\d{9}$/.test(phone.replace(/\s/g, ''));
   const isDelivery = deliveryMode === 'delivery';
-  const looksLikeCoordinates = /^(lat:|lng:)|^-?\d{1,3}\.\d+[,;\s]+-?\d{1,3}\.\d+$/i.test(address.text.trim());
-  const looksUnresolved = /^(selected point|address not resolved|current location)\b/i.test(address.text.trim());
   const hasConfirmedAddress = Boolean(
     address.confirmed
     && address.inZone
-    && address.text.trim()
-    && !looksLikeCoordinates
-    && !looksUnresolved
+    && isReadableAddress(address.text)
   );
   const validSavedCards = savedCards.filter(isStoredPaymentMethodValid);
   const selectedCard = validSavedCards[0];

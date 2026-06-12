@@ -5,7 +5,12 @@ const TASHKENT_BBOX = '69.1200,41.1900~69.4200,41.4200';
 export async function GET(request: NextRequest) {
   const apiKey = process.env.YANDEX_GEOCODER_API_KEY;
   if (!apiKey) {
-    return NextResponse.json({ ok: false, results: [], error: 'Yandex Geocoder API key is not configured.' }, { status: 503 });
+    return NextResponse.json({
+      ok: false,
+      results: [],
+      error: 'Yandex Geocoder API key is not configured.',
+      errorCode: 'YANDEX_GEOCODER_KEY_MISSING',
+    }, { status: 503 });
   }
 
   const query = request.nextUrl.searchParams.get('query')?.trim();
@@ -37,12 +42,24 @@ export async function GET(request: NextRequest) {
     });
 
     if (!response.ok) {
-      return NextResponse.json({ ok: false, results: [], error: 'Yandex Geocoder rejected the request.' }, { status: 502 });
+      return NextResponse.json({
+        ok: false,
+        results: [],
+        error: response.status === 403
+          ? 'Yandex Geocoder HTTP API is not enabled or the server key is not authorized.'
+          : 'Yandex Geocoder rejected the request.',
+        errorCode: response.status === 403 ? 'YANDEX_GEOCODER_FORBIDDEN' : 'YANDEX_GEOCODER_REJECTED',
+      }, { status: response.status === 403 ? 403 : 502 });
     }
 
     const data = await response.json();
     return NextResponse.json({ ok: true, results: data });
   } catch {
-    return NextResponse.json({ ok: false, results: [], error: 'Could not reach Yandex Geocoder.' }, { status: 502 });
+    return NextResponse.json({
+      ok: false,
+      results: [],
+      error: 'Could not reach Yandex Geocoder.',
+      errorCode: 'YANDEX_GEOCODER_UNAVAILABLE',
+    }, { status: 502 });
   }
 }

@@ -13,22 +13,42 @@ export type AppAddress = {
 };
 
 export function isValidCoordinates(lat?: number, lng?: number): boolean {
-  return typeof lat === 'number' && typeof lng === 'number' && Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0;
+  return typeof lat === 'number'
+    && typeof lng === 'number'
+    && Number.isFinite(lat)
+    && Number.isFinite(lng)
+    && lat >= -90
+    && lat <= 90
+    && lng >= -180
+    && lng <= 180
+    && lat !== 0
+    && lng !== 0;
+}
+
+export function isRawCoordinateAddress(text?: string): boolean {
+  const trimmed = typeof text === 'string' ? text.trim() : '';
+  if (!trimmed) return false;
+
+  return /^(lat|lng|latitude|longitude)\s*:/i.test(trimmed)
+    || /^-?\d{1,3}(?:\.\d+)?[,;\s]+-?\d{1,3}(?:\.\d+)?$/.test(trimmed);
 }
 
 export function isPlaceholderAddress(text?: string): boolean {
-  if (!text) return true;
-  const lower = text.toLowerCase();
+  const trimmed = typeof text === 'string' ? text.trim() : '';
+  if (!trimmed) return true;
+  const lower = trimmed.toLowerCase();
   return (
+    isRawCoordinateAddress(trimmed) ||
     lower.startsWith('selected point') ||
     lower.startsWith('near selected point') ||
     lower.startsWith('address not resolved') ||
     lower.startsWith('address could not be resolved') ||
+    lower.startsWith('map point') ||
     lower === 'current location' ||
     lower === 'unnamed road'
   );
 }
 
 export function isReadableAddress(text?: string): boolean {
-  return !isPlaceholderAddress(text) && typeof text === 'string' && text.trim().length > 0;
+  return typeof text === 'string' && text.trim().length >= 3 && !isPlaceholderAddress(text);
 }

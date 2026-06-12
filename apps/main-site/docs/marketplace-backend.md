@@ -25,6 +25,7 @@ NEXT_PUBLIC_FIREBASE_APP_ID=
 NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=
 NEXT_PUBLIC_MARKETPLACE_DATA_SOURCE=firestore
 NEXT_PUBLIC_YANDEX_MAPS_API_KEY=
+YANDEX_GEOCODER_API_KEY=
 ```
 
 ## Yandex Maps
@@ -35,17 +36,25 @@ Required for production:
 
 ```bash
 NEXT_PUBLIC_YANDEX_MAPS_API_KEY=
+YANDEX_GEOCODER_API_KEY=
 ```
 
-Do not commit the key. Add it in the Vercel customer project environment variables, then redeploy the customer site.
+Do not commit either key. Add both in the Vercel customer project environment variables, then redeploy the customer site.
 
-In the Yandex developer console, allow these hosts:
+- `NEXT_PUBLIC_YANDEX_MAPS_API_KEY` is the browser JavaScript API key. It is public and should be restricted by HTTP Referer.
+- `YANDEX_GEOCODER_API_KEY` is server-only. It is used by `/api/geocode` for forward/reverse geocoding and must not use the `NEXT_PUBLIC_` prefix.
+
+In the Yandex developer console, allow these web hosts for the JavaScript API key. Do not include protocol, port, or path:
 
 - `eats-site-main-site.vercel.app`
-- `localhost:3002`
-- `localhost:3000`
+- `eats-adminn.vercel.app`
+- `localhost`
+- `127.0.0.1`
+- any future deployed restaurant web panel domain
 
-If the key is missing or blocked, the app shows a clean address form fallback and checkout still works. `/debug/connection` shows whether the key is configured and whether the client-side loader reached `loaded` or `error`.
+Expo Go apps do not use Yandex JavaScript API directly. Courier and restaurant mobile apps should use `expo-location`, `react-native-maps`, Firestore order address text, and backend geocoding endpoints when automatic address resolution is needed.
+
+If `YANDEX_GEOCODER_API_KEY` is missing, not connected to Yandex Geocoder HTTP API, or rejected with 403, the app must not fake resolved addresses. The address picker falls back to manual entry and saves manual address text plus coordinates when available. `/debug/connection` shows whether the JavaScript key is configured and whether the client-side loader reached `loaded` or `error`.
 
 ## Seed Firestore
 

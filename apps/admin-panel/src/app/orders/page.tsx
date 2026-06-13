@@ -272,8 +272,22 @@ export default function OrdersPage() {
           <DataTable
             columns={columns}
             data={orders}
-            searchPlaceholder="Search by customer name..."
-            searchAccessor={(item, q) => (item.customerName || '').toLowerCase().includes(q) || item.id.toLowerCase().includes(q)}
+            searchPlaceholder="Search by order, customer, phone, restaurant, courier, status..."
+            searchAccessor={(item, q) => {
+              const searchable = [
+                item.id,
+                item.customerName,
+                item.customerPhone,
+                item.restaurantName,
+                item.courierName,
+                item.assignedCourier?.name,
+                item.assignedCourier?.phone,
+                item.status,
+                item.paymentMethod,
+                item.deliveryAddress,
+              ];
+              return searchable.some((value) => String(value || '').toLowerCase().includes(q));
+            }}
             onView={(row) => router.push(`/orders/${row.id}`)}
           />
         )}

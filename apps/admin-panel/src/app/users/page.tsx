@@ -136,10 +136,20 @@ export default function UsersPage() {
           const addrSnap = await getDocs(collection(db, COLLECTIONS.USERS, selectedUser.uid, 'addresses'));
           setAddresses(addrSnap.docs.map(doc => doc.data()));
 
-          // Fetch Orders
-          const emailQuery = query(collection(db, COLLECTIONS.ORDERS), where('customer.email', '==', (selectedUser as any).email || ''));
-          const orderSnap = await getDocs(emailQuery);
-          const ordersData: any[] = orderSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          // Fetch Orders. Customer order payloads use flat fields, not customer.email.
+          const orderQueries = [
+            query(collection(db, COLLECTIONS.ORDERS), where('userId', '==', selectedUser.uid)),
+            ...(selectedUser.email ? [query(collection(db, COLLECTIONS.ORDERS), where('customerEmail', '==', selectedUser.email))] : []),
+            ...(selectedUser.phone ? [query(collection(db, COLLECTIONS.ORDERS), where('customerPhone', '==', selectedUser.phone))] : []),
+          ];
+          const orderSnapshots = await Promise.all(orderQueries.map((orderQuery) => getDocs(orderQuery)));
+          const ordersById = new Map<string, any>();
+          orderSnapshots.forEach((orderSnap) => {
+            orderSnap.docs.forEach((orderDoc) => {
+              ordersById.set(orderDoc.id, { id: orderDoc.id, ...orderDoc.data() });
+            });
+          });
+          const ordersData: any[] = Array.from(ordersById.values());
           ordersData.sort((a, b) => ((b.createdAt as any)?.toMillis?.() || 0) - ((a.createdAt as any)?.toMillis?.() || 0));
           setUserOrders(ordersData);
         } catch (err) {

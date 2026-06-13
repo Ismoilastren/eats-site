@@ -32,8 +32,15 @@ const DEMO_ADMINS = [
 
 export default function SeedPage() {
   const [isSeeding, setIsSeeding] = useState(false);
+  const [confirmation, setConfirmation] = useState('');
+  const isProduction = process.env.NODE_ENV === 'production';
 
   const handleSeed = async () => {
+    if (isProduction || confirmation !== 'SEED DEMO DATA') {
+      toast.error('Demo seeding is disabled without explicit local confirmation.');
+      return;
+    }
+
     setIsSeeding(true);
     toast.loading('Seeding data into Firestore...', { id: 'seed' });
 
@@ -57,15 +64,32 @@ export default function SeedPage() {
 
   return (
     <div className="flex h-[80vh] items-center justify-center">
-      <div className="rounded-xl bg-white p-8 shadow-sm dark:bg-gray-800 text-center space-y-4">
+      <div className="max-w-lg rounded-xl bg-white p-8 shadow-sm dark:bg-gray-800 text-center space-y-4">
         <h1 className="text-2xl font-bold">Data Seeder</h1>
-        <p className="text-gray-500">Click the button below to inject 20 demo accounts into Firestore.</p>
+        {isProduction ? (
+          <div className="rounded-xl border border-error-200 bg-error-50 p-4 text-left text-sm text-error-700 dark:border-error-500/30 dark:bg-error-500/10 dark:text-error-300">
+            Demo seeding is disabled in production. Use the live admin workflows to create users, restaurants, couriers, and orders.
+          </div>
+        ) : (
+          <>
+            <p className="text-gray-500">Local-only utility for injecting demo accounts into Firestore.</p>
+            <label className="block text-left text-sm font-semibold text-gray-700 dark:text-gray-300">
+              Type SEED DEMO DATA to enable
+              <input
+                value={confirmation}
+                onChange={(event) => setConfirmation(event.target.value)}
+                className="mt-2 h-11 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                placeholder="SEED DEMO DATA"
+              />
+            </label>
+          </>
+        )}
         <button
           onClick={handleSeed}
-          disabled={isSeeding}
+          disabled={isProduction || isSeeding || confirmation !== 'SEED DEMO DATA'}
           className="rounded-lg bg-brand-500 px-6 py-3 font-medium text-white hover:bg-brand-600 disabled:opacity-50"
         >
-          {isSeeding ? 'Seeding...' : 'Run Seed Script'}
+          {isProduction ? 'Disabled in Production' : isSeeding ? 'Seeding...' : 'Run Local Seed Script'}
         </button>
       </div>
     </div>

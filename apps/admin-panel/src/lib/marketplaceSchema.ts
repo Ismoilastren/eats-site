@@ -1,6 +1,6 @@
 import { serverTimestamp } from '@repo/firebase-config';
 
-const FALLBACK_IMAGE = 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?q=80&w=1200&auto=format&fit=crop';
+const TASHKENT_CENTER = { lat: 41.311081, lng: 69.240562 };
 
 export function slugifyRestaurantName(name: string) {
   return name
@@ -25,9 +25,29 @@ export function buildRestaurantPayload(input: {
   address: string;
   description?: string;
   imageUrl?: string;
+  phone?: string;
+  workingHours?: string;
+  deliveryTime?: number;
+  deliveryFee?: number;
+  minOrder?: number;
+  isActive?: boolean;
+  location?: {
+    address?: string;
+    lat?: number;
+    lng?: number;
+    latitude?: number;
+    longitude?: number;
+    source?: string;
+  };
 }) {
   const cuisines = splitList(input.cuisine);
-  const imageUrl = input.imageUrl || FALLBACK_IMAGE;
+  const imageUrl = input.imageUrl || '';
+  const locationLat = Number(input.location?.lat ?? input.location?.latitude ?? TASHKENT_CENTER.lat);
+  const locationLng = Number(input.location?.lng ?? input.location?.longitude ?? TASHKENT_CENTER.lng);
+  const safeLat = Number.isFinite(locationLat) ? locationLat : TASHKENT_CENTER.lat;
+  const safeLng = Number.isFinite(locationLng) ? locationLng : TASHKENT_CENTER.lng;
+  const address = input.location?.address || input.address;
+  const isActive = input.isActive ?? true;
 
   return {
     ...(input.id ? { id: input.id } : {}),
@@ -45,23 +65,31 @@ export function buildRestaurantPayload(input: {
     reviewCount: 0,
     reviewsCount: 0,
     likedBy: [],
-    address: input.address,
-    location: { latitude: 41.311081, longitude: 69.240562, lat: 41.311081, lng: 69.240562 },
-    deliveryFee: 0,
-    minOrder: 0,
-    minOrderAmount: 0,
-    etaMin: 25,
-    etaMax: 35,
-    avgDeliveryTime: 30,
+    address,
+    phone: input.phone || '',
+    location: {
+      address,
+      latitude: safeLat,
+      longitude: safeLng,
+      lat: safeLat,
+      lng: safeLng,
+      source: input.location?.source || 'admin',
+    },
+    deliveryFee: Number(input.deliveryFee || 0),
+    minOrder: Number(input.minOrder || 0),
+    minOrderAmount: Number(input.minOrder || 0),
+    etaMin: Math.max(5, Number(input.deliveryTime || 30) - 5),
+    etaMax: Number(input.deliveryTime || 30) + 5,
+    avgDeliveryTime: Number(input.deliveryTime || 30),
     priceLevel: 2,
     zones: ['tashkent', 'center'],
     availableZones: ['tashkent', 'center'],
-    isOpen: true,
-    isActive: true,
-    status: 'active',
+    isOpen: isActive,
+    isActive,
+    status: isActive ? 'active' : 'inactive',
     supportsDelivery: true,
     supportsPickup: true,
-    workingHours: '09:00-23:00',
+    workingHours: input.workingHours || '09:00-23:00',
     updatedAt: serverTimestamp(),
     createdAt: serverTimestamp(),
   };

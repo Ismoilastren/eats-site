@@ -7,6 +7,17 @@ import toast from 'react-hot-toast';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import { buildDishPayload, buildRestaurantPayload } from '@/lib/marketplaceSchema';
+import {
+  compressImageFile,
+  extractRestaurantLocation,
+  loadRestaurantTypeOptions,
+  validateRestaurantImage,
+  type RestaurantLocationValue,
+  type RestaurantTypeOption,
+} from '@/lib/restaurantAdmin';
+import { RestaurantImageUploader } from '@/components/restaurants/RestaurantImageUploader';
+import { RestaurantLocationPicker } from '@/components/restaurants/RestaurantLocationPicker';
+import { RestaurantTypeSelect } from '@/components/restaurants/RestaurantTypeSelect';
 
 export default function EditRestaurantPage() {
   const router = useRouter();
@@ -16,13 +27,27 @@ export default function EditRestaurantPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imageError, setImageError] = useState('');
+  const [restaurantTypes, setRestaurantTypes] = useState<RestaurantTypeOption[]>([]);
+  const [isLoadingTypes, setIsLoadingTypes] = useState(true);
+  const [location, setLocation] = useState<RestaurantLocationValue>({
+    address: '',
+    lat: 41.311081,
+    lng: 69.240562,
+    source: 'manual',
+  });
   
   const [formData, setFormData] = useState({
     name: '',
-    cuisine: '',
-    location: '',
+    restaurantType: '',
     description: '',
     imageUrl: '',
+    phone: '',
+    workingHours: '09:00-23:00',
+    deliveryTime: '30',
+    deliveryFee: '0',
+    minOrder: '0',
+    isActive: true,
   });
 
   const [ownerId, setOwnerId] = useState<string | null>(null);
@@ -45,6 +70,24 @@ export default function EditRestaurantPage() {
   });
 
   useEffect(() => {
+    let cancelled = false;
+    loadRestaurantTypeOptions()
+      .then((options) => {
+        if (!cancelled) setRestaurantTypes(options);
+      })
+      .catch(() => {
+        if (!cancelled) toast.error('Failed to load restaurant types');
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingTypes(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!id) return;
     
     const fetchRestaurant = async () => {
@@ -55,12 +98,19 @@ export default function EditRestaurantPage() {
         if (docSnap.exists()) {
           const data = docSnap.data() as Restaurant;
           const raw = data as any;
+          const existingLocation = extractRestaurantLocation(raw);
+          setLocation(existingLocation);
           setFormData({
             name: data.name || '',
-            cuisine: Array.isArray(raw.cuisines) ? raw.cuisines.join(', ') : data.cuisine || '',
-            location: data.address || (typeof (data as any).location === 'string' ? (data as any).location : ''),
+            restaurantType: Array.isArray(raw.cuisines) ? raw.cuisines[0] || '' : data.cuisine || raw.category || '',
             description: data.description || '',
             imageUrl: data.imageUrl || raw.coverImageUrl || '',
+            phone: raw.phone || '',
+            workingHours: raw.workingHours || '09:00-23:00',
+            deliveryTime: String(raw.avgDeliveryTime || raw.deliveryTime || 30),
+            deliveryFee: String(raw.deliveryFee || 0),
+            minOrder: String(raw.minOrder || raw.minOrderAmount || 0),
+            isActive: raw.isActive !== false && raw.status !== 'inactive',
           });
           
           if (data.ownerId) {
@@ -105,10 +155,27 @@ export default function EditRestaurantPage() {
     fetchRestaurant();
   }, [id, router]);
 
+  const setRestaurantImage = (file: File | null) => {
+    if (!file) {
+      setImageFile(null);
+      setImageError('');
+      return;
+    }
+
+    const validationError = validateRestaurantImage(file);
+    if (validationError) {
+      setImageError(validationError);
+      return;
+    }
+
+    setImageFile(file);
+    setImageError('');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.cuisine || !formData.location) {
-      toast.error('Name, cuisine, and location are required.');
+    if (!formData.name.trim() || !formData.restaurantType.trim() || !location.address.trim()) {
+      toast.error('Name, restaurant type, and readable location are required.');
       return;
     }
 
@@ -118,35 +185,28 @@ export default function EditRestaurantPage() {
     try {
       let finalImageUrl = formData.imageUrl;
       if (imageFile) {
-        finalImageUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.readAsDataURL(imageFile);
-          reader.onload = (event) => {
-            const img = new Image();
-            img.src = event.target?.result as string;
-            img.onload = () => {
-              const canvas = document.createElement('canvas');
-              const MAX_WIDTH = 800;
-              const scaleSize = MAX_WIDTH / img.width;
-              canvas.width = MAX_WIDTH;
-              canvas.height = img.height * scaleSize;
-              const ctx = canvas.getContext('2d');
-              ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-              resolve(canvas.toDataURL('image/webp', 0.7));
-            };
-            img.onerror = (error) => reject(error);
-          };
-          reader.onerror = (error) => reject(error);
-        });
+        finalImageUrl = await compressImageFile(imageFile);
       }
 
       const updates = buildRestaurantPayload({
         id,
-        name: formData.name,
-        cuisine: formData.cuisine,
-        address: formData.location,
-        description: formData.description,
+        name: formData.name.trim(),
+        cuisine: formData.restaurantType.trim(),
+        address: location.address.trim(),
+        description: formData.description.trim(),
         imageUrl: finalImageUrl,
+        phone: formData.phone.trim(),
+        workingHours: formData.workingHours.trim(),
+        deliveryTime: Number(formData.deliveryTime || 30),
+        deliveryFee: Number(formData.deliveryFee || 0),
+        minOrder: Number(formData.minOrder || 0),
+        isActive: formData.isActive,
+        location: {
+          address: location.address.trim(),
+          lat: location.lat,
+          lng: location.lng,
+          source: location.source,
+        },
       });
 
       const docRef = doc(db, COLLECTIONS.RESTAURANTS, id);
@@ -364,90 +424,152 @@ export default function EditRestaurantPage() {
   }
 
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="max-w-6xl space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Edit Restaurant</h1>
+        <p className="text-xs font-black uppercase tracking-[0.18em] text-orange-500">Restaurant management</p>
+        <h1 className="mt-2 text-3xl font-black text-gray-900 dark:text-white">Edit Restaurant</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Update the details for this restaurant.</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6 rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Restaurant Image</label>
-            {formData.imageUrl && !imageFile && (
-              <div className="mb-2">
-                <img src={formData.imageUrl} alt="Current" className="h-24 w-24 object-cover rounded-lg border border-gray-200" />
+      <form onSubmit={handleSubmit} className="grid gap-6 lg:grid-cols-[420px_1fr]">
+        <div className="space-y-6">
+          <RestaurantImageUploader
+            file={imageFile}
+            imageUrl={formData.imageUrl}
+            onFileChange={setRestaurantImage}
+            onClearExisting={() => setFormData((current) => ({ ...current, imageUrl: '' }))}
+            error={imageError}
+          />
+
+          <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-bold text-gray-900 dark:text-white">Marketplace status</p>
+                <p className="text-xs text-gray-500">Inactive restaurants stay hidden from customers.</p>
               </div>
-            )}
-            <input 
-              type="file" 
-              accept="image/*"
-              onChange={(e) => {
-                if (e.target.files && e.target.files[0]) {
-                  setImageFile(e.target.files[0]);
-                }
-              }}
-              className="w-full rounded-lg border border-gray-300 p-2.5 outline-none focus:border-brand-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white" 
-            />
-            <p className="mt-1 text-xs text-gray-500">Select a new image to replace the current one.</p>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Restaurant Name</label>
-            <input 
-              type="text" 
-              value={formData.name}
-              onChange={(e) => setFormData({...formData, name: e.target.value})}
-              placeholder="e.g. Express Eats"
-              className="w-full rounded-lg border border-gray-300 p-2.5 outline-none focus:border-brand-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white" 
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Cuisine Type</label>
-            <input 
-              type="text" 
-              value={formData.cuisine}
-              onChange={(e) => setFormData({...formData, cuisine: e.target.value})}
-              placeholder="e.g. Fast Food, Italian, Uzbek"
-              className="w-full rounded-lg border border-gray-300 p-2.5 outline-none focus:border-brand-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white" 
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Location Address</label>
-            <input 
-              type="text" 
-              value={formData.location}
-              onChange={(e) => setFormData({...formData, location: e.target.value})}
-              placeholder="e.g. Amir Temur 14, Tashkent"
-              className="w-full rounded-lg border border-gray-300 p-2.5 outline-none focus:border-brand-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white" 
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description (Optional)</label>
-            <textarea 
-              value={formData.description}
-              onChange={(e) => setFormData({...formData, description: e.target.value})}
-              placeholder="Short description of the restaurant"
-              rows={3}
-              className="w-full rounded-lg border border-gray-300 p-2.5 outline-none focus:border-brand-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white" 
-            />
+              <button
+                type="button"
+                onClick={() => setFormData((current) => ({ ...current, isActive: !current.isActive }))}
+                className={`rounded-full px-4 py-2 text-xs font-black ${
+                  formData.isActive
+                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300'
+                    : 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300'
+                }`}
+              >
+                {formData.isActive ? 'Active' : 'Inactive'}
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-gray-500">ETA minutes</label>
+                <input
+                  type="number"
+                  min="5"
+                  value={formData.deliveryTime}
+                  onChange={(event) => setFormData({ ...formData, deliveryTime: event.target.value })}
+                  className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm font-semibold outline-none focus:border-orange-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-gray-500">Delivery fee</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={formData.deliveryFee}
+                  onChange={(event) => setFormData({ ...formData, deliveryFee: event.target.value })}
+                  className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm font-semibold outline-none focus:border-orange-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                />
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-gray-700">
-          <button 
-            type="button" 
-            onClick={() => router.back()}
-            className="rounded-lg bg-gray-100 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-          >
-            Cancel
-          </button>
-          <button 
-            type="submit" 
-            disabled={isSaving}
-            className="rounded-lg bg-brand-500 px-5 py-2.5 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
-          >
-            {isSaving ? 'Saving...' : 'Save Changes'}
-          </button>
+        <div className="space-y-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <label className="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">Restaurant Name</label>
+              <input
+                type="text"
+                value={formData.name}
+                onChange={(event) => setFormData({ ...formData, name: event.target.value })}
+                placeholder="e.g. MaxWay Yunusabad"
+                className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm font-semibold outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              />
+            </div>
+
+            <RestaurantTypeSelect
+              value={formData.restaurantType}
+              options={restaurantTypes}
+              loading={isLoadingTypes}
+              onChange={(restaurantType) => setFormData({ ...formData, restaurantType })}
+            />
+
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">Phone</label>
+              <input
+                type="tel"
+                value={formData.phone}
+                onChange={(event) => setFormData({ ...formData, phone: event.target.value })}
+                placeholder="+998 90 123 45 67"
+                className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm font-semibold outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">Working Hours</label>
+              <input
+                type="text"
+                value={formData.workingHours}
+                onChange={(event) => setFormData({ ...formData, workingHours: event.target.value })}
+                placeholder="09:00-23:00"
+                className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm font-semibold outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">Minimum Order</label>
+              <input
+                type="number"
+                min="0"
+                value={formData.minOrder}
+                onChange={(event) => setFormData({ ...formData, minOrder: event.target.value })}
+                className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm font-semibold outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">Description</label>
+              <textarea
+                value={formData.description}
+                onChange={(event) => setFormData({ ...formData, description: event.target.value })}
+                placeholder="Short description shown on customer restaurant pages"
+                rows={3}
+                className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm font-medium outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+              />
+            </div>
+          </div>
+
+          <RestaurantLocationPicker
+            value={location}
+            onChange={setLocation}
+          />
+
+          <div className="flex flex-col justify-end gap-3 border-t border-gray-100 pt-4 sm:flex-row dark:border-gray-700">
+            <button
+              type="button"
+              onClick={() => router.back()}
+              className="rounded-xl bg-gray-100 px-5 py-3 text-sm font-bold text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="rounded-xl bg-orange-500 px-6 py-3 text-sm font-black text-white shadow-lg shadow-orange-500/20 hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isSaving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
         </div>
       </form>
 

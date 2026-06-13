@@ -1,0 +1,275 @@
+'use client';
+
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { LocateFixed, MapPin } from 'lucide-react';
+import {
+  TASHKENT_CENTER,
+  loadAdminYandexMaps,
+  type YandexMaps3,
+  type YMapInstance,
+} from '@/lib/yandexMaps';
+import type { RestaurantLocationValue } from '@/lib/restaurantAdmin';
+
+type RestaurantLocationPickerProps = {
+  value: RestaurantLocationValue;
+  onChange: (value: RestaurantLocationValue) => void;
+  error?: string;
+};
+
+const PRESET_LOCATIONS = [
+  { label: 'Amir Temur Avenue 14', address: 'Tashkent, Amir Temur Avenue 14', lat: 41.3266, lng: 69.2817 },
+  { label: 'Chorsu Bazaar entrance', address: 'Tashkent, Chorsu Bazaar entrance', lat: 41.3261, lng: 69.2358 },
+  { label: 'Mirabad Street 27', address: 'Tashkent, Mirabad Street 27', lat: 41.2958, lng: 69.2831 },
+  { label: 'Chilanzar C-5, house 12', address: 'Tashkent, Chilanzar C-5, house 12', lat: 41.2859, lng: 69.2031 },
+  { label: 'Yunusabad 4', address: 'Tashkent, Yunusabad 4', lat: 41.3672, lng: 69.2892 },
+];
+
+function markerElement() {
+  const wrapper = document.createElement('div');
+  wrapper.style.cssText = 'transform: translate(-50%, -100%);';
+  wrapper.innerHTML = `
+    <div style="
+      width: 38px;
+      height: 38px;
+      border-radius: 999px;
+      background: #f97316;
+      border: 4px solid #fff;
+      box-shadow: 0 16px 30px rgba(15,23,42,.28);
+    "></div>
+    <div style="
+      width: 5px;
+      height: 22px;
+      margin: -2px auto 0;
+      background: #f97316;
+      border-radius: 0 0 999px 999px;
+      box-shadow: 0 12px 20px rgba(15,23,42,.22);
+    "></div>
+  `;
+  return wrapper;
+}
+
+function RestaurantAdminMap({
+  value,
+  onSelect,
+}: {
+  value: RestaurantLocationValue;
+  onSelect: (coords: { lat: number; lng: number }) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<YMapInstance | null>(null);
+  const apiRef = useRef<YandexMaps3 | null>(null);
+  const markerRef = useRef<unknown | null>(null);
+  const onSelectRef = useRef(onSelect);
+  const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
+
+  useEffect(() => {
+    onSelectRef.current = onSelect;
+  }, [onSelect]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function init() {
+      if (!containerRef.current) return;
+      setStatus('loading');
+
+      try {
+        const ymaps3 = await loadAdminYandexMaps();
+        if (cancelled || !containerRef.current) return;
+
+        const map = new ymaps3.YMap(containerRef.current, {
+          location: { center: [value.lng, value.lat], zoom: 13 },
+          theme: 'light',
+          behaviors: ['drag', 'scrollZoom', 'pinchZoom', 'dblClick'],
+        });
+        map.addChild(new ymaps3.YMapDefaultSchemeLayer());
+        map.addChild(new ymaps3.YMapDefaultFeaturesLayer());
+        map.addChild(new ymaps3.YMapListener({
+          onClick: (_object: unknown, event: { coordinates?: [number, number] }) => {
+            const coordinates = event.coordinates;
+            if (!coordinates) return;
+            onSelectRef.current({ lng: coordinates[0], lat: coordinates[1] });
+          },
+        } as Record<string, unknown>));
+
+        mapRef.current = map;
+        apiRef.current = ymaps3;
+        setStatus('loaded');
+      } catch (error) {
+        if (!cancelled) {
+          setStatus('error');
+          if (process.env.NODE_ENV !== 'production') console.warn('[RestaurantAdminMap]', error);
+        }
+      }
+    }
+
+    void init();
+
+    return () => {
+      cancelled = true;
+      mapRef.current?.destroy();
+      mapRef.current = null;
+      apiRef.current = null;
+      markerRef.current = null;
+    };
+    // Mount once; selected center/marker are updated in the next effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const ymaps3 = apiRef.current;
+    if (!map || !ymaps3 || status !== 'loaded') return;
+
+    if (markerRef.current) map.removeChild?.(markerRef.current);
+    const marker = new ymaps3.YMapMarker({ coordinates: [value.lng, value.lat] }, markerElement());
+    map.addChild(marker);
+    markerRef.current = marker;
+    map.update({ location: { center: [value.lng, value.lat], zoom: 14, duration: 250 } });
+  }, [status, value.lat, value.lng]);
+
+  return (
+    <div className="relative min-h-[320px] overflow-hidden rounded-2xl bg-gray-950">
+      <div ref={containerRef} className="h-[320px] w-full" />
+      {status === 'loading' && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-950/80 text-sm font-bold text-white">
+          Loading map...
+        </div>
+      )}
+      {status === 'error' && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-950 p-6 text-center text-white">
+          <div>
+            <MapPin className="mx-auto text-orange-400" size={32} />
+            <p className="mt-3 font-bold">Map is unavailable.</p>
+            <p className="mt-1 text-sm text-gray-400">Enter the readable address manually.</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function RestaurantLocationPicker({ value, onChange, error }: RestaurantLocationPickerProps) {
+  const [query, setQuery] = useState('');
+  const filteredPresets = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return PRESET_LOCATIONS;
+    return PRESET_LOCATIONS.filter((item) =>
+      `${item.label} ${item.address}`.toLowerCase().includes(normalized),
+    );
+  }, [query]);
+
+  const updateAddress = (address: string) => {
+    onChange({ ...value, address, source: value.source === 'map' ? 'map' : 'manual' });
+  };
+
+  const selectPreset = (preset: typeof PRESET_LOCATIONS[number]) => {
+    onChange({
+      address: preset.address,
+      lat: preset.lat,
+      lng: preset.lng,
+      source: 'admin',
+    });
+    setQuery('');
+  };
+
+  const useCurrentLocation = () => {
+    navigator.geolocation?.getCurrentPosition((position) => {
+      onChange({
+        ...value,
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        source: 'map',
+      });
+    });
+  };
+
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+      <div className="mb-4">
+        <label className="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">
+          Location Address
+        </label>
+        <textarea
+          value={value.address}
+          onChange={(event) => updateAddress(event.target.value)}
+          rows={3}
+          placeholder="Enter readable restaurant address, e.g. Amir Temur Avenue 14, Tashkent"
+          className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm font-medium text-gray-900 outline-none transition focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+        />
+        {error && <p className="mt-2 text-xs font-semibold text-red-600">{error}</p>}
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
+        <div className="space-y-3">
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search preset address"
+            className="w-full rounded-xl border border-gray-300 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-900 outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+          />
+          <button
+            type="button"
+            onClick={useCurrentLocation}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-gray-950 px-4 py-3 text-sm font-bold text-white hover:bg-gray-800 dark:bg-orange-500 dark:hover:bg-orange-600"
+          >
+            <LocateFixed size={17} /> Use current location
+          </button>
+
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-gray-400">Popular addresses</p>
+              <span className="rounded-full bg-orange-50 px-2 py-1 text-xs font-bold text-orange-600">
+                {filteredPresets.length}
+              </span>
+            </div>
+            <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+              {filteredPresets.length ? filteredPresets.map((preset) => (
+                <button
+                  key={preset.address}
+                  type="button"
+                  onClick={() => selectPreset(preset)}
+                  className="flex w-full items-start gap-3 rounded-xl bg-gray-50 p-3 text-left hover:bg-orange-50 dark:bg-gray-950 dark:hover:bg-orange-500/10"
+                >
+                  <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-orange-500 dark:bg-gray-900">
+                    <MapPin size={17} />
+                  </span>
+                  <span>
+                    <span className="block text-sm font-bold text-gray-900 dark:text-white">{preset.label}</span>
+                    <span className="text-xs font-semibold text-gray-500">Tashkent delivery area</span>
+                  </span>
+                </button>
+              )) : (
+                <div className="rounded-xl bg-gray-50 p-4 text-sm font-semibold text-gray-500 dark:bg-gray-950">
+                  No preset address found. You can still enter the address manually.
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-2xl bg-gray-950 p-4 text-white">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-orange-300">Selected point</p>
+            <p className="mt-2 line-clamp-2 text-sm font-bold">
+              {value.address || 'Enter a readable address'}
+            </p>
+            <p className="mt-1 text-xs text-gray-400">
+              {value.lat.toFixed(5)}, {value.lng.toFixed(5)} · {value.source}
+            </p>
+          </div>
+        </div>
+
+        <RestaurantAdminMap
+          value={value}
+          onSelect={(coords) => {
+            onChange({
+              ...value,
+              lat: coords.lat,
+              lng: coords.lng,
+              source: 'map',
+            });
+          }}
+        />
+      </div>
+    </div>
+  );
+}

@@ -25,6 +25,14 @@ export function isValidCoordinates(lat?: number, lng?: number): boolean {
     && lng !== 0;
 }
 
+export function toYandexCoords(point: { lat: number; lng: number }): [number, number] {
+  return [point.lng, point.lat];
+}
+
+export function fromYandexCoords(coords: [number, number]): { lat: number; lng: number } {
+  return { lat: coords[1], lng: coords[0] };
+}
+
 export function isRawCoordinateAddress(text?: string): boolean {
   const trimmed = typeof text === 'string' ? text.trim() : '';
   if (!trimmed) return false;

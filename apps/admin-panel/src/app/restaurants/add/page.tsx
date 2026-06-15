@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { db, collection, auth, doc, setDoc } from '@repo/firebase-config';
-import { COLLECTIONS } from '@repo/shared-types';
+import { COLLECTIONS, isReadableAddress } from '@repo/shared-types';
 import toast from 'react-hot-toast';
 import { buildRestaurantPayload } from '@/lib/marketplaceSchema';
 import {
@@ -88,7 +88,7 @@ export default function AddRestaurantPage() {
     const nextErrors: FormErrors = {};
     if (!formData.name.trim()) nextErrors.name = 'Restaurant name is required.';
     if (!formData.restaurantType.trim()) nextErrors.restaurantType = 'Restaurant type is required.';
-    if (!location.address.trim()) nextErrors.address = 'Readable restaurant address is required.';
+    if (!isReadableAddress(location.address)) nextErrors.address = 'Readable restaurant address is required.';
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
   };
@@ -126,6 +126,7 @@ export default function AddRestaurantPage() {
           lat: location.lat,
           lng: location.lng,
           source: location.source,
+          coordinatesConfirmed: location.coordinatesConfirmed,
         },
       });
 

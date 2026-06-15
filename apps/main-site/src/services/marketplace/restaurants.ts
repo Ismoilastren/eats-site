@@ -12,6 +12,7 @@ import {
 } from '@repo/firebase-config';
 import { Dish, Restaurant, restaurants as mockRestaurants } from '@/data/marketplace';
 import { isFirestoreDataSource } from './config';
+import { isValidCoordinates } from '@repo/shared-types';
 
 const RESTAURANTS_COLLECTION = 'restaurants';
 const DISHES_COLLECTION = 'dishes';
@@ -62,6 +63,9 @@ function mapFirestoreRestaurant(data: DocumentData, id: string, menu: Dish[] = [
       ? '$$$'
       : '$$';
   const imageUrl = cleanImageUrl(data.coverImageUrl || data.imageUrl);
+  const rawLat = Number(data.location?.lat ?? data.location?.latitude);
+  const rawLng = Number(data.location?.lng ?? data.location?.longitude);
+  const hasStoredLocation = isValidCoordinates(rawLat, rawLng);
 
   return {
     id: String(data.id || id),
@@ -84,12 +88,13 @@ function mapFirestoreRestaurant(data: DocumentData, id: string, menu: Dish[] = [
     workingHours: String(data.workingHours || '09:00-23:00'),
     availableZones: Array.isArray(data.zones) ? data.zones.map(String) : Array.isArray(data.availableZones) ? data.availableZones.map(String) : ['tashkent'],
     priceLevel,
-    address: String(data.address || data.location?.address || 'Tashkent'),
+    address: String(data.address || data.location?.address || ''),
     location: {
-      lat: Number(data.location?.lat ?? data.location?.latitude ?? 41.311081),
-      lng: Number(data.location?.lng ?? data.location?.longitude ?? 69.240562),
-      address: String(data.address || data.location?.address || 'Tashkent'),
+      lat: hasStoredLocation ? rawLat : 41.311081,
+      lng: hasStoredLocation ? rawLng : 69.240562,
+      address: String(data.address || data.location?.address || ''),
     },
+    locationIsVerified: hasStoredLocation,
     menu,
   };
 }
@@ -131,6 +136,16 @@ export async function getRestaurantById(restaurantId: string): Promise<Restauran
   const menu = await getDishesByRestaurant(restaurantDoc.id);
   const restaurant = mapFirestoreRestaurant(restaurantDoc.data(), restaurantDoc.id, menu);
   return restaurant.isOpen ? restaurant : null;
+}
+
+export async function getRestaurantForTracking(restaurantId: string): Promise<Restaurant | null> {
+  if (!isFirestoreDataSource()) {
+    return mockRestaurants.find((restaurant) => restaurant.id === restaurantId) || null;
+  }
+
+  const restaurantDoc = await getDoc(doc(db, RESTAURANTS_COLLECTION, restaurantId));
+  if (!restaurantDoc.exists()) return null;
+  return mapFirestoreRestaurant(restaurantDoc.data(), restaurantDoc.id);
 }
 
 export function subscribeRestaurants(

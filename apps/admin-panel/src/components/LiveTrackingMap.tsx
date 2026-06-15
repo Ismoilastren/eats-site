@@ -1,26 +1,14 @@
 'use client';
 
-import 'leaflet/dist/leaflet.css';
-import { useEffect, useState, useMemo } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
-import { normalizeCoordinate } from '@repo/shared-types';
-
-if (typeof window !== 'undefined') {
-  const iconDefault = L.Icon.Default.prototype as any;
-  if (!iconDefault._isPatched) {
-    delete iconDefault._getIconUrl;
-    L.Icon.Default.mergeOptions({
-      iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
-      iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-      shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-    });
-    iconDefault._isPatched = true;
-  }
-}
-
-// Custom Icons logic moved inside the component to prevent SSR crashes
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { MapPin } from 'lucide-react';
+import { normalizeCoordinate, toYandexCoords } from '@repo/shared-types';
+import {
+  isAdminYandexMapsKeyConfigured,
+  loadAdminYandexMaps,
+  type YandexMaps3,
+  type YMapInstance,
+} from '@/lib/yandexMaps';
 
 interface LiveTrackingMapProps {
   restaurantLocation?: { latitude?: number; longitude?: number; lat?: number; lng?: number };
@@ -28,115 +16,238 @@ interface LiveTrackingMapProps {
   courierLocation?: { latitude?: number; longitude?: number; lat?: number; lng?: number };
 }
 
-const FitBounds = ({ coordinates, signature }: { coordinates: Array<{ lat: number; lng: number }>; signature: string }) => {
-    const map = useMap();
-
-    useEffect(() => {
-        if (coordinates.length > 0) {
-            const validCoords = coordinates.filter(c => Number.isFinite(c.lat) && Number.isFinite(c.lng));
-            if (validCoords.length > 0) {
-                const bounds = L.latLngBounds(validCoords.map(c => [c.lat, c.lng]));
-                map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15, animate: false });
-            }
-        }
-    }, [signature, map]);
-    return null;
+type Point = {
+  id: string;
+  label: string;
+  lat: number;
+  lng: number;
+  color: string;
 };
 
-// Module-level key to force complete unmount/remount on Next.js HMR
-const HMR_KEY = typeof window !== 'undefined' ? Math.random().toString(36).substring(2, 9) : 'static';
+function markerElement(point: Point) {
+  const wrapper = document.createElement('div');
+  wrapper.style.cssText = 'transform: translate(-50%, -50%); display:flex; flex-direction:column; align-items:center;';
 
-export default function LiveTrackingMap({ 
-  restaurantLocation, 
-  customerLocation, 
-  courierLocation 
+  const marker = document.createElement('div');
+  marker.style.cssText = `
+    width: 30px;
+    height: 30px;
+    border-radius: 999px;
+    background: ${point.color};
+    border: 4px solid white;
+    box-shadow: 0 12px 26px rgba(15,23,42,.3);
+  `;
+
+  const label = document.createElement('div');
+  label.textContent = point.label;
+  label.style.cssText = `
+    margin-top: 6px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.96);
+    padding: 5px 9px;
+    color: #111827;
+    box-shadow: 0 7px 18px rgba(15,23,42,.18);
+    font: 800 11px system-ui;
+    white-space: nowrap;
+  `;
+
+  wrapper.append(marker, label);
+  return wrapper;
+}
+
+export default function LiveTrackingMap({
+  restaurantLocation,
+  customerLocation,
+  courierLocation,
 }: LiveTrackingMapProps) {
-  const [mounted, setMounted] = useState(false);
-
-  // Safely create icons on the client side only using useMemo to prevent render loop crashes
-  const { restaurantIcon, customerIcon, courierIcon } = useMemo(() => {
-    if (typeof window === 'undefined') {
-      return { restaurantIcon: null as any, customerIcon: null as any, courierIcon: null as any };
-    }
-    return {
-      restaurantIcon: L.divIcon({
-        className: 'custom-div-icon',
-        html: `<div style="background-color: #f79009; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"></div>`,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12],
-      }),
-      customerIcon: L.divIcon({
-        className: 'custom-div-icon',
-        html: `<div style="background-color: #465fff; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"></div>`,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12],
-      }),
-      courierIcon: L.divIcon({
-        className: 'custom-div-icon',
-        html: `<div style="background-color: #12b76a; width: 24px; height: 24px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"></div>`,
-        iconSize: [24, 24],
-        iconAnchor: [12, 12],
-      })
-    };
-  }, []);
-
-  useEffect(() => {
-    setMounted(true);
-    return () => {
-      if (typeof window !== 'undefined') {
-        const container = L.DomUtil.get('order-tracking-map');
-        if (container) {
-          (container as any)._leaflet_id = null;
-        }
-      }
-    };
-  }, []);
-
-  if (!mounted) return null;
-
-  const defRest: [number, number] = [41.3110, 69.2405];
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<YMapInstance | null>(null);
+  const apiRef = useRef<YandexMaps3 | null>(null);
+  const childrenRef = useRef<unknown[]>([]);
+  const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
+  const [loadError, setLoadError] = useState('');
 
   const restaurant = normalizeCoordinate(restaurantLocation);
   const customer = normalizeCoordinate(customerLocation);
   const courier = normalizeCoordinate(courierLocation);
-  const restPos: [number, number] = restaurant ? [restaurant.latitude, restaurant.longitude] : defRest;
-  const custPos: [number, number] | null = customer ? [customer.latitude, customer.longitude] : null;
-  const courPos: [number, number] | null = courier ? [courier.latitude, courier.longitude] : null;
+  const restaurantLat = restaurant?.latitude;
+  const restaurantLng = restaurant?.longitude;
+  const customerLat = customer?.latitude;
+  const customerLng = customer?.longitude;
+  const courierLat = courier?.latitude;
+  const courierLng = courier?.longitude;
+  const points = useMemo<Point[]>(() => [
+    ...(restaurantLat !== undefined && restaurantLng !== undefined ? [{
+      id: 'restaurant',
+      label: 'Restaurant',
+      lat: restaurantLat,
+      lng: restaurantLng,
+      color: '#f97316',
+    }] : []),
+    ...(customerLat !== undefined && customerLng !== undefined ? [{
+      id: 'customer',
+      label: 'Customer',
+      lat: customerLat,
+      lng: customerLng,
+      color: '#2563eb',
+    }] : []),
+    ...(courierLat !== undefined && courierLng !== undefined ? [{
+      id: 'courier',
+      label: 'Courier',
+      lat: courierLat,
+      lng: courierLng,
+      color: '#16a34a',
+    }] : []),
+  ], [courierLat, courierLng, customerLat, customerLng, restaurantLat, restaurantLng]);
+  const pointsSignature = JSON.stringify(points);
 
-  const validCoords = [
-    { lat: restPos[0], lng: restPos[1] },
-    ...(custPos ? [{ lat: custPos[0], lng: custPos[1] }] : []),
-    ...(courPos ? [{ lat: courPos[0], lng: courPos[1] }] : []),
-  ];
-  const boundsSignature = [
-    `r:${restPos[0].toFixed(5)},${restPos[1].toFixed(5)}`,
-    custPos ? `d:${custPos[0].toFixed(5)},${custPos[1].toFixed(5)}` : 'd:none',
-    courPos ? 'c:assigned' : 'c:none',
-  ].join('|');
+  useEffect(() => {
+    if (restaurantLat === undefined || restaurantLng === undefined || customerLat === undefined || customerLng === undefined) return;
+    const initialRestaurant = { lat: restaurantLat, lng: restaurantLng };
+    let cancelled = false;
+
+    async function init() {
+      if (!containerRef.current) return;
+      setStatus('loading');
+      setLoadError('');
+      try {
+        const ymaps3 = await loadAdminYandexMaps();
+        if (cancelled || !containerRef.current) return;
+        const map = new ymaps3.YMap(containerRef.current, {
+          location: { center: toYandexCoords(initialRestaurant), zoom: 13 },
+          theme: 'light',
+          behaviors: ['drag', 'scrollZoom', 'pinchZoom', 'dblClick'],
+        });
+        map.addChild(new ymaps3.YMapDefaultSchemeLayer());
+        map.addChild(new ymaps3.YMapDefaultFeaturesLayer());
+        mapRef.current = map;
+        apiRef.current = ymaps3;
+        setStatus('loaded');
+      } catch (error) {
+        if (!cancelled) {
+          setStatus('error');
+          setLoadError(error instanceof Error ? error.message : 'Could not load Yandex Maps.');
+        }
+      }
+    }
+
+    void init();
+    return () => {
+      cancelled = true;
+      mapRef.current?.destroy();
+      mapRef.current = null;
+      apiRef.current = null;
+      childrenRef.current = [];
+    };
+  }, [customerLat, customerLng, restaurantLat, restaurantLng]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const ymaps3 = apiRef.current;
+    if (
+      !map
+      || !ymaps3
+      || status !== 'loaded'
+      || restaurantLat === undefined
+      || restaurantLng === undefined
+      || customerLat === undefined
+      || customerLng === undefined
+    ) return;
+
+    childrenRef.current.forEach((child) => map.removeChild?.(child));
+    const children: unknown[] = [];
+    const restaurantPoint = { lat: restaurantLat, lng: restaurantLng };
+    const customerPoint = { lat: customerLat, lng: customerLng };
+
+    const route = new ymaps3.YMapFeature({
+      geometry: {
+        type: 'LineString',
+        coordinates: [toYandexCoords(restaurantPoint), toYandexCoords(customerPoint)],
+      },
+      style: { stroke: [{ color: '#f97316', width: 5, dash: [8, 6] }] },
+    });
+    map.addChild(route);
+    children.push(route);
+
+    if (courierLat !== undefined && courierLng !== undefined) {
+      const courierRoute = new ymaps3.YMapFeature({
+        geometry: {
+          type: 'LineString',
+          coordinates: [
+            toYandexCoords({ lat: courierLat, lng: courierLng }),
+            toYandexCoords(customerPoint),
+          ],
+        },
+        style: { stroke: [{ color: '#16a34a', width: 5 }] },
+      });
+      map.addChild(courierRoute);
+      children.push(courierRoute);
+    }
+
+    points.forEach((point) => {
+      const marker = new ymaps3.YMapMarker({ coordinates: toYandexCoords(point) }, markerElement(point));
+      map.addChild(marker);
+      children.push(marker);
+    });
+    childrenRef.current = children;
+
+    const lngs = points.map((point) => point.lng);
+    const lats = points.map((point) => point.lat);
+    map.update({
+      location: {
+        bounds: [
+          [Math.min(...lngs), Math.min(...lats)],
+          [Math.max(...lngs), Math.max(...lats)],
+        ],
+        margin: [55, 55, 55, 55],
+        duration: 250,
+      },
+    });
+  }, [
+    courierLat,
+    courierLng,
+    customerLat,
+    customerLng,
+    points,
+    pointsSignature,
+    restaurantLat,
+    restaurantLng,
+    status,
+  ]);
+
+  if (!restaurant || !customer) {
+    return (
+      <div className="flex h-full min-h-72 items-center justify-center bg-amber-50 p-6 text-center">
+        <div>
+          <MapPin className="mx-auto text-amber-600" size={30} />
+          <p className="mt-3 font-bold text-gray-900">Tracking map unavailable because coordinates are missing.</p>
+          <p className="mt-1 text-sm font-semibold text-gray-500">No pickup or destination point is being estimated.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="w-full h-[400px] rounded-2xl overflow-hidden border border-gray-200 shadow-inner mt-6 z-0 relative">
-        <MapContainer id="order-tracking-map" key={HMR_KEY} center={[41.2995, 69.2401]} className="w-full h-full z-0" zoom={13} scrollWheelZoom={false}>
-            <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"/>
-            
-            <FitBounds coordinates={validCoords} signature={boundsSignature} />
-
-            <Marker position={restPos} icon={restaurantIcon}>
-                <Popup className="font-bold text-gray-800">Restaurant</Popup>
-            </Marker>
-
-            {courPos && (
-                <Marker position={courPos} icon={courierIcon}>
-                    <Popup className="font-bold text-orange-500">Courier</Popup>
-                </Marker>
-            )}
-
-            {custPos && (
-                <Marker position={custPos} icon={customerIcon}>
-                    <Popup className="font-bold text-blue-600">Delivery Address</Popup>
-                </Marker>
-            )}
-        </MapContainer>
+    <div className="relative h-full min-h-72 overflow-hidden bg-gray-950">
+      <div ref={containerRef} className="h-full min-h-72 w-full" />
+      {status === 'loading' && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-950/80 font-bold text-white">
+          Loading Yandex map...
+        </div>
+      )}
+      {status === 'error' && (
+        <div className="absolute inset-0 flex items-center justify-center bg-gray-950 p-6 text-center text-white">
+          <div>
+            <MapPin className="mx-auto text-orange-400" size={30} />
+            <p className="mt-3 font-bold">Yandex tracking map could not load.</p>
+            <p className="mt-1 text-sm text-gray-400">
+              {!isAdminYandexMapsKeyConfigured() || loadError.includes('not configured')
+                ? 'Missing NEXT_PUBLIC_YANDEX_MAPS_API_KEY for the admin deployment.'
+                : 'Check the JavaScript API key, allowed admin domain, and network connection.'}
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

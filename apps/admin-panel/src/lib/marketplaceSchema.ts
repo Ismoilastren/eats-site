@@ -1,4 +1,5 @@
 import { serverTimestamp } from '@repo/firebase-config';
+import { isReadableAddress, isValidCoordinates } from '@repo/shared-types';
 
 const TASHKENT_CENTER = { lat: 41.311081, lng: 69.240562 };
 
@@ -38,15 +39,24 @@ export function buildRestaurantPayload(input: {
     latitude?: number;
     longitude?: number;
     source?: string;
+    coordinatesConfirmed?: boolean;
   };
 }) {
   const cuisines = splitList(input.cuisine);
   const imageUrl = input.imageUrl || '';
   const locationLat = Number(input.location?.lat ?? input.location?.latitude ?? TASHKENT_CENTER.lat);
   const locationLng = Number(input.location?.lng ?? input.location?.longitude ?? TASHKENT_CENTER.lng);
-  const safeLat = Number.isFinite(locationLat) ? locationLat : TASHKENT_CENTER.lat;
-  const safeLng = Number.isFinite(locationLng) ? locationLng : TASHKENT_CENTER.lng;
+  const hasCoordinates = Boolean(
+    input.location?.coordinatesConfirmed
+    && isValidCoordinates(locationLat, locationLng),
+  );
   const address = input.location?.address || input.address;
+  if (!isReadableAddress(address)) {
+    throw new Error('A readable restaurant address is required.');
+  }
+  if (input.location?.coordinatesConfirmed && !hasCoordinates) {
+    throw new Error('Valid restaurant coordinates are required.');
+  }
   const isActive = input.isActive ?? true;
 
   return {
@@ -69,11 +79,13 @@ export function buildRestaurantPayload(input: {
     phone: input.phone || '',
     location: {
       address,
-      latitude: safeLat,
-      longitude: safeLng,
-      lat: safeLat,
-      lng: safeLng,
       source: input.location?.source || 'admin',
+      ...(hasCoordinates ? {
+        latitude: locationLat,
+        longitude: locationLng,
+        lat: locationLat,
+        lng: locationLng,
+      } : {}),
     },
     deliveryFee: Number(input.deliveryFee || 0),
     minOrder: Number(input.minOrder || 0),

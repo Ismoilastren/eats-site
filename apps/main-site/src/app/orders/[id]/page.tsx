@@ -3,19 +3,30 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Bike, CheckCircle2, Circle, Clock, MapPin, Phone } from 'lucide-react';
+import { ArrowLeft, Bike, CheckCircle2, Circle, Clock, Phone } from 'lucide-react';
 import { MarketplaceHeader } from '@/components/marketplace/MarketplaceHeader';
 import { useMarketplace, type LocalOrder } from '@/context/MarketplaceContext';
-import { CUSTOMER_TRACKING_STATUSES, ORDER_STATUS_LABELS, subscribeToOrder } from '@/services/marketplace';
+import { OrderTrackingMap } from '@/components/marketplace/OrderTrackingMap';
+import {
+  CUSTOMER_TRACKING_STATUSES,
+  ORDER_STATUS_LABELS,
+  subscribeToCourierTracking,
+  subscribeToOrder,
+  type CourierTrackingSnapshot,
+} from '@/services/marketplace';
 import { formatCurrencyUZS } from '@repo/shared-types';
+import { getRestaurantForTracking } from '@/services/marketplace';
+import type { Restaurant } from '@/data/marketplace';
 
 export default function OrderTrackingPage() {
   const params = useParams<{ id: string }>();
-  const { orders } = useMarketplace();
+  const { orders, restaurants } = useMarketplace();
   const contextOrder = orders.find((item) => item.id === params.id);
   const [serviceOrder, setServiceOrder] = useState<LocalOrder | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [courierSnapshot, setCourierSnapshot] = useState<CourierTrackingSnapshot | null>(null);
+  const [trackingRestaurant, setTrackingRestaurant] = useState<Restaurant | null>(null);
   const order = serviceOrder || contextOrder;
   const [step, setStep] = useState(order?.statusIndex || 0);
 
@@ -35,9 +46,37 @@ export default function OrderTrackingPage() {
     if (order) setStep(order.statusIndex);
   }, [order]);
 
+  useEffect(() => {
+    const courierId = order?.assignedCourier?.id;
+    if (!courierId) {
+      setCourierSnapshot(null);
+      return;
+    }
+    return subscribeToCourierTracking(courierId, setCourierSnapshot);
+  }, [order?.assignedCourier?.id]);
+
+  useEffect(() => {
+    if (!order?.restaurantId) {
+      setTrackingRestaurant(null);
+      return;
+    }
+    let cancelled = false;
+    getRestaurantForTracking(order.restaurantId)
+      .then((record) => {
+        if (!cancelled) setTrackingRestaurant(record);
+      })
+      .catch(() => {
+        if (!cancelled) setTrackingRestaurant(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [order?.restaurantId]);
+
   const eta = useMemo(() => Math.max(4, Number(order?.etaMinutes || 24) - step * 4), [order?.etaMinutes, step]);
   const courier = order?.assignedCourier || order?.courier || null;
-  const hasCourier = Boolean(courier && (order?.assignedCourier?.id || courier.name || courier.phone || courier.vehicle));
+  const hasCourier = Boolean(order?.assignedCourier?.id);
+  const restaurant = trackingRestaurant || restaurants.find((item) => item.id === order?.restaurantId);
 
   return (
     <div className="min-h-screen bg-[#f6f6f3] text-gray-950">
@@ -61,15 +100,12 @@ export default function OrderTrackingPage() {
               <h1 className="mt-2 text-4xl font-black md:text-5xl">{order.status === 'delivered' ? 'Delivered' : `Arrives in ${eta} min`}</h1>
               <p className="mt-2 inline-flex rounded-full bg-yellow-100 px-4 py-2 font-black text-yellow-800">{ORDER_STATUS_LABELS[order.status]}</p>
               <p className="mt-3 font-bold text-gray-500">To {order.address}</p>
-              <div className="mt-8 rounded-[36px] bg-gray-950 p-6 text-white">
-                <div className="flex h-72 items-center justify-center rounded-[28px] bg-[radial-gradient(circle_at_top,#facc15_0,#111827_34%,#030712_100%)]">
-                  <div className="text-center">
-                    <MapPin className="mx-auto text-yellow-300" size={54} />
-                    <p className="mt-4 text-2xl font-black">Tashkent delivery route</p>
-                    <p className="mt-2 font-bold text-gray-300">{hasCourier ? 'Restaurant → Courier → Customer' : 'Restaurant → Customer'}</p>
-                    <p className="mt-2 text-sm font-black text-yellow-200">Live status: {ORDER_STATUS_LABELS[order.status]}</p>
-                  </div>
-                </div>
+              <div className="mt-8">
+                <OrderTrackingMap
+                  order={order}
+                  restaurant={restaurant}
+                  courierSnapshot={courierSnapshot}
+                />
               </div>
               <div className="mt-8 space-y-4">
                 {CUSTOMER_TRACKING_STATUSES.map((status, index) => (

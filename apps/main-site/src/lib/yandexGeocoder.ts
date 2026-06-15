@@ -34,8 +34,11 @@ type YandexGeoObject = {
 
 // Only cache successful (non-empty) results to allow retries on failure.
 const cache = new Map<string, AddressResult[]>();
+let lastError: { message: string; code: string } | null = null;
 
-
+export function getLastGeocoderError() {
+  return lastError;
+}
 
 function parseResult(geoObject?: YandexGeoObject): AddressResult | null {
   if (!geoObject?.Point?.pos) return null;
@@ -66,7 +69,13 @@ async function requestGeocoder(path: string, cacheKey: string): Promise<AddressR
     const response = await fetch(path);
     const json = await response.json();
 
-    if (!response.ok || !json.ok) return [];
+    if (!response.ok || !json.ok) {
+      lastError = {
+        message: String(json.error || 'Yandex Geocoder rejected the request.'),
+        code: String(json.errorCode || 'YANDEX_GEOCODER_REJECTED'),
+      };
+      return [];
+    }
 
     const data = json.results as YandexGeocoderResponse;
     const results = (data.response?.GeoObjectCollection?.featureMember || [])
@@ -76,10 +85,20 @@ async function requestGeocoder(path: string, cacheKey: string): Promise<AddressR
     // FIX: Only cache non-empty results so failed lookups can be retried
     if (results.length > 0) {
       cache.set(cacheKey, results);
+      lastError = null;
+    } else {
+      lastError = {
+        message: 'Yandex Geocoder did not return a readable address.',
+        code: 'ADDRESS_NOT_RESOLVED',
+      };
     }
 
     return results;
   } catch {
+    lastError = {
+      message: 'Could not reach the geocoder endpoint.',
+      code: 'YANDEX_GEOCODER_UNAVAILABLE',
+    };
     return [];
   }
 }

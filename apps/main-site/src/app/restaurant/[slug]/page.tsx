@@ -11,7 +11,7 @@ import { MarketplaceHeader } from '@/components/marketplace/MarketplaceHeader';
 import { YandexMapPreview } from '@/components/marketplace/YandexMapPreview';
 import { useMarketplace } from '@/context/MarketplaceContext';
 import { haversineDistanceKm, TASHKENT_CENTER } from '@/lib/yandexMaps';
-import { formatCurrencyUZS } from '@repo/shared-types';
+import { formatCurrencyUZS, isValidCoordinates } from '@repo/shared-types';
 
 export default function RestaurantPage() {
   const params = useParams<{ slug: string }>();
@@ -24,8 +24,16 @@ export default function RestaurantPage() {
   const [selectedDish, setSelectedDish] = useState<Dish | null>(null);
   const menu = restaurant?.menu || [];
   const customerLocation = { lat: address.lat || TASHKENT_CENTER.lat, lng: address.lng || TASHKENT_CENTER.lng };
-  const routeDistanceKm = restaurant ? haversineDistanceKm(restaurant.location, customerLocation) : 0;
-  const routeEtaMinutes = restaurant ? Math.max(restaurant.etaMin, Math.round(routeDistanceKm * 4 + 12)) : 0;
+  const routeAvailable = Boolean(
+    restaurant?.locationIsVerified
+    && isValidCoordinates(customerLocation.lat, customerLocation.lng),
+  );
+  const routeDistanceKm = restaurant && routeAvailable
+    ? haversineDistanceKm(restaurant.location, customerLocation)
+    : null;
+  const routeEtaMinutes = restaurant && routeDistanceKm !== null
+    ? Math.max(restaurant.etaMin, Math.round(routeDistanceKm * 4 + 12))
+    : null;
   const displayAddress = address.text === 'Current location'
     ? 'Detected location, Tashkent'
     : address.text.replace(/^Tashkent,\s*/i, '') || 'Delivery address';
@@ -162,11 +170,17 @@ export default function RestaurantPage() {
               <p>Rating: {restaurant.rating} from {restaurant.reviews} reviews</p>
               <p>Restaurant address: {restaurant.address || 'Tashkent'}</p>
               <p>Delivery address: {displayAddress}</p>
-              <p>Distance: {routeDistanceKm.toFixed(1)} km</p>
-              <p>Estimated delivery time: {routeEtaMinutes} minutes</p>
+              <p>Distance: {routeDistanceKm === null ? 'Unavailable because coordinates are missing' : `${routeDistanceKm.toFixed(1)} km`}</p>
+              <p>Estimated delivery time: {routeEtaMinutes === null ? 'Use the restaurant ETA shown above' : `${routeEtaMinutes} minutes`}</p>
             </div>
             <div className="mt-4">
-              <YandexMapPreview center={restaurant.location} label={restaurant.address || restaurant.name} customer={{ ...customerLocation, label: 'Delivery address' }} />
+              {routeAvailable ? (
+                <YandexMapPreview center={restaurant.location} label={restaurant.address || restaurant.name} customer={{ ...customerLocation, label: 'Delivery address' }} />
+              ) : (
+                <div className="rounded-[28px] bg-gray-100 p-6 text-center font-bold text-gray-500">
+                  Map preview is unavailable because restaurant coordinates are missing.
+                </div>
+              )}
             </div>
             <button onClick={() => setInfoOpen(false)} className="mt-5 w-full rounded-2xl bg-gray-950 px-4 py-4 font-black text-white">Close</button>
           </div>

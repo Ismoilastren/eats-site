@@ -1,5 +1,6 @@
 import type { CanonicalVehicleType, Courier, VehicleType } from './courier';
 import type { Order, OrderStatus } from './order';
+import { isValidCoordinates } from './address';
 
 export type CoordinateLike = {
   latitude?: number | null;
@@ -137,7 +138,7 @@ export function normalizeCoordinate(location?: CoordinateLike | null): Normalize
   if (!location) return null;
   const latitude = Number(location.latitude ?? location.lat);
   const longitude = Number(location.longitude ?? location.lng);
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  if (!isValidCoordinates(latitude, longitude)) return null;
   return {
     latitude,
     longitude,

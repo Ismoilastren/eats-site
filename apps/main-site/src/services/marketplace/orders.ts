@@ -17,6 +17,7 @@ import {
 import type { CartLine, LocalOrder } from '@/context/MarketplaceContext';
 import type { DeliveryMode } from '@/data/marketplace';
 import { COURIER_RADAR_STATUSES } from '@repo/shared-types';
+import { isValidCoordinates } from '@repo/shared-types';
 import { isFirestoreDataSource, MOCK_CUSTOMER_ID } from './config';
 import { normalizeOrderStatus, statusIndex, type OrderActor, type OrderStatus } from './status';
 
@@ -57,11 +58,32 @@ export type CustomerOrderIdentity = {
   phones?: Array<string | null | undefined>;
 };
 
+export type CourierTrackingSnapshot = {
+  currentLocation: ReturnType<typeof readCoordinate>;
+  lastUpdated?: string;
+};
+
 function dateFromFirestore(value: unknown): string {
   if (value && typeof value === 'object' && 'toDate' in value && typeof value.toDate === 'function') {
     return value.toDate().toISOString();
   }
   return typeof value === 'string' ? value : new Date().toISOString();
+}
+
+function readCoordinate(value: unknown) {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Record<string, unknown>;
+  const lat = Number(raw.lat ?? raw.latitude);
+  const lng = Number(raw.lng ?? raw.longitude);
+  if (!isValidCoordinates(lat, lng)) return null;
+  return {
+    lat,
+    lng,
+    latitude: lat,
+    longitude: lng,
+    ...(Number.isFinite(Number(raw.heading)) ? { heading: Number(raw.heading) } : {}),
+    ...(Number.isFinite(Number(raw.speed)) ? { speed: Number(raw.speed) } : {}),
+  };
 }
 
 function readMockOrders(): LocalOrder[] {
@@ -107,7 +129,8 @@ function mapFirestoreOrder(data: DocumentData, id: string): LocalOrder {
       id: String(data.assignedCourier.id || ''),
       name: String(data.assignedCourier.name || 'Courier'),
       phone: data.assignedCourier.phone ? String(data.assignedCourier.phone) : '',
-      vehicle: data.assignedCourier.vehicle ? String(data.assignedCourier.vehicle) : 'Bicycle',
+      vehicle: data.assignedCourier.vehicle ? String(data.assignedCourier.vehicle) : '',
+      vehicleType: data.assignedCourier.vehicleType ? String(data.assignedCourier.vehicleType) : '',
     }
     : null;
   const rawCourier = data.courier && typeof data.courier === 'object' ? data.courier : null;
@@ -118,14 +141,22 @@ function mapFirestoreOrder(data: DocumentData, id: string): LocalOrder {
   const courier = assignedCourier
     ? {
       name: String(assignedCourier.name || 'Courier'),
-      vehicle: String(assignedCourier.vehicle || 'Bicycle'),
+      vehicle: String(assignedCourier.vehicle || ''),
+      vehicleType: String(assignedCourier.vehicleType || ''),
       phone: String(assignedCourier.phone || ''),
+      currentLocation: readCoordinate(rawCourier?.currentLocation),
+      location: readCoordinate(rawCourier?.location),
+      lastUpdated: rawCourier?.lastUpdated ? dateFromFirestore(rawCourier.lastUpdated) : undefined,
     }
     : hasRawCourier
       ? {
         name: String(rawCourier.name || 'Courier'),
-        vehicle: String(rawCourier.vehicle || 'Bicycle'),
+        vehicle: String(rawCourier.vehicle || ''),
+        vehicleType: String(rawCourier.vehicleType || ''),
         phone: String(rawCourier.phone || ''),
+        currentLocation: readCoordinate(rawCourier.currentLocation),
+        location: readCoordinate(rawCourier.location),
+        lastUpdated: rawCourier.lastUpdated ? dateFromFirestore(rawCourier.lastUpdated) : undefined,
       }
       : null;
 
@@ -136,8 +167,13 @@ function mapFirestoreOrder(data: DocumentData, id: string): LocalOrder {
     restaurantId: String(data.restaurantId || data.items?.[0]?.restaurantId || 'unknown'),
     restaurantName: String(data.restaurantName || 'Restaurant'),
     items: Array.isArray(data.items) ? data.items : [],
-    address: String(data.customerAddress || data.address || ''),
-    customerAddress: String(data.customerAddress || data.address || ''),
+    address: String(data.customerAddress || data.deliveryAddress || data.address || ''),
+    customerAddress: String(data.customerAddress || data.deliveryAddress || data.address || ''),
+    restaurantAddress: String(data.restaurantAddress || ''),
+    restaurantLocation: readCoordinate(data.restaurantLocation),
+    customerLocation: readCoordinate(data.customerLocation),
+    deliveryLocation: readCoordinate(data.deliveryLocation),
+    courierLocation: readCoordinate(data.courierLocation),
     phone: String(data.customerPhone || ''),
     name: String(data.customerName || ''),
     subtotal: Number(data.subtotal || data.total || data.totalAmount || 0),
@@ -152,6 +188,7 @@ function mapFirestoreOrder(data: DocumentData, id: string): LocalOrder {
     updatedAt: dateFromFirestore(data.updatedAt),
     statusIndex: statusIndex(status),
     assignedCourier,
+    courierId: data.courierId ? String(data.courierId) : undefined,
     courier,
     etaMinutes: Number(data.etaMinutes || 24),
   };
@@ -183,24 +220,40 @@ export async function createOrder(orderInput: MarketplaceOrderInput): Promise<Lo
       statusIndex: 0,
       assignedCourier: null,
       courier: null,
+      restaurantAddress: orderInput.restaurantLocation?.address || '',
+      restaurantLocation: orderInput.restaurantLocation || null,
+      customerLocation: orderInput.customerLocation || null,
+      deliveryLocation: orderInput.customerLocation || null,
       etaMinutes: orderInput.etaMinutes || 24,
     };
   }
 
   const orderRef = doc(collection(db, 'orders'));
-  const customerLocation = {
-    lat: orderInput.customerLocation?.lat ?? 41.311081,
-    lng: orderInput.customerLocation?.lng ?? 69.240562,
-    latitude: orderInput.customerLocation?.lat ?? 41.311081,
-    longitude: orderInput.customerLocation?.lng ?? 69.240562,
-  };
+  const customerLocation = orderInput.customerLocation
+    && isValidCoordinates(orderInput.customerLocation.lat, orderInput.customerLocation.lng)
+    ? {
+      lat: orderInput.customerLocation.lat,
+      lng: orderInput.customerLocation.lng,
+      latitude: orderInput.customerLocation.lat,
+      longitude: orderInput.customerLocation.lng,
+    }
+    : null;
+  const restaurantLocation = orderInput.restaurantLocation
+    && isValidCoordinates(orderInput.restaurantLocation.lat, orderInput.restaurantLocation.lng)
+    ? {
+      lat: orderInput.restaurantLocation.lat,
+      lng: orderInput.restaurantLocation.lng,
+      latitude: orderInput.restaurantLocation.lat,
+      longitude: orderInput.restaurantLocation.lng,
+    }
+    : null;
   const payload = {
     id: orderRef.id,
     userId: orderInput.userId || MOCK_CUSTOMER_ID,
     customerEmail: orderInput.customerEmail || null,
     restaurantId: orderInput.restaurantId,
     restaurantName: orderInput.restaurantName,
-    restaurantLocation: orderInput.restaurantLocation || { lat: 41.311081, lng: 69.240562 },
+    ...(restaurantLocation ? { restaurantLocation } : {}),
     restaurantAddress: orderInput.restaurantLocation?.address || '',
     items: orderInput.items.map((item) => ({
       id: item.id,
@@ -212,8 +265,7 @@ export async function createOrder(orderInput: MarketplaceOrderInput): Promise<Lo
     address: orderInput.address,
     customerAddress: orderInput.address,
     deliveryAddress: orderInput.address,
-    customerLocation,
-    deliveryLocation: customerLocation,
+    ...(customerLocation ? { customerLocation, deliveryLocation: customerLocation } : {}),
     customerName: orderInput.customerName,
     customerPhone: orderInput.customerPhone,
     paymentMethod: orderInput.paymentMethod,
@@ -417,6 +469,34 @@ export function subscribeToOrder(orderId: string, onChange: (order: LocalOrder |
   return onSnapshot(doc(db, 'orders', orderId), (snapshot) => {
     onChange(snapshot.exists() ? mapFirestoreOrder(snapshot.data(), snapshot.id) : null);
   });
+}
+
+export function subscribeToCourierTracking(
+  courierId: string,
+  onChange: (courier: CourierTrackingSnapshot | null) => void,
+): Unsubscribe {
+  if (!courierId || !isFirestoreDataSource()) {
+    onChange(null);
+    return () => undefined;
+  }
+
+  return onSnapshot(
+    doc(db, 'couriers', courierId),
+    (snapshot) => {
+      if (!snapshot.exists()) {
+        onChange(null);
+        return;
+      }
+      const data = snapshot.data();
+      onChange({
+        currentLocation: readCoordinate(data.currentLocation),
+        lastUpdated: data.lastSeenAt || data.updatedAt
+          ? dateFromFirestore(data.lastSeenAt || data.updatedAt)
+          : undefined,
+      });
+    },
+    () => onChange(null),
+  );
 }
 
 export function subscribeToOrders(

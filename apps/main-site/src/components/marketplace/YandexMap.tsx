@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LocateFixed, MapPin, Minus, Plus } from 'lucide-react';
+import { toYandexCoords } from '@repo/shared-types';
 import {
   loadYandexMaps,
   TASHKENT_CENTER,
@@ -17,10 +18,18 @@ export type MapPoint = {
   color?: string;
 };
 
+export type MapPath = {
+  id: string;
+  points: Array<{ lat: number; lng: number }>;
+  color?: string;
+  dashed?: boolean;
+};
+
 type YandexMapProps = {
   center?: { lat: number; lng: number };
   points?: MapPoint[];
   line?: Array<{ lat: number; lng: number }>;
+  paths?: MapPath[];
   interactive?: boolean;
   dark?: boolean;
   heightClassName?: string;
@@ -33,6 +42,7 @@ type YandexMapProps = {
 function markerElement(point: MapPoint) {
   const element = document.createElement('div');
   element.className = 'ymaps-demo-marker';
+  element.style.cssText = 'transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center;';
   const marker = document.createElement('div');
   marker.style.cssText = `
     width: 34px;
@@ -48,7 +58,23 @@ function markerElement(point: MapPoint) {
     font: 900 14px system-ui;
   `;
   marker.textContent = point.label.slice(0, 1).toUpperCase();
+  const label = document.createElement('div');
+  label.style.cssText = `
+    margin-top: 7px;
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border-radius: 999px;
+    background: rgba(255,255,255,.96);
+    padding: 6px 10px;
+    color: #111827;
+    box-shadow: 0 8px 22px rgba(15,23,42,.2);
+    font: 800 12px system-ui;
+  `;
+  label.textContent = point.label;
   element.appendChild(marker);
+  element.appendChild(label);
   return element;
 }
 
@@ -56,6 +82,7 @@ export function YandexMap({
   center = TASHKENT_CENTER,
   points = [],
   line,
+  paths = [],
   interactive = false,
   dark = false,
   heightClassName = 'h-[420px]',
@@ -69,15 +96,13 @@ export function YandexMap({
   const mapsApiRef = useRef<YandexMaps3 | null>(null);
   const dynamicChildrenRef = useRef<unknown[]>([]);
   const onSelectRef = useRef(onSelect);
-  // Track the last coords we reported so we don't fire on tiny floating-point drift
-  const lastClickCoordsRef = useRef<[number, number]>([center.lng, center.lat]);
-  // Debounce timer for pan-end reporting
-  const panDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [status, setStatus] = useState<'not_loaded' | 'loading' | 'loaded' | 'error'>('not_loaded');
+  const [loadError, setLoadError] = useState('');
   const [zoom, setZoom] = useState(14);
   const mapCenter = points[0] || center;
   const pointsSignature = useMemo(() => JSON.stringify(points), [points]);
   const lineSignature = useMemo(() => JSON.stringify(line || []), [line]);
+  const pathsSignature = useMemo(() => JSON.stringify(paths), [paths]);
 
   useEffect(() => {
     onSelectRef.current = onSelect;
@@ -93,6 +118,7 @@ export function YandexMap({
     async function init() {
       if (!containerRef.current) return;
       setStatus('loading');
+      setLoadError('');
 
       try {
         const ymaps3 = await loadYandexMaps();
@@ -126,19 +152,18 @@ export function YandexMap({
               const coordinates = event.coordinates;
               if (!coordinates) return;
               const [lng, lat] = coordinates;
-              lastClickCoordsRef.current = [lng, lat];
               onSelectRef.current?.({ lng, lat });
             },
           } as Record<string, unknown>));
         }
 
-        lastClickCoordsRef.current = [mapCenter.lng, mapCenter.lat];
         mapsApiRef.current = ymaps3;
         mapRef.current = map;
         setStatus('loaded');
       } catch (loadError) {
         if (cancelled) return;
         setStatus('error');
+        setLoadError(loadError instanceof Error ? loadError.message : 'Could not load Yandex Maps.');
         if (process.env.NODE_ENV !== 'production') console.warn('[YandexMap]', loadError);
       }
     }
@@ -146,7 +171,6 @@ export function YandexMap({
     init();
     return () => {
       cancelled = true;
-      if (panDebounceRef.current) clearTimeout(panDebounceRef.current);
       mapRef.current?.destroy();
       mapRef.current = null;
       mapsApiRef.current = null;
@@ -156,17 +180,28 @@ export function YandexMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dark, interactive]);
 
-  // Smoothly pan to center when parent changes selected address
+  // Fit tracking maps to every visible point; single-point pickers keep their selected zoom.
   useEffect(() => {
     if (status !== 'loaded' || !mapRef.current) return;
+    if (points.length > 1) {
+      const lngs = points.map((point) => point.lng);
+      const lats = points.map((point) => point.lat);
+      mapRef.current.update({
+        location: {
+          bounds: [
+            [Math.min(...lngs), Math.min(...lats)],
+            [Math.max(...lngs), Math.max(...lats)],
+          ],
+          margin: [70, 70, 70, 70],
+          duration: 250,
+        },
+      });
+      return;
+    }
     mapRef.current.update({
-      location: {
-        center: [mapCenter.lng, mapCenter.lat],
-        zoom,
-        duration: 250,
-      },
+      location: { center: toYandexCoords(mapCenter), zoom, duration: 250 },
     });
-  }, [mapCenter.lat, mapCenter.lng, status, zoom]);
+  }, [mapCenter.lat, mapCenter.lng, points, pointsSignature, status, zoom]);
 
   // Update markers/lines without remounting
   useEffect(() => {
@@ -177,21 +212,33 @@ export function YandexMap({
     dynamicChildrenRef.current.forEach((child) => map.removeChild?.(child));
     const nextChildren: unknown[] = [];
 
-    if (line && line.length > 1) {
+    const visiblePaths: MapPath[] = [
+      ...(line && line.length > 1 ? [{ id: 'legacy-line', points: line, color: '#f97316', dashed: true }] : []),
+      ...paths,
+    ];
+
+    visiblePaths.forEach((path) => {
+      if (path.points.length < 2) return;
       const feature = new ymaps3.YMapFeature({
         geometry: {
           type: 'LineString',
-          coordinates: line.map((point) => [point.lng, point.lat]),
+          coordinates: path.points.map(toYandexCoords),
         },
-        style: { stroke: [{ color: '#f97316', width: 5, dash: [8, 6] }] },
+        style: {
+          stroke: [{
+            color: path.color || '#f97316',
+            width: 5,
+            ...(path.dashed ? { dash: [8, 6] } : {}),
+          }],
+        },
       });
       map.addChild(feature);
       nextChildren.push(feature);
-    }
+    });
 
     points.forEach((point) => {
       const marker = new ymaps3.YMapMarker(
-        { coordinates: [point.lng, point.lat] },
+        { coordinates: toYandexCoords(point) },
         markerElement(point),
       );
       map.addChild(marker);
@@ -199,7 +246,7 @@ export function YandexMap({
     });
 
     dynamicChildrenRef.current = nextChildren;
-  }, [line, lineSignature, points, pointsSignature, status]);
+  }, [line, lineSignature, paths, pathsSignature, points, pointsSignature, status]);
 
   const updateZoom = (nextZoom: number) => {
     const bounded = Math.min(18, Math.max(4, nextZoom));
@@ -234,7 +281,9 @@ export function YandexMap({
             </div>
             <p className="mt-4 text-xl font-black">{fallbackLabel}</p>
             <p className="mt-2 text-sm font-bold text-gray-400">
-              Enter the address manually and continue checkout.
+              {loadError.includes('not configured')
+                ? 'Missing NEXT_PUBLIC_YANDEX_MAPS_API_KEY. Manual address entry is still available.'
+                : 'Check the Yandex JavaScript API key, allowed domains, and network connection.'}
             </p>
           </div>
         </div>

@@ -15,7 +15,8 @@ import {
 } from '@/services/marketplace';
 import { readStoredCustomerProfile } from '@/services/customerProfile';
 import { TASHKENT_CENTER } from '@/lib/yandexMaps';
-import { isReadableAddress, type AppAddress } from '@repo/shared-types';
+import { isReadableAddress, isValidCoordinates, type AppAddress } from '@repo/shared-types';
+import type { CoordinateLike } from '@repo/shared-types';
 
 export type CartLine = Dish & {
   quantity: number;
@@ -56,9 +57,23 @@ export type LocalOrder = {
   createdAt: string;
   updatedAt?: string;
   statusIndex: number;
-  assignedCourier: { id: string; name: string; phone?: string; vehicle?: string } | null;
+  restaurantAddress?: string;
+  restaurantLocation?: CoordinateLike | null;
+  customerLocation?: CoordinateLike | null;
+  deliveryLocation?: CoordinateLike | null;
+  courierLocation?: CoordinateLike | null;
+  assignedCourier: { id: string; name: string; phone?: string; vehicle?: string; vehicleType?: string } | null;
   courierId?: string;
-  courier: { name: string; vehicle: string; phone: string } | null;
+  courier: {
+    id?: string;
+    name: string;
+    vehicle: string;
+    vehicleType?: string;
+    phone: string;
+    location?: CoordinateLike | null;
+    currentLocation?: CoordinateLike | null;
+    lastUpdated?: string;
+  } | null;
   etaMinutes?: number;
 };
 
@@ -300,14 +315,14 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       ? `Pickup from ${restaurant?.name || cart[0]?.restaurantName || 'restaurant'}`
       : payload.address;
     const orderLocation = isPickup
-      ? restaurant?.location || TASHKENT_CENTER
-      : { lat: address.lat || TASHKENT_CENTER.lat, lng: address.lng || TASHKENT_CENTER.lng };
+      ? (restaurant?.locationIsVerified ? restaurant.location : undefined)
+      : (isValidCoordinates(address.lat, address.lng) ? { lat: address.lat!, lng: address.lng! } : undefined);
     const orderInput: MarketplaceOrderInput = {
       userId: firebaseIdentity.uid || MOCK_CUSTOMER_ID,
       customerEmail: (firebaseIdentity.email || user?.email || '').trim().toLowerCase() || undefined,
       restaurantId: restaurant?.id || cart[0]?.restaurantId || 'unknown',
       restaurantName: restaurant?.name || cart[0]?.restaurantName || 'Restaurant',
-      restaurantLocation: restaurant?.location,
+      restaurantLocation: restaurant?.locationIsVerified ? restaurant.location : undefined,
       items: cart,
       address: orderAddress,
       customerLocation: orderLocation,

@@ -3,12 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LocateFixed, MapPin } from 'lucide-react';
 import {
-  TASHKENT_CENTER,
+  isAdminYandexMapsKeyConfigured,
   loadAdminYandexMaps,
   type YandexMaps3,
   type YMapInstance,
 } from '@/lib/yandexMaps';
 import type { RestaurantLocationValue } from '@/lib/restaurantAdmin';
+import { reverseGeocodeRestaurant } from '@/lib/yandexGeocoder';
+import { fromYandexCoords, toYandexCoords } from '@repo/shared-types';
 
 type RestaurantLocationPickerProps = {
   value: RestaurantLocationValue;
@@ -61,6 +63,7 @@ function RestaurantAdminMap({
   const markerRef = useRef<unknown | null>(null);
   const onSelectRef = useRef(onSelect);
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
     onSelectRef.current = onSelect;
@@ -72,13 +75,14 @@ function RestaurantAdminMap({
     async function init() {
       if (!containerRef.current) return;
       setStatus('loading');
+      setLoadError('');
 
       try {
         const ymaps3 = await loadAdminYandexMaps();
         if (cancelled || !containerRef.current) return;
 
         const map = new ymaps3.YMap(containerRef.current, {
-          location: { center: [value.lng, value.lat], zoom: 13 },
+          location: { center: toYandexCoords(value), zoom: 13 },
           theme: 'light',
           behaviors: ['drag', 'scrollZoom', 'pinchZoom', 'dblClick'],
         });
@@ -88,7 +92,7 @@ function RestaurantAdminMap({
           onClick: (_object: unknown, event: { coordinates?: [number, number] }) => {
             const coordinates = event.coordinates;
             if (!coordinates) return;
-            onSelectRef.current({ lng: coordinates[0], lat: coordinates[1] });
+            onSelectRef.current(fromYandexCoords(coordinates));
           },
         } as Record<string, unknown>));
 
@@ -98,6 +102,7 @@ function RestaurantAdminMap({
       } catch (error) {
         if (!cancelled) {
           setStatus('error');
+          setLoadError(error instanceof Error ? error.message : 'Could not load Yandex Maps.');
           if (process.env.NODE_ENV !== 'production') console.warn('[RestaurantAdminMap]', error);
         }
       }
@@ -122,11 +127,13 @@ function RestaurantAdminMap({
     if (!map || !ymaps3 || status !== 'loaded') return;
 
     if (markerRef.current) map.removeChild?.(markerRef.current);
-    const marker = new ymaps3.YMapMarker({ coordinates: [value.lng, value.lat] }, markerElement());
+    markerRef.current = null;
+    if (!value.coordinatesConfirmed) return;
+    const marker = new ymaps3.YMapMarker({ coordinates: toYandexCoords(value) }, markerElement());
     map.addChild(marker);
     markerRef.current = marker;
-    map.update({ location: { center: [value.lng, value.lat], zoom: 14, duration: 250 } });
-  }, [status, value.lat, value.lng]);
+    map.update({ location: { center: toYandexCoords(value), zoom: 14, duration: 250 } });
+  }, [status, value.coordinatesConfirmed, value.lat, value.lng]);
 
   return (
     <div className="relative min-h-[320px] overflow-hidden rounded-2xl bg-gray-950">
@@ -140,8 +147,12 @@ function RestaurantAdminMap({
         <div className="absolute inset-0 flex items-center justify-center bg-gray-950 p-6 text-center text-white">
           <div>
             <MapPin className="mx-auto text-orange-400" size={32} />
-            <p className="mt-3 font-bold">Map is unavailable.</p>
-            <p className="mt-1 text-sm text-gray-400">Enter the readable address manually.</p>
+            <p className="mt-3 font-bold">Yandex map could not load.</p>
+            <p className="mt-1 text-sm text-gray-400">
+              {!isAdminYandexMapsKeyConfigured() || loadError.includes('not configured')
+                ? 'Missing NEXT_PUBLIC_YANDEX_MAPS_API_KEY. Manual-only mode is active.'
+                : 'Check the JavaScript API key, allowed admin domain, and network connection.'}
+            </p>
           </div>
         </div>
       )}
@@ -151,6 +162,9 @@ function RestaurantAdminMap({
 
 export function RestaurantLocationPicker({ value, onChange, error }: RestaurantLocationPickerProps) {
   const [query, setQuery] = useState('');
+  const [resolving, setResolving] = useState(false);
+  const [geocodeMessage, setGeocodeMessage] = useState('');
+  const requestRef = useRef(0);
   const filteredPresets = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) return PRESET_LOCATIONS;
@@ -160,7 +174,8 @@ export function RestaurantLocationPicker({ value, onChange, error }: RestaurantL
   }, [query]);
 
   const updateAddress = (address: string) => {
-    onChange({ ...value, address, source: value.source === 'map' ? 'map' : 'manual' });
+    onChange({ ...value, address, source: 'manual' });
+    setGeocodeMessage('');
   };
 
   const selectPreset = (preset: typeof PRESET_LOCATIONS[number]) => {
@@ -168,20 +183,52 @@ export function RestaurantLocationPicker({ value, onChange, error }: RestaurantL
       address: preset.address,
       lat: preset.lat,
       lng: preset.lng,
-      source: 'admin',
+      source: 'popular',
+      coordinatesConfirmed: true,
     });
     setQuery('');
+    setGeocodeMessage('');
+  };
+
+  const resolveCoordinates = async (
+    coords: { lat: number; lng: number },
+    source: RestaurantLocationValue['source'],
+  ) => {
+    const requestId = ++requestRef.current;
+    setResolving(true);
+    setGeocodeMessage('Resolving readable address...');
+    onChange({ address: '', ...coords, source, coordinatesConfirmed: true });
+
+    const result = await reverseGeocodeRestaurant(coords.lat, coords.lng);
+    if (requestId !== requestRef.current) return;
+    setResolving(false);
+
+    if (result.address) {
+      onChange({ address: result.address, ...coords, source: 'geocode', coordinatesConfirmed: true });
+      setGeocodeMessage('Readable address resolved by Yandex Geocoder.');
+      return;
+    }
+
+    setGeocodeMessage(
+      `${result.error || 'Address could not be resolved.'} [${result.errorCode || 'ADDRESS_NOT_RESOLVED'}] Enter the address manually.`,
+    );
   };
 
   const useCurrentLocation = () => {
-    navigator.geolocation?.getCurrentPosition((position) => {
-      onChange({
-        ...value,
-        lat: position.coords.latitude,
-        lng: position.coords.longitude,
-        source: 'map',
-      });
-    });
+    if (!navigator.geolocation) {
+      setGeocodeMessage('Browser location is unavailable. Enter the address manually.');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        void resolveCoordinates({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        }, 'current_location');
+      },
+      () => setGeocodeMessage('Location permission was denied or unavailable. Enter the address manually.'),
+      { enableHighAccuracy: true, timeout: 7000 },
+    );
   };
 
   return (
@@ -198,6 +245,11 @@ export function RestaurantLocationPicker({ value, onChange, error }: RestaurantL
           className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm font-medium text-gray-900 outline-none transition focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
         />
         {error && <p className="mt-2 text-xs font-semibold text-red-600">{error}</p>}
+        {geocodeMessage && (
+          <p className={`mt-2 text-xs font-semibold ${geocodeMessage.includes('[') ? 'text-amber-700' : 'text-emerald-700'}`}>
+            {geocodeMessage}
+          </p>
+        )}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
@@ -250,10 +302,12 @@ export function RestaurantLocationPicker({ value, onChange, error }: RestaurantL
           <div className="rounded-2xl bg-gray-950 p-4 text-white">
             <p className="text-xs font-black uppercase tracking-[0.16em] text-orange-300">Selected point</p>
             <p className="mt-2 line-clamp-2 text-sm font-bold">
-              {value.address || 'Enter a readable address'}
+              {resolving ? 'Resolving readable address...' : value.address || 'Enter a readable address'}
             </p>
             <p className="mt-1 text-xs text-gray-400">
-              {value.lat.toFixed(5)}, {value.lng.toFixed(5)} · {value.source}
+              {value.coordinatesConfirmed
+                ? `${value.lat.toFixed(5)}, ${value.lng.toFixed(5)} · ${value.source}`
+                : 'No map point selected · manual address mode'}
             </p>
           </div>
         </div>
@@ -261,12 +315,7 @@ export function RestaurantLocationPicker({ value, onChange, error }: RestaurantL
         <RestaurantAdminMap
           value={value}
           onSelect={(coords) => {
-            onChange({
-              ...value,
-              lat: coords.lat,
-              lng: coords.lng,
-              source: 'map',
-            });
+            void resolveCoordinates(coords, 'map');
           }}
         />
       </div>

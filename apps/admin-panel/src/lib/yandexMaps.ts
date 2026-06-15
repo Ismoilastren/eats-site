@@ -9,6 +9,7 @@ export type YandexMaps3 = {
   YMapDefaultFeaturesLayer: new (options?: Record<string, unknown>) => unknown;
   YMapMarker: new (options: Record<string, unknown>, element: HTMLElement) => unknown;
   YMapListener: new (options: Record<string, unknown>) => unknown;
+  YMapFeature: new (options: Record<string, unknown>) => unknown;
 };
 
 export type YMapInstance = {
@@ -27,6 +28,10 @@ declare global {
 }
 
 export const TASHKENT_CENTER = { lat: 41.311081, lng: 69.240562 };
+
+export function isAdminYandexMapsKeyConfigured() {
+  return Boolean(process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY);
+}
 
 export function loadAdminYandexMaps(): Promise<YandexMaps3> {
   if (typeof window === 'undefined') {

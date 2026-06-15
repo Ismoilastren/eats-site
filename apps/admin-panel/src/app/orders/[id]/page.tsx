@@ -312,7 +312,7 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
           {/* Tracking Map */}
           <div className="w-full h-80 md:h-96 rounded-xl overflow-hidden relative z-0 border border-gray-200 dark:border-gray-700">
             <LiveTrackingMap 
-              restaurantLocation={order.restaurantLocation || { latitude: 41.311081, longitude: 69.240562 }}
+              restaurantLocation={order.restaurantLocation}
               customerLocation={order.deliveryLocation}
               courierLocation={trackedCourierLocation}
             />

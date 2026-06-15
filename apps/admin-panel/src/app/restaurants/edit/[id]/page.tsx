@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { db, doc, getDoc, updateDoc, collection, query, where, getDocs, deleteDoc, setDoc } from '@repo/firebase-config';
-import { COLLECTIONS, Restaurant, MenuItem } from '@repo/shared-types';
+import { COLLECTIONS, Restaurant, MenuItem, isReadableAddress } from '@repo/shared-types';
 import toast from 'react-hot-toast';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
@@ -35,6 +35,7 @@ export default function EditRestaurantPage() {
     lat: 41.311081,
     lng: 69.240562,
     source: 'manual',
+    coordinatesConfirmed: false,
   });
   
   const [formData, setFormData] = useState({
@@ -174,7 +175,7 @@ export default function EditRestaurantPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name.trim() || !formData.restaurantType.trim() || !location.address.trim()) {
+    if (!formData.name.trim() || !formData.restaurantType.trim() || !isReadableAddress(location.address)) {
       toast.error('Name, restaurant type, and readable location are required.');
       return;
     }
@@ -206,6 +207,7 @@ export default function EditRestaurantPage() {
           lat: location.lat,
           lng: location.lng,
           source: location.source,
+          coordinatesConfirmed: location.coordinatesConfirmed,
         },
       });
 

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, LocateFixed, MapPin, Navigation, Search, X } from 'lucide-react';
 import { TASHKENT_CENTER } from '@/lib/yandexMaps';
-import { geocodeAddress, reverseGeocode } from '@/lib/yandexGeocoder';
+import { geocodeAddress, getLastGeocoderError, reverseGeocode } from '@/lib/yandexGeocoder';
 import { YandexMap } from './YandexMap';
 import type { SavedAddress } from '@/context/MarketplaceContext';
 import { isPlaceholderAddress, isReadableAddress, type AppAddress } from '@repo/shared-types';
@@ -49,6 +49,13 @@ function normalizeManualAddress(text: string) {
   const trimmed = text.trim();
   if (!trimmed) return '';
   return /tashkent|toshkent/i.test(trimmed) ? trimmed : `Tashkent, ${trimmed}`;
+}
+
+function geocoderFallbackMessage() {
+  const failure = getLastGeocoderError();
+  return failure
+    ? `${failure.message} [${failure.code}] Enter the address manually below.`
+    : 'We could not detect the exact address. Enter it manually below.';
 }
 
 function normalizeAddress(
@@ -187,7 +194,7 @@ export function AddressMapPicker({
         if (requestId !== geocodeRequestRef.current) return;
         if (!result || isPlaceholderAddress(result.fullAddress)) {
           setResolutionState('error');
-          setError('We could not detect the exact address. Enter it manually below.');
+          setError(geocoderFallbackMessage());
           return;
         }
         setSelected(normalizeAddress(result.fullAddress, coords, 'map'));
@@ -197,7 +204,7 @@ export function AddressMapPicker({
       .catch(() => {
         if (requestId !== geocodeRequestRef.current) return;
         setResolutionState('error');
-        setError('We could not detect the exact address. Enter it manually below.');
+        setError(geocoderFallbackMessage());
       })
       .finally(() => {
         if (requestId === geocodeRequestRef.current) setDetectingAddress(false);
@@ -250,7 +257,7 @@ export function AddressMapPicker({
             if (requestId !== geocodeRequestRef.current) return;
             if (!result || isPlaceholderAddress(result.fullAddress)) {
               setResolutionState('error');
-              setError('We could not detect the exact address. Enter it manually below.');
+              setError(geocoderFallbackMessage());
               return;
             }
             setSelected(normalizeAddress(result.fullAddress, coords, 'current_location'));
@@ -260,7 +267,7 @@ export function AddressMapPicker({
           .catch(() => {
             if (requestId === geocodeRequestRef.current) {
               setResolutionState('error');
-              setError('We could not detect the exact address. Enter it manually below.');
+              setError(geocoderFallbackMessage());
             }
           })
           .finally(() => {
@@ -300,7 +307,7 @@ export function AddressMapPicker({
           if (requestId !== geocodeRequestRef.current) return;
           if (!result || isPlaceholderAddress(result.fullAddress)) {
             setResolutionState('error');
-            setError('We could not detect the exact address. Enter it manually below.');
+            setError(geocoderFallbackMessage());
             return;
           }
           setSelected(normalizeAddress(result.fullAddress, coords, 'map'));
@@ -310,7 +317,7 @@ export function AddressMapPicker({
         .catch(() => {
           if (requestId === geocodeRequestRef.current) {
             setResolutionState('error');
-            setError('We could not detect the exact address. Enter it manually below.');
+            setError(geocoderFallbackMessage());
           }
         })
         .finally(() => {

@@ -1,11 +1,13 @@
-import { COLLECTIONS } from '@repo/shared-types';
+import { COLLECTIONS, isValidCoordinates } from '@repo/shared-types';
 import { collection, db, getDocs } from '@repo/firebase-config';
+import type { AppAddress } from '@repo/shared-types';
 
 export type RestaurantLocationValue = {
   address: string;
   lat: number;
   lng: number;
-  source: 'admin' | 'map' | 'manual';
+  source: NonNullable<AppAddress['source']>;
+  coordinatesConfirmed: boolean;
 };
 
 export type RestaurantTypeOption = {
@@ -29,21 +31,27 @@ export const TASHKENT_CENTER_LOCATION: RestaurantLocationValue = {
   lat: 41.311081,
   lng: 69.240562,
   source: 'manual',
+  coordinatesConfirmed: false,
 };
 
 export function extractRestaurantLocation(data: Record<string, unknown>): RestaurantLocationValue {
   const rawLocation = typeof data.location === 'object' && data.location !== null
     ? data.location as Record<string, unknown>
     : {};
-  const lat = Number(rawLocation.lat ?? rawLocation.latitude ?? 41.311081);
-  const lng = Number(rawLocation.lng ?? rawLocation.longitude ?? 69.240562);
+  const lat = Number(rawLocation.lat ?? rawLocation.latitude);
+  const lng = Number(rawLocation.lng ?? rawLocation.longitude);
+  const coordinatesConfirmed = isValidCoordinates(lat, lng);
   const address = String(data.address || rawLocation.address || '');
 
   return {
     address,
-    lat: Number.isFinite(lat) ? lat : 41.311081,
-    lng: Number.isFinite(lng) ? lng : 69.240562,
-    source: String(rawLocation.source || 'admin') === 'map' ? 'map' : 'manual',
+    lat: coordinatesConfirmed ? lat : 41.311081,
+    lng: coordinatesConfirmed ? lng : 69.240562,
+    source: ['manual', 'map', 'geocode', 'current_location', 'popular', 'restaurant', 'admin', 'suggestion']
+      .includes(String(rawLocation.source))
+      ? String(rawLocation.source) as RestaurantLocationValue['source']
+      : 'admin',
+    coordinatesConfirmed,
   };
 }
 

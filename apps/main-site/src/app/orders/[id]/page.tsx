@@ -81,7 +81,7 @@ export default function OrderTrackingPage() {
   return (
     <div className="min-h-screen bg-[#f6f6f3] text-gray-950">
       <MarketplaceHeader />
-      <main className="mx-auto max-w-5xl px-4 pb-20 pt-6 lg:px-8">
+      <main className="mx-auto max-w-7xl px-4 pb-20 pt-6 lg:px-8">
         <Link href="/" className="mb-5 inline-flex items-center gap-2 rounded-full bg-white px-4 py-3 font-black shadow-sm"><ArrowLeft size={18} /> Home</Link>
         {loading ? (
           <div className="rounded-[40px] bg-white p-12">
@@ -94,32 +94,36 @@ export default function OrderTrackingPage() {
             <p className="mt-2 font-bold text-gray-500">{error || 'Local demo orders are stored in this browser.'}</p>
           </div>
         ) : (
-          <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
-            <section className="rounded-[44px] bg-white p-6 shadow-sm ring-1 ring-black/5 md:p-10">
-              <p className="text-sm font-black uppercase tracking-widest text-yellow-500">Order #{order.id}</p>
-              <h1 className="mt-2 text-4xl font-black md:text-5xl">{order.status === 'delivered' ? 'Delivered' : `Arrives in ${eta} min`}</h1>
-              <p className="mt-2 inline-flex rounded-full bg-yellow-100 px-4 py-2 font-black text-yellow-800">{ORDER_STATUS_LABELS[order.status]}</p>
-              <p className="mt-3 font-bold text-gray-500">To {order.address}</p>
-              <div className="mt-8">
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
+            <section className="rounded-[44px] bg-white p-4 shadow-sm ring-1 ring-black/5 md:p-6 lg:p-8">
+              <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                <div>
+                  <p className="text-sm font-black uppercase tracking-widest text-yellow-500">Order #{order.id}</p>
+                  <h1 className="mt-2 text-4xl font-black md:text-5xl">{order.status === 'delivered' ? 'Delivered' : `Arrives in ${eta} min`}</h1>
+                  <p className="mt-3 font-bold text-gray-500">To {order.address}</p>
+                </div>
+                <p className="inline-flex w-fit rounded-full bg-yellow-100 px-4 py-2 font-black text-yellow-800">{ORDER_STATUS_LABELS[order.status]}</p>
+              </div>
+              <div className="mt-6">
                 <OrderTrackingMap
                   order={order}
                   restaurant={restaurant}
                   courierSnapshot={courierSnapshot}
                 />
               </div>
-              <div className="mt-8 space-y-4">
+              <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {CUSTOMER_TRACKING_STATUSES.map((status, index) => (
-                  <div key={status} className={`flex items-center gap-4 rounded-3xl p-3 ${index === step ? 'bg-yellow-50' : ''}`}>
-                    {index <= step ? <CheckCircle2 className="text-green-500" size={28} /> : <Circle className="text-gray-300" size={28} />}
+                  <div key={status} className={`flex items-center gap-3 rounded-3xl p-3 ${index === step ? 'bg-yellow-50' : 'bg-gray-50'}`}>
+                    {index <= step ? <CheckCircle2 className="shrink-0 text-green-500" size={26} /> : <Circle className="shrink-0 text-gray-300" size={26} />}
                     <div>
-                      <p className="text-lg font-black">{ORDER_STATUS_LABELS[status]}</p>
-                      <p className="font-bold text-gray-500">{index === step ? 'Current step' : index < step ? 'Completed' : 'Waiting'}</p>
+                      <p className="font-black">{ORDER_STATUS_LABELS[status]}</p>
+                      <p className="text-sm font-bold text-gray-500">{index === step ? 'Current step' : index < step ? 'Completed' : 'Waiting'}</p>
                     </div>
                   </div>
                 ))}
               </div>
             </section>
-            <aside className="h-fit rounded-[40px] bg-white p-6 shadow-sm ring-1 ring-black/5">
+            <aside className="h-fit rounded-[40px] bg-white p-6 shadow-sm ring-1 ring-black/5 lg:sticky lg:top-28">
               <Clock className="text-yellow-500" size={28} />
               <h2 className="mt-3 text-3xl font-black">{order.restaurantName}</h2>
               <p className="mt-2 font-bold text-gray-500">{order.address}</p>

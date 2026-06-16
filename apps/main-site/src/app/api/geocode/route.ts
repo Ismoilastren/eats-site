@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
       ok: false,
       results: [],
       error: 'Yandex Geocoder API key is not configured.',
-      errorCode: 'YANDEX_GEOCODER_KEY_MISSING',
+      errorCode: 'YANDEX_GEOCODER_API_KEY_MISSING',
     }, { status: 503 });
   }
 
@@ -39,6 +39,7 @@ export async function GET(request: NextRequest) {
     const response = await fetch(`https://geocode-maps.yandex.ru/1.x/?${params.toString()}`, {
       cache: 'no-store',
       headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(7000),
     });
 
     if (!response.ok) {
@@ -54,12 +55,16 @@ export async function GET(request: NextRequest) {
 
     const data = await response.json();
     return NextResponse.json({ ok: true, results: data });
-  } catch {
+  } catch (error) {
     return NextResponse.json({
       ok: false,
       results: [],
-      error: 'Could not reach Yandex Geocoder.',
-      errorCode: 'YANDEX_GEOCODER_UNAVAILABLE',
+      error: error instanceof DOMException && error.name === 'TimeoutError'
+        ? 'Yandex Geocoder request timed out.'
+        : 'Could not reach Yandex Geocoder.',
+      errorCode: error instanceof DOMException && error.name === 'TimeoutError'
+        ? 'YANDEX_GEOCODER_TIMEOUT'
+        : 'YANDEX_GEOCODER_UNAVAILABLE',
     }, { status: 502 });
   }
 }

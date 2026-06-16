@@ -137,14 +137,15 @@ export function OrderTrackingMap({
   const lastUpdated = courierSnapshot?.lastUpdated || order.courier?.lastUpdated;
 
   return (
-    <div className="overflow-hidden rounded-[36px] bg-gray-950 p-3 text-white md:p-5">
+    <div className="overflow-hidden rounded-[38px] bg-gray-950 p-3 text-white shadow-[0_24px_80px_rgba(15,23,42,.18)] md:p-5">
       <div className="mb-4 flex flex-col gap-3 px-2 pt-1 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.18em] text-orange-300">Delivery map</p>
-          <p className="mt-1 text-xl font-black">{statusCopy(order.status, Boolean(courierPoint))}</p>
+          <p className="mt-1 text-2xl font-black md:text-3xl">{statusCopy(order.status, Boolean(courierPoint))}</p>
         </div>
-        <div className="rounded-2xl bg-white/10 px-4 py-2 text-xs font-bold text-gray-200">
-          Straight-line fallback, not a driving route
+        <div className="rounded-2xl bg-white/10 px-4 py-3 text-xs font-bold text-gray-200">
+          <span className="block text-sm font-black text-white">Route preview</span>
+          <span>Exact road route unavailable</span>
         </div>
       </div>
       <YandexMap
@@ -154,7 +155,7 @@ export function OrderTrackingMap({
         interactive
         dark
         showLocateControl={false}
-        heightClassName="h-[360px] md:h-[430px]"
+        heightClassName="h-[460px] md:h-[540px] lg:h-[600px]"
         fallbackLabel="Delivery map could not load."
       />
       <div className="grid gap-3 px-2 pb-1 pt-4 sm:grid-cols-2">

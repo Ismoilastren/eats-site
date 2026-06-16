@@ -54,7 +54,7 @@ function normalizeManualAddress(text: string) {
 function geocoderFallbackMessage() {
   const failure = getLastGeocoderError();
   return failure
-    ? `${failure.message} [${failure.code}] Enter the address manually below.`
+    ? `${failure.message} [${failure.code}]`
     : 'We could not detect the exact address. Enter it manually below.';
 }
 
@@ -117,6 +117,7 @@ export function AddressMapPicker({
 
   const [confirmingAddress, setConfirmingAddress] = useState(false);
   const [error, setError] = useState('');
+  const [searchHint, setSearchHint] = useState('');
 
   // Request counter to cancel stale geocode responses
   const geocodeRequestRef = useRef(0);
@@ -136,6 +137,7 @@ export function AddressMapPicker({
   // Debounce search query → geocoder
   useEffect(() => {
     const normalized = query.trim();
+    setSearchHint('');
     if (normalized.length < 3) {
       setGeocodeQuery('');
       setGeocodedSuggestions([]);
@@ -150,6 +152,7 @@ export function AddressMapPicker({
     let cancelled = false;
     if (!geocodeQuery) return;
     setSearchingAddress(true);
+    setSearchHint('');
     geocodeAddress(geocodeQuery)
       .then((items) => {
         if (!cancelled) {
@@ -157,10 +160,17 @@ export function AddressMapPicker({
             ...normalizeAddress(item.fullAddress, { lat: item.lat, lng: item.lng }, 'suggestion'),
             label: item.fullAddress,
           })));
+          const failure = getLastGeocoderError();
+          setSearchHint(!items.length && failure
+            ? 'Search suggestions are limited right now. You can still confirm the typed address manually.'
+            : '');
         }
       })
       .catch(() => {
-        if (!cancelled) setGeocodedSuggestions([]);
+        if (!cancelled) {
+          setGeocodedSuggestions([]);
+          setSearchHint('Search suggestions are limited right now. You can still confirm the typed address manually.');
+        }
       })
       .finally(() => {
         if (!cancelled) setSearchingAddress(false);
@@ -231,11 +241,13 @@ export function AddressMapPicker({
     setQuery('');
     setManualAddress('');
     setError('');
+    setSearchHint('');
   };
 
   // ─── Use current GPS location ─────────────────────────────────────────────
   const useCurrentLocation = () => {
     setError('');
+    setSearchHint('');
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
       setError('Location is not available in this browser.');
       return;
@@ -248,6 +260,7 @@ export function AddressMapPicker({
         setQuery('');
         setManualAddress('');
         setError('');
+        setSearchHint('');
         setDetectingAddress(true);
         setSelected(normalizeAddress('', coords, 'current_location'));
 
@@ -297,6 +310,7 @@ export function AddressMapPicker({
     setQuery('');
     setManualAddress('');
     setError('');
+    setSearchHint('');
     setDetectingAddress(true);
 
     // Debounce the actual geocode call to absorb rapid clicks
@@ -338,6 +352,7 @@ export function AddressMapPicker({
     if (typedQuery) {
       setConfirmingAddress(true);
       setError('');
+      setSearchHint('');
       const results = await geocodeAddress(typedQuery)
         .catch(() => [])
         .finally(() => setConfirmingAddress(false));
@@ -398,6 +413,9 @@ export function AddressMapPicker({
 
   const selectedTitle = cleanAddressTitle(isReadableAddress(selected.text) ? selected.text : manualAddress);
   const showEmptySuggestions = query.trim().length > 0 && suggestions.length === 0 && !searchingAddress;
+  const isAddressLookupError = /\[(YANDEX_GEOCODER|ADDRESS_NOT_RESOLVED)/.test(error)
+    || error.startsWith('We could not detect');
+  const showManualMode = resolutionState === 'error' && Boolean(error) && isAddressLookupError;
 
   // Confirm button is enabled when:
   // - not currently resolving
@@ -428,33 +446,49 @@ export function AddressMapPicker({
                 onChange={(event) => {
                   setQuery(event.target.value);
                   setError('');
+                  setSearchHint('');
                 }}
                 placeholder="Search address"
                 className="min-w-0 flex-1 bg-transparent font-bold outline-none"
               />
               {query && <button onClick={() => setQuery('')} className="rounded-full bg-white p-1 text-gray-500"><X size={16} /></button>}
             </div>
+            {searchHint && (
+              <p className="mt-2 rounded-2xl bg-gray-50 px-4 py-3 text-sm font-bold text-gray-600">
+                {searchHint}
+              </p>
+            )}
 
             {/* Error + manual input */}
-            {error && (
+            {showManualMode ? (
               <div className="mt-3 rounded-2xl bg-amber-50 p-3 border border-amber-100">
-                <p className="text-sm font-bold text-amber-800">{error}</p>
-                {resolutionState === 'error' && (
-                  <label className="mt-3 block">
-                    <span className="text-xs font-black uppercase tracking-wider text-amber-700">Enter address manually</span>
-                    <input
-                      value={manualAddress}
-                      onChange={(event) => {
-                        setManualAddress(event.target.value);
-                        setError('');
-                      }}
-                      placeholder="Street, building, apartment"
-                      className="mt-1.5 w-full rounded-xl bg-white px-3 py-3 font-bold text-gray-950 outline-none ring-1 ring-amber-200 focus:ring-2 focus:ring-orange-300"
-                    />
-                  </label>
-                )}
+                <p className="text-sm font-black text-gray-950">
+                  Enter your address manually or select a point on the map.
+                </p>
+                <p className="mt-1 text-xs font-bold text-amber-800">
+                  Automatic address lookup is unavailable for this selection.
+                </p>
+                <p className="mt-1 text-[11px] font-semibold text-amber-700/80">
+                  Technical detail: {error}
+                </p>
+                <label className="mt-3 block">
+                  <span className="text-xs font-black uppercase tracking-wider text-amber-700">Enter address manually</span>
+                  <input
+                    value={manualAddress}
+                    onChange={(event) => {
+                      setManualAddress(event.target.value);
+                      setError('');
+                    }}
+                    placeholder="Street, building, apartment"
+                    className="mt-1.5 w-full rounded-xl bg-white px-3 py-3 font-bold text-gray-950 outline-none ring-1 ring-amber-200 focus:ring-2 focus:ring-orange-300"
+                  />
+                </label>
               </div>
-            )}
+            ) : error ? (
+              <div className="mt-3 rounded-2xl border border-red-100 bg-red-50 px-4 py-3">
+                <p className="text-sm font-bold text-red-700">{error}</p>
+              </div>
+            ) : null}
 
             {/* Current location */}
             <button onClick={useCurrentLocation} className="mt-3 flex w-full items-center justify-center gap-2 rounded-[22px] bg-gray-950 px-4 py-3.5 font-black text-white shadow-sm hover:bg-gray-800">
@@ -548,7 +582,7 @@ export function AddressMapPicker({
               }]}
               interactive
               dark
-              showLocateControl={false}
+              showLocateControl
               heightClassName="h-[360px] md:h-full md:min-h-[420px]"
               fallbackLabel="Map is unavailable. You can still confirm the typed address."
               onSelect={handleMapSelect}

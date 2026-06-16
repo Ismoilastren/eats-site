@@ -55,6 +55,33 @@ function markerElement(point: Point) {
   return wrapper;
 }
 
+function AdminMapSetupPanel({ loadError }: { loadError: string }) {
+  const missingPublicKey = !isAdminYandexMapsKeyConfigured() || loadError.includes('not configured');
+
+  return (
+    <div className="max-w-md text-left">
+      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-500/15 text-orange-400">
+        <MapPin size={30} />
+      </div>
+      <p className="mt-4 text-center text-xl font-black text-white">Admin map setup required</p>
+      <p className="mt-2 text-center text-sm font-semibold text-gray-400">
+        {missingPublicKey
+          ? 'The admin deployment is missing the browser Yandex Maps key.'
+          : 'The Yandex Maps key or allowed admin domain rejected this request.'}
+      </p>
+      <div className="mt-4 rounded-2xl bg-white/10 p-4 text-sm font-semibold text-gray-200">
+        <p className="font-black text-white">Required Vercel env</p>
+        <p className="mt-2 font-mono text-xs text-orange-200">NEXT_PUBLIC_YANDEX_MAPS_API_KEY</p>
+        <p className="mt-3 font-black text-white">Allowed web host</p>
+        <p className="mt-2 font-mono text-xs text-orange-200">eats-adminn.vercel.app</p>
+      </div>
+      {loadError ? (
+        <p className="mt-3 text-center text-xs font-semibold text-gray-500">Technical detail: {loadError}</p>
+      ) : null}
+    </div>
+  );
+}
+
 export default function LiveTrackingMap({
   restaurantLocation,
   customerLocation,
@@ -237,15 +264,7 @@ export default function LiveTrackingMap({
       )}
       {status === 'error' && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-950 p-6 text-center text-white">
-          <div>
-            <MapPin className="mx-auto text-orange-400" size={30} />
-            <p className="mt-3 font-bold">Yandex tracking map could not load.</p>
-            <p className="mt-1 text-sm text-gray-400">
-              {!isAdminYandexMapsKeyConfigured() || loadError.includes('not configured')
-                ? 'Missing NEXT_PUBLIC_YANDEX_MAPS_API_KEY for the admin deployment.'
-                : 'Check the JavaScript API key, allowed admin domain, and network connection.'}
-            </p>
-          </div>
+          <AdminMapSetupPanel loadError={loadError} />
         </div>
       )}
     </div>

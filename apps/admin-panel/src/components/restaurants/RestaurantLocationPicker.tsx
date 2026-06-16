@@ -50,6 +50,31 @@ function markerElement() {
   return wrapper;
 }
 
+function MapSetupPanel({ loadError }: { loadError: string }) {
+  const missingPublicKey = !isAdminYandexMapsKeyConfigured() || loadError.includes('not configured');
+
+  return (
+    <div className="max-w-sm text-left">
+      <MapPin className="mx-auto text-orange-400" size={32} />
+      <p className="mt-3 text-center font-bold text-white">Map setup required</p>
+      <p className="mt-1 text-center text-sm text-gray-400">
+        {missingPublicKey
+          ? 'Missing NEXT_PUBLIC_YANDEX_MAPS_API_KEY. Manual address entry remains available.'
+          : 'Check the Yandex JavaScript API key and allowed admin domain.'}
+      </p>
+      <div className="mt-4 rounded-xl bg-white/10 p-3 text-xs font-semibold text-gray-200">
+        <p className="font-bold text-white">Required env</p>
+        <p className="mt-1 font-mono text-orange-200">NEXT_PUBLIC_YANDEX_MAPS_API_KEY</p>
+        <p className="mt-3 font-bold text-white">Allowed host</p>
+        <p className="mt-1 font-mono text-orange-200">eats-adminn.vercel.app</p>
+      </div>
+      {loadError ? (
+        <p className="mt-3 text-center text-[11px] font-semibold text-gray-500">Technical detail: {loadError}</p>
+      ) : null}
+    </div>
+  );
+}
+
 function RestaurantAdminMap({
   value,
   onSelect,
@@ -145,15 +170,7 @@ function RestaurantAdminMap({
       )}
       {status === 'error' && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-950 p-6 text-center text-white">
-          <div>
-            <MapPin className="mx-auto text-orange-400" size={32} />
-            <p className="mt-3 font-bold">Yandex map could not load.</p>
-            <p className="mt-1 text-sm text-gray-400">
-              {!isAdminYandexMapsKeyConfigured() || loadError.includes('not configured')
-                ? 'Missing NEXT_PUBLIC_YANDEX_MAPS_API_KEY. Manual-only mode is active.'
-                : 'Check the JavaScript API key, allowed admin domain, and network connection.'}
-            </p>
-          </div>
+          <MapSetupPanel loadError={loadError} />
         </div>
       )}
     </div>

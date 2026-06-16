@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       ok: false,
       results: [],
-      error: 'Yandex Geocoder API key is not configured.',
+      error: 'YANDEX_GEOCODER_API_KEY_MISSING',
       errorCode: 'YANDEX_GEOCODER_API_KEY_MISSING',
     }, { status: 503 });
   }
@@ -46,9 +46,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         ok: false,
         results: [],
-        error: response.status === 403
-          ? 'Yandex Geocoder HTTP API is not enabled or the server key is not authorized.'
-          : 'Yandex Geocoder rejected the request.',
+        error: response.status === 403 ? 'YANDEX_GEOCODER_FORBIDDEN' : 'YANDEX_GEOCODER_REJECTED',
         errorCode: response.status === 403 ? 'YANDEX_GEOCODER_FORBIDDEN' : 'YANDEX_GEOCODER_REJECTED',
       }, { status: response.status === 403 ? 403 : 502 });
     }
@@ -60,8 +58,8 @@ export async function GET(request: NextRequest) {
       ok: false,
       results: [],
       error: error instanceof DOMException && error.name === 'TimeoutError'
-        ? 'Yandex Geocoder request timed out.'
-        : 'Could not reach Yandex Geocoder.',
+        ? 'YANDEX_GEOCODER_TIMEOUT'
+        : 'YANDEX_GEOCODER_UNAVAILABLE',
       errorCode: error instanceof DOMException && error.name === 'TimeoutError'
         ? 'YANDEX_GEOCODER_TIMEOUT'
         : 'YANDEX_GEOCODER_UNAVAILABLE',

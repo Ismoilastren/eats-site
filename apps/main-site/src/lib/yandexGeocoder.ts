@@ -40,6 +40,21 @@ export function getLastGeocoderError() {
   return lastError;
 }
 
+function geocoderErrorMessage(code: string) {
+  switch (code) {
+    case 'YANDEX_GEOCODER_API_KEY_MISSING':
+      return 'Automatic address lookup is not configured.';
+    case 'YANDEX_GEOCODER_FORBIDDEN':
+      return 'Automatic address lookup is not enabled for this key.';
+    case 'YANDEX_GEOCODER_TIMEOUT':
+      return 'Automatic address lookup took too long.';
+    case 'YANDEX_GEOCODER_UNAVAILABLE':
+      return 'Automatic address lookup is temporarily unavailable.';
+    default:
+      return 'Automatic address lookup could not resolve this address.';
+  }
+}
+
 function parseResult(geoObject?: YandexGeoObject): AddressResult | null {
   if (!geoObject?.Point?.pos) return null;
   // Yandex geocoder returns coordinates as "lng lat" (longitude first)
@@ -70,9 +85,10 @@ async function requestGeocoder(path: string, cacheKey: string): Promise<AddressR
     const json = await response.json();
 
     if (!response.ok || !json.ok) {
+      const code = String(json.errorCode || json.error || 'YANDEX_GEOCODER_REJECTED');
       lastError = {
-        message: String(json.error || 'Yandex Geocoder rejected the request.'),
-        code: String(json.errorCode || 'YANDEX_GEOCODER_REJECTED'),
+        message: geocoderErrorMessage(code),
+        code,
       };
       return [];
     }

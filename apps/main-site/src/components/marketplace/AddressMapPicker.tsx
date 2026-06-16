@@ -468,9 +468,10 @@ export function AddressMapPicker({
                 <p className="mt-1 text-xs font-bold text-amber-800">
                   Automatic address lookup is unavailable for this selection.
                 </p>
-                <p className="mt-1 text-[11px] font-semibold text-amber-700/80">
-                  Technical detail: {error}
-                </p>
+                <details className="mt-2 text-[11px] font-semibold text-amber-700/80">
+                  <summary className="cursor-pointer">Technical detail</summary>
+                  <p className="mt-1">{error}</p>
+                </details>
                 <label className="mt-3 block">
                   <span className="text-xs font-black uppercase tracking-wider text-amber-700">Enter address manually</span>
                   <input

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { LocateFixed, MapPin, Minus, Plus } from 'lucide-react';
 import { toYandexCoords } from '@repo/shared-types';
 import {
+  isYandexMapsKeyConfigured,
   loadYandexMaps,
   TASHKENT_CENTER,
   type YandexMaps3,
@@ -164,7 +165,7 @@ export function YandexMap({
         if (cancelled) return;
         setStatus('error');
         setLoadError(loadError instanceof Error ? loadError.message : 'Could not load Yandex Maps.');
-        if (process.env.NODE_ENV !== 'production') console.warn('[YandexMap]', loadError);
+        if (process.env.NODE_ENV !== 'production' && isYandexMapsKeyConfigured()) console.warn('[YandexMap]', loadError);
       }
     }
 

@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { DataTable, type ColumnDef } from '@/components/tables/DataTable';
 import { Badge } from '@/components/ui/Badge';
-import { db, collection, query, onSnapshot, doc, updateDoc, where, getDocs, serverTimestamp } from '@repo/firebase-config';
+import { db, collection, query, onSnapshot, doc, updateDoc, getDocs, serverTimestamp } from '@repo/firebase-config';
 import { orderBy } from 'firebase/firestore';
 import {
   COLLECTIONS,
@@ -12,18 +12,25 @@ import {
   OrderStatus,
   User,
   formatCurrencyUZS,
-  getVehicleLabel,
   hasAssignedCourier,
-  normalizeCanonicalVehicleType,
   normalizeOrderStatus,
 } from '@repo/shared-types';
 import toast from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
+import {
+  getCourierId,
+  getCourierName,
+  getCourierPhone,
+  getCourierVehicle,
+  isAssignableCourier,
+  sortCouriers,
+  type AdminCourierRecord,
+} from '@/lib/courierFilters';
 
 export default function OrdersPage() {
   const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
-  const [couriers, setCouriers] = useState<any[]>([]);
+  const [couriers, setCouriers] = useState<AdminCourierRecord[]>([]);
   const [allUsers, setAllUsers] = useState<Record<string, User>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [assignModalData, setAssignModalData] = useState<{ orderId: string, currentCourierId: string | null } | null>(null);
@@ -38,19 +45,14 @@ export default function OrdersPage() {
           getDocs(collection(db, COLLECTIONS.COURIERS)),
         ]);
         const usersObj: Record<string, User> = {};
-        const couriersById = new Map<string, any>();
-        courierSnap.forEach((d) => {
-          couriersById.set(d.id, { ...d.data(), uid: d.id, id: d.id });
-        });
         snap.forEach(d => {
             const u = { uid: d.id, ...d.data() } as User;
             usersObj[d.id] = u;
-            if (u.role === 'courier' && !couriersById.has(d.id)) {
-              couriersById.set(d.id, { ...u, uid: d.id, id: d.id });
-            }
         });
         setAllUsers(usersObj);
-        setCouriers(Array.from(couriersById.values()));
+        setCouriers(courierSnap.docs
+          .map((d) => ({ ...d.data(), uid: d.id, id: d.id } as AdminCourierRecord))
+          .sort(sortCouriers));
       } catch (err) {
         console.error("Failed to fetch users", err);
       }
@@ -123,12 +125,13 @@ export default function OrdersPage() {
     setIsAssigning(true);
     try {
       const courier = couriers.find(c => (c.uid || c.id) === courierId);
-      const courierName = courier?.displayName || courier?.fullName || courier?.name || 'Assigned Courier';
-      const courierPhone = courier?.phone || courier?.phoneNumber || '';
-      const vehicleType = normalizeCanonicalVehicleType(courier?.vehicleType || courier?.vehicle || courier?.vehicleBrand);
-      const vehicle = [courier?.vehicleName || courier?.vehicleBrand, courier?.vehicleModel, courier?.plateNumber || courier?.licensePlate].filter(Boolean).join(' ') ||
-        courier?.vehicle ||
-        getVehicleLabel(vehicleType);
+      if (!isAssignableCourier(courier)) {
+        toast.error('This courier is not assignable. Choose an online available courier.');
+        return;
+      }
+      const courierName = getCourierName(courier);
+      const courierPhone = getCourierPhone(courier);
+      const { vehicle, vehicleType } = getCourierVehicle(courier);
 
       await updateDoc(doc(db, COLLECTIONS.ORDERS, assignModalData.orderId), {
         courierId: courierId,
@@ -298,29 +301,29 @@ export default function OrdersPage() {
           <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800 relative animate-in fade-in zoom-in-95 duration-200">
             <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Assign Courier</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-              Select a courier to assign to this order.
+              Select an online, available courier from the live courier collection.
             </p>
             
             <div className="space-y-2 max-h-64 overflow-y-auto mb-6">
-              {couriers.length === 0 ? (
-                <p className="text-sm italic text-gray-500 text-center py-4">No couriers found in the system.</p>
+              {couriers.filter(isAssignableCourier).length === 0 ? (
+                <p className="text-sm italic text-gray-500 text-center py-4">No assignable online couriers found.</p>
               ) : (
-                couriers.map(c => (
+                couriers.filter(isAssignableCourier).map(c => (
                   <div 
-                    key={c.uid}
-                    onClick={() => !isAssigning && handleAssignCourier(c.uid || c.id)}
-                    className={`flex items-center justify-between p-3 rounded-lg border transition-all cursor-pointer ${assignModalData.currentCourierId === c.uid ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20' : 'border-gray-200 dark:border-gray-700 hover:border-brand-300'}`}
+                    key={getCourierId(c)}
+                    onClick={() => !isAssigning && handleAssignCourier(getCourierId(c))}
+                    className={`flex items-center justify-between p-3 rounded-lg border transition-all cursor-pointer ${assignModalData.currentCourierId === getCourierId(c) ? 'border-brand-500 bg-brand-50 dark:bg-brand-900/20' : 'border-gray-200 dark:border-gray-700 hover:border-brand-300'}`}
                   >
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center text-brand-600 font-bold overflow-hidden">
-                        {c.photoURL ? <img src={c.photoURL} alt="" className="w-full h-full object-cover" /> : (c.displayName || c.fullName || 'C')[0]}
+                        {c.photoURL ? <img src={c.photoURL} alt="" className="w-full h-full object-cover" /> : (getCourierName(c) || 'C')[0]}
                       </div>
                       <div>
-                        <p className="font-medium text-sm text-gray-900 dark:text-white">{c.displayName || c.fullName || c.name || 'Unknown'}</p>
-                        <p className="text-xs text-gray-500">{c.phone || 'No phone'}</p>
+                        <p className="font-medium text-sm text-gray-900 dark:text-white">{getCourierName(c)}</p>
+                        <p className="text-xs text-gray-500">{getCourierPhone(c)}</p>
                       </div>
                     </div>
-                    {assignModalData.currentCourierId === c.uid && (
+                    {assignModalData.currentCourierId === getCourierId(c) && (
                       <Badge variant="success">Current</Badge>
                     )}
                   </div>

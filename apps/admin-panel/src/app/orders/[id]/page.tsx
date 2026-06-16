@@ -2,7 +2,7 @@
 
 import { use, useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { db, doc, onSnapshot, updateDoc, collection, query, where, getDocs, getDoc, serverTimestamp, increment } from "@repo/firebase-config";
+import { db, doc, onSnapshot, updateDoc, collection, getDocs, getDoc, serverTimestamp, increment } from "@repo/firebase-config";
 import {
   COLLECTIONS,
   Order,
@@ -11,13 +11,21 @@ import {
   formatFirestoreDate,
   getVehicleLabel,
   hasAssignedCourier,
-  normalizeCanonicalVehicleType,
   normalizeOrderStatus,
   normalizeVehicleType,
 } from "@repo/shared-types";
 import { ArrowLeft, Package, User, MapPin, CreditCard, Clock, Truck, Bike, Car, Footprints } from "lucide-react";
 import toast from "react-hot-toast";
 import dynamic from "next/dynamic";
+import {
+  getCourierId,
+  getCourierName,
+  getCourierPhone,
+  getCourierVehicle,
+  isAssignableCourier,
+  sortCouriers,
+  type AdminCourierRecord,
+} from "@/lib/courierFilters";
 
 const LiveTrackingMap = dynamic(() => import("@/components/LiveTrackingMap"), {
   ssr: false,
@@ -33,7 +41,7 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
   const orderId = currentOrderId;
   
   const [order, setOrder] = useState<Order | null>(null);
-  const [couriers, setCouriers] = useState<any[]>([]);
+  const [couriers, setCouriers] = useState<AdminCourierRecord[]>([]);
   const [currentCourier, setCurrentCourier] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -74,19 +82,14 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
     }
   }, [order?.assignedCourier?.id, order?.status]);
 
-  // Fetch all available couriers for assignment
+  // Fetch real courier documents for assignment. User-role fallback is intentionally not used here.
   useEffect(() => {
     const fetchCouriers = async () => {
       try {
         const courierSnapshot = await getDocs(collection(db, COLLECTIONS.COURIERS));
-        if (!courierSnapshot.empty) {
-          setCouriers(courierSnapshot.docs.map((docSnap) => ({ id: docSnap.id, uid: docSnap.id, ...docSnap.data() })));
-          return;
-        }
-
-        const q = query(collection(db, COLLECTIONS.USERS), where("role", "==", "courier"));
-        const userSnapshot = await getDocs(q);
-        setCouriers(userSnapshot.docs.map((docSnap) => ({ id: docSnap.id, uid: docSnap.id, ...docSnap.data() })));
+        setCouriers(courierSnapshot.docs
+          .map((docSnap) => ({ id: docSnap.id, uid: docSnap.id, ...docSnap.data() } as AdminCourierRecord))
+          .sort(sortCouriers));
       } catch (error) {
         console.error("Error fetching couriers:", error);
         toast.error("Failed to load couriers list");
@@ -196,15 +199,18 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
     try {
         const courierRef = doc(db, COLLECTIONS.COURIERS, courierId);
         const courierSnap = await getDoc(courierRef);
-        const userSnap = courierSnap.exists() ? null : await getDoc(doc(db, COLLECTIONS.USERS, courierId));
-        const cData = (courierSnap.exists() ? courierSnap.data() : userSnap?.data()) || {};
+        const cData = courierSnap.exists()
+          ? ({ id: courierSnap.id, uid: courierSnap.id, ...courierSnap.data() } as AdminCourierRecord)
+          : null;
 
-        const name = cData.displayName || cData.fullName || cData.name || 'Courier';
-        const phone = cData.phone || cData.phoneNumber || '';
-        const vehicleType = normalizeCanonicalVehicleType(cData.vehicleType || cData.vehicle || cData.vehicleBrand);
-        const vehicle = [cData.vehicleName || cData.vehicleBrand, cData.vehicleModel, cData.plateNumber || cData.licensePlate].filter(Boolean).join(' ') ||
-          cData.vehicle ||
-          getVehicleLabel(vehicleType);
+        if (!isAssignableCourier(cData)) {
+          toast.error("This courier is not assignable. Choose an online available courier.");
+          return;
+        }
+
+        const name = getCourierName(cData);
+        const phone = getCourierPhone(cData);
+        const { vehicle, vehicleType } = getCourierVehicle(cData);
 
         await updateDoc(doc(db, COLLECTIONS.ORDERS, order.id), {
             courierId,
@@ -282,6 +288,7 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
   const trackedCourierLocation = assignedCourierId
     ? (order.courierLocation || currentCourier?.currentLocation)
     : undefined;
+  const assignableCouriers = couriers.filter(isAssignableCourier);
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
@@ -477,6 +484,11 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
               ) : (
                   <div className="flex flex-col gap-3">
                       <p className="text-sm text-gray-400">No courier accepted this yet. Manually assign one below:</p>
+                      {assignableCouriers.length === 0 ? (
+                        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm font-semibold text-amber-200">
+                          No online available couriers found. Offline, busy, disabled, archived, or test couriers are hidden from assignment.
+                        </div>
+                      ) : (
                       <div className="flex gap-2">
                           <select 
                               id="courier-select"
@@ -485,11 +497,12 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
                               value=""
                           >
                               <option value="" disabled>Select a courier...</option>
-                              {couriers.map((c) => (
-                                  <option key={c.uid || c.id} value={c.uid || c.id}>{c.displayName || c.fullName || c.name || c.id}</option>
+                              {assignableCouriers.map((c) => (
+                                  <option key={getCourierId(c)} value={getCourierId(c)}>{getCourierName(c)}</option>
                               ))}
                           </select>
                       </div>
+                      )}
                   </div>
               )}
           </div>

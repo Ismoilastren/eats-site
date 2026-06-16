@@ -128,7 +128,7 @@ function RestaurantAdminMap({
         if (!cancelled) {
           setStatus('error');
           setLoadError(error instanceof Error ? error.message : 'Could not load Yandex Maps.');
-          if (process.env.NODE_ENV !== 'production') console.warn('[RestaurantAdminMap]', error);
+          if (process.env.NODE_ENV !== 'production' && isAdminYandexMapsKeyConfigured()) console.warn('[RestaurantAdminMap]', error);
         }
       }
     }

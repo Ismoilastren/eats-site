@@ -1,23 +1,36 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { db, collection, query, doc, setDoc, onSnapshot, updateDoc, deleteDoc, serverTimestamp } from '@repo/firebase-config';
+import { db, collection, query, doc, setDoc, onSnapshot, updateDoc, serverTimestamp } from '@repo/firebase-config';
 import { COLLECTIONS, normalizeCanonicalVehicleType, normalizeOrderStatus } from '@repo/shared-types';
 import type { Courier, VehicleType } from '@repo/shared-types';
 import toast from 'react-hot-toast';
+import {
+  getCourierId,
+  getCourierInvalidReason,
+  getCourierName,
+  getCourierPhone,
+  getCourierStatus,
+  isAssignableCourier,
+  isRealCourier,
+  sortCouriers,
+  type AdminCourierRecord,
+} from '@/lib/courierFilters';
 
 const StatusBadge = ({ online, status }: { online?: boolean; status?: string }) => {
-  const normalizedStatus = status === 'busy' ? 'busy' : online ? 'online' : 'offline';
-  const active = normalizedStatus !== 'offline';
+  const normalizedStatus = status === 'busy' ? 'busy' : status === 'inactive' ? 'inactive' : online ? 'online' : 'offline';
+  const active = normalizedStatus === 'online' || normalizedStatus === 'busy';
   return (
   <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold uppercase tracking-wider ${
     normalizedStatus === 'busy'
       ? 'bg-orange-100 text-orange-700 border border-orange-200 dark:bg-orange-500/15 dark:text-orange-400 dark:border-orange-500/30'
+      : normalizedStatus === 'inactive'
+      ? 'bg-gray-100 text-gray-600 border border-gray-200 dark:bg-gray-500/15 dark:text-gray-400 dark:border-gray-500/30'
       : active
       ? 'bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-400 dark:border-emerald-500/30'
       : 'bg-red-100 text-red-700 border border-red-200 dark:bg-red-500/15 dark:text-red-400 dark:border-red-500/30'
   }`}>
-    <span className={`h-1.5 w-1.5 rounded-full ${normalizedStatus === 'busy' ? 'bg-orange-500' : active ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-red-500 dark:bg-red-400'}`} />
+    <span className={`h-1.5 w-1.5 rounded-full ${normalizedStatus === 'busy' ? 'bg-orange-500' : active ? 'bg-emerald-500 dark:bg-emerald-400' : normalizedStatus === 'inactive' ? 'bg-gray-400' : 'bg-red-500 dark:bg-red-400'}`} />
     {normalizedStatus}
   </span>
   );
@@ -141,7 +154,7 @@ const FormFields = ({
 );
 
 export default function CouriersPage() {
-  const [couriers, setCouriers] = useState<Courier[]>([]);
+  const [couriers, setCouriers] = useState<AdminCourierRecord[]>([]);
   const [courierOrders, setCourierOrders] = useState<Array<Record<string, unknown>>>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -167,7 +180,7 @@ export default function CouriersPage() {
     const unsub = onSnapshot(q, (snapshot) => {
       const data: Courier[] = [];
       snapshot.forEach((d) => data.push({ id: d.id, ...d.data() } as Courier));
-      setCouriers(data);
+      setCouriers((data as AdminCourierRecord[]).sort(sortCouriers));
       setIsLoading(false);
     }, (err) => {
       console.error('Couriers fetch error:', err);
@@ -307,8 +320,16 @@ export default function CouriersPage() {
   const handleDelete = async () => {
     if (!deleteCourierId) return;
     try {
-      await deleteDoc(doc(db, COLLECTIONS.COURIERS, deleteCourierId));
-      toast.success('Courier removed');
+      await updateDoc(doc(db, COLLECTIONS.COURIERS, deleteCourierId), {
+        archived: true,
+        isActive: false,
+        isAvailable: false,
+        isOnline: false,
+        status: 'inactive',
+        currentOrderId: null,
+        updatedAt: serverTimestamp(),
+      });
+      toast.success('Courier archived');
     } catch (err) {
       toast.error('Delete failed');
     } finally {
@@ -319,8 +340,8 @@ export default function CouriersPage() {
   const resetForm = () =>
     setForm({ fullName: '', phone: '', vehicleType: 'bicycle', licensePlate: '', vehicleBrand: '' });
 
-  const openEdit = (courier: Courier) => {
-    setSelectedCourier(courier);
+  const openEdit = (courier: AdminCourierRecord) => {
+    setSelectedCourier(courier as Courier);
     setForm({
       fullName: (courier as any).fullName || courier.displayName || '',
       phone: courier.phone || '',
@@ -331,9 +352,11 @@ export default function CouriersPage() {
     setShowEditModal(true);
   };
 
-  const filtered = couriers.filter((c) => {
-    const name = ((c as any).fullName || c.displayName || '').toLowerCase();
-    const phone = (c.phone || '').toLowerCase();
+  const productionCouriers = couriers.filter(isRealCourier);
+  const hiddenRecordsCount = couriers.length - productionCouriers.length;
+  const filtered = productionCouriers.filter((c) => {
+    const name = getCourierName(c).toLowerCase();
+    const phone = getCourierPhone(c).toLowerCase();
     const q = search.toLowerCase();
     return name.includes(q) || phone.includes(q) || c.id.toLowerCase().includes(q);
   });
@@ -349,6 +372,11 @@ export default function CouriersPage() {
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             Dispatch Center — Create couriers and copy their ID to send via messaging apps.
           </p>
+          {hiddenRecordsCount > 0 && (
+            <p className="mt-2 text-xs font-semibold text-amber-600 dark:text-amber-400">
+              {hiddenRecordsCount} invalid, archived, or test courier record{hiddenRecordsCount === 1 ? '' : 's'} hidden from production fleet.
+            </p>
+          )}
         </div>
         <button
           onClick={() => { resetForm(); setShowAddModal(true); }}
@@ -361,10 +389,10 @@ export default function CouriersPage() {
       {/* ─── Stats Bar ─── */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         {[
-          { label: 'Total Couriers', value: couriers.length, color: 'text-gray-900 dark:text-white' },
-          { label: 'Online Now', value: couriers.filter((c) => c.isOnline || c.status === 'online' || c.status === 'busy').length, color: 'text-emerald-600 dark:text-emerald-400' },
-          { label: 'Offline', value: couriers.filter((c) => !c.isOnline && c.status !== 'online' && c.status !== 'busy').length, color: 'text-red-600 dark:text-red-400' },
-          { label: 'Available', value: couriers.filter((c) => (c.status === 'online' || c.isOnline) && !c.currentOrderId).length, color: 'text-orange-600 dark:text-orange-400' },
+          { label: 'Total Couriers', value: productionCouriers.length, color: 'text-gray-900 dark:text-white' },
+          { label: 'Online Now', value: productionCouriers.filter((c) => ['online', 'busy'].includes(getCourierStatus(c))).length, color: 'text-emerald-600 dark:text-emerald-400' },
+          { label: 'Offline', value: productionCouriers.filter((c) => getCourierStatus(c) === 'offline').length, color: 'text-red-600 dark:text-red-400' },
+          { label: 'Available', value: productionCouriers.filter(isAssignableCourier).length, color: 'text-orange-600 dark:text-orange-400' },
         ].map((stat) => (
           <div
             key={stat.label}
@@ -418,11 +446,14 @@ export default function CouriersPage() {
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-slate-700/60">
                 {filtered.map((courier) => {
-                  const name = courier.name || courier.fullName || courier.displayName || 'Unknown';
-                  const isCopied = copiedId === courier.id;
+                  const name = getCourierName(courier);
+                  const phone = getCourierPhone(courier);
+                  const status = getCourierStatus(courier);
+                  const invalidReason = getCourierInvalidReason(courier);
+                  const isCopied = copiedId === getCourierId(courier);
                   const metrics = courierMetrics.get(courier.id) || { completedOrders: 0, deliveryEarnings: 0 };
                   return (
-                    <tr key={courier.id} className="transition-colors hover:bg-gray-50 dark:hover:bg-slate-700/40">
+                    <tr key={getCourierId(courier)} className="transition-colors hover:bg-gray-50 dark:hover:bg-slate-700/40">
 
                       {/* Name */}
                       <td className="px-5 py-4">
@@ -432,7 +463,10 @@ export default function CouriersPage() {
                           </div>
                           <div>
                             <p className="font-semibold text-gray-900 dark:text-white">{name}</p>
-                            <p className="text-xs text-gray-500 dark:text-slate-400">{courier.phone || 'No phone'}</p>
+                            <p className="text-xs text-gray-500 dark:text-slate-400">{phone}</p>
+                            {invalidReason ? (
+                              <p className="text-xs font-semibold text-amber-600 dark:text-amber-400">{invalidReason}</p>
+                            ) : null}
                           </div>
                         </div>
                       </td>
@@ -440,11 +474,11 @@ export default function CouriersPage() {
                       {/* ─── COPY ID COLUMN ─── */}
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2">
-                          <code className="rounded-md bg-gray-100 px-2.5 py-1.5 text-xs text-orange-600 font-mono border border-gray-200 max-w-[170px] truncate dark:bg-slate-900 dark:text-orange-300 dark:border-slate-700" title={courier.id}>
-                            {courier.id}
+                          <code className="rounded-md bg-gray-100 px-2.5 py-1.5 text-xs text-orange-600 font-mono border border-gray-200 max-w-[170px] truncate dark:bg-slate-900 dark:text-orange-300 dark:border-slate-700" title={getCourierId(courier)}>
+                            {getCourierId(courier)}
                           </code>
                           <button
-                            onClick={() => copyId(courier.id)}
+                            onClick={() => copyId(getCourierId(courier))}
                             title="Copy Courier ID"
                             className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all ${
                               isCopied
@@ -479,14 +513,14 @@ export default function CouriersPage() {
 
                       {/* Status */}
                       <td className="px-5 py-4">
-                        <StatusBadge online={courier.isOnline} status={courier.status} />
+                        <StatusBadge online={status === 'online' || status === 'busy'} status={status} />
                       </td>
 
                       {/* Actions */}
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={() => { setSelectedCourier(courier); setShowViewModal(true); }}
+                            onClick={() => { setSelectedCourier(courier as Courier); setShowViewModal(true); }}
                             className="rounded-lg border border-gray-200 bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-200 transition-colors dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
                           >
                             View
@@ -498,10 +532,10 @@ export default function CouriersPage() {
                             Edit
                           </button>
                           <button
-                            onClick={() => setDeleteCourierId(courier.id)}
+                            onClick={() => setDeleteCourierId(getCourierId(courier))}
                             className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100 transition-colors dark:border-red-500/20 dark:bg-red-500/15 dark:text-red-400 dark:hover:bg-red-500/25"
                           >
-                            Delete
+                            Archive
                           </button>
                         </div>
                       </td>
@@ -607,9 +641,9 @@ export default function CouriersPage() {
       {deleteCourierId && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
           <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-800">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Delete Courier?</h3>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Archive Courier?</h3>
             <p className="text-sm text-gray-500 dark:text-slate-400 mb-6">
-              This will permanently remove the courier from the system. This cannot be undone.
+              This hides the courier from production assignment and fleet views without deleting Firestore data.
             </p>
             <div className="flex justify-end gap-3">
               <button
@@ -622,7 +656,7 @@ export default function CouriersPage() {
                 onClick={handleDelete}
                 className="rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700"
               >
-                Delete
+                Archive
               </button>
             </div>
           </div>

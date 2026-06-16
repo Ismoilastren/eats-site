@@ -9,7 +9,7 @@ import {
 } from '@repo/shared-types';
 import type { LocalOrder } from '@/context/MarketplaceContext';
 import type { Restaurant } from '@/data/marketplace';
-import { YandexMap, type MapPath, type MapPoint } from './YandexMap';
+import { YandexMap, type MapPoint } from './YandexMap';
 
 type CourierSnapshot = {
   currentLocation?: CoordinateLike | null;
@@ -119,21 +119,6 @@ export function OrderTrackingMap({
     }] : []),
   ];
 
-  const paths: MapPath[] = [{
-    id: 'restaurant-customer',
-    points: [restaurantPoint, customerPoint],
-    color: isDelivered ? '#16a34a' : '#f97316',
-    dashed: !isDelivered,
-  }];
-
-  if (courierPoint) {
-    paths.push({
-      id: 'courier-active-leg',
-      points: [courierPoint, isCourierLeg || isDelivered ? customerPoint : restaurantPoint],
-      color: isCourierLeg || isDelivered ? '#16a34a' : '#7c3aed',
-    });
-  }
-
   const lastUpdated = courierSnapshot?.lastUpdated || order.courier?.lastUpdated;
 
   return (
@@ -144,14 +129,13 @@ export function OrderTrackingMap({
           <p className="mt-1 text-2xl font-black md:text-3xl">{statusCopy(order.status, Boolean(courierPoint))}</p>
         </div>
         <div className="rounded-2xl bg-white/10 px-4 py-3 text-xs font-bold text-gray-200">
-          <span className="block text-sm font-black text-white">Route preview</span>
+          <span className="block text-sm font-black text-white">Tracking points</span>
           <span>Exact road route unavailable</span>
         </div>
       </div>
       <YandexMap
         center={restaurantPoint}
         points={points}
-        paths={paths}
         interactive
         dark
         showLocateControl={false}

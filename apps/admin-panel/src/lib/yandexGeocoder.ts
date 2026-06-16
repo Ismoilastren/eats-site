@@ -27,6 +27,21 @@ export type AdminGeocodeResult = {
   errorCode?: string;
 };
 
+function geocoderErrorMessage(code: string) {
+  switch (code) {
+    case 'YANDEX_GEOCODER_API_KEY_MISSING':
+      return 'Automatic address lookup is not configured.';
+    case 'YANDEX_GEOCODER_FORBIDDEN':
+      return 'Automatic address lookup is not enabled for this key.';
+    case 'YANDEX_GEOCODER_TIMEOUT':
+      return 'Automatic address lookup took too long.';
+    case 'YANDEX_GEOCODER_UNAVAILABLE':
+      return 'Automatic address lookup is temporarily unavailable.';
+    default:
+      return 'Address lookup failed.';
+  }
+}
+
 export async function reverseGeocodeRestaurant(lat: number, lng: number): Promise<AdminGeocodeResult> {
   if (!isValidCoordinates(lat, lng)) {
     return { address: '', error: 'Valid coordinates are required.', errorCode: 'INVALID_COORDINATES' };
@@ -36,10 +51,11 @@ export async function reverseGeocodeRestaurant(lat: number, lng: number): Promis
     const response = await fetch(`/api/geocode?lat=${encodeURIComponent(String(lat))}&lng=${encodeURIComponent(String(lng))}`);
     const data = await response.json() as ApiResponse;
     if (!response.ok || !data.ok) {
+      const errorCode = data.errorCode || data.error || 'YANDEX_GEOCODER_REJECTED';
       return {
         address: '',
-        error: data.error || 'Address lookup failed.',
-        errorCode: data.errorCode || 'YANDEX_GEOCODER_REJECTED',
+        error: geocoderErrorMessage(errorCode),
+        errorCode,
       };
     }
 

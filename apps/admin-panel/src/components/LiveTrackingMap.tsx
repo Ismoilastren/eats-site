@@ -183,33 +183,6 @@ export default function LiveTrackingMap({
 
     childrenRef.current.forEach((child) => map.removeChild?.(child));
     const children: unknown[] = [];
-    const restaurantPoint = { lat: restaurantLat, lng: restaurantLng };
-    const customerPoint = { lat: customerLat, lng: customerLng };
-
-    const route = new ymaps3.YMapFeature({
-      geometry: {
-        type: 'LineString',
-        coordinates: [toYandexCoords(restaurantPoint), toYandexCoords(customerPoint)],
-      },
-      style: { stroke: [{ color: '#f97316', width: 5, dash: [8, 6] }] },
-    });
-    map.addChild(route);
-    children.push(route);
-
-    if (courierLat !== undefined && courierLng !== undefined) {
-      const courierRoute = new ymaps3.YMapFeature({
-        geometry: {
-          type: 'LineString',
-          coordinates: [
-            toYandexCoords({ lat: courierLat, lng: courierLng }),
-            toYandexCoords(customerPoint),
-          ],
-        },
-        style: { stroke: [{ color: '#16a34a', width: 5 }] },
-      });
-      map.addChild(courierRoute);
-      children.push(courierRoute);
-    }
 
     points.forEach((point) => {
       const marker = new ymaps3.YMapMarker({ coordinates: toYandexCoords(point) }, markerElement(point));

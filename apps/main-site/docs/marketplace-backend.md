@@ -62,9 +62,11 @@ In the Yandex developer console, allow these web hosts for the JavaScript API ke
 
 Expo Go apps do not use Yandex JavaScript API directly. Courier and restaurant mobile apps should use `expo-location`, `react-native-maps`, Firestore order address text, and backend geocoding endpoints when automatic address resolution is needed.
 
-If `YANDEX_GEOCODER_API_KEY` is missing, not connected to Yandex Geocoder HTTP API, or rejected with 403, the app must not fake resolved addresses. The address picker falls back to manual entry and saves manual address text plus coordinates when available. The API returns `YANDEX_GEOCODER_API_KEY_MISSING` when the key is absent. `/debug/connection` shows whether the JavaScript key is configured and whether the client-side loader reached `loaded` or `error`.
+If `YANDEX_GEOCODER_API_KEY` is missing, not connected to Yandex Geocoder HTTP API, or rejected with 403, the app must not fake resolved addresses. The address picker falls back to manual entry and saves manual address text plus coordinates when available. The API returns controlled error codes such as `YANDEX_GEOCODER_API_KEY_MISSING`, `YANDEX_GEOCODER_FORBIDDEN`, or `YANDEX_GEOCODER_TIMEOUT`; the frontend translates them to user-friendly manual-mode copy. `/debug/connection` shows whether the JavaScript key is configured and whether the client-side loader reached `loaded` or `error`.
 
-Customer and admin order maps currently draw a direct route preview between known coordinates. This is intentional until a real road-routing backend is connected; the UI labels it as a preview instead of a driving route.
+Customer and admin order maps show tracking points only: restaurant, customer, and courier when a real courier location exists. They do not draw fake driving routes. A real road-routing backend can be added later behind a server-side key.
+
+Admin courier assignment reads the `couriers` collection and only offers online, available, non-archived, non-test records with a valid name and phone. User-role fallback records are not mixed into assignment because old test users can look like couriers.
 
 ## Seed Firestore
 

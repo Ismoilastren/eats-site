@@ -10,7 +10,6 @@ import {
   formatCurrencyUZS,
   formatFirestoreDate,
   getVehicleLabel,
-  hasAssignedCourier,
   normalizeOrderStatus,
   normalizeVehicleType,
 } from "@repo/shared-types";
@@ -22,7 +21,9 @@ import {
   getCourierName,
   getCourierPhone,
   getCourierVehicle,
+  getCourierInvalidReason,
   isAssignableCourier,
+  isRealCourier,
   sortCouriers,
   type AdminCourierRecord,
 } from "@/lib/courierFilters";
@@ -69,7 +70,8 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
 
   // Real-time listener for the canonical assigned courier.
   useEffect(() => {
-    const assignedCourierId = order?.assignedCourier?.id || null;
+    const assignedCourier = order?.assignedCourier as Partial<AdminCourierRecord> | null | undefined;
+    const assignedCourierId = isRealCourier(assignedCourier) ? assignedCourier?.id || null : null;
     if (assignedCourierId && normalizeOrderStatus(order?.status) !== 'cancelled') {
       const unsubscribeCourier = onSnapshot(doc(db, COLLECTIONS.COURIERS, assignedCourierId), (docSnap) => {
         if (docSnap.exists()) {
@@ -80,7 +82,7 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
     } else {
       setCurrentCourier(null);
     }
-  }, [order?.assignedCourier?.id, order?.status]);
+  }, [order?.assignedCourier, order?.status]);
 
   // Fetch real courier documents for assignment. User-role fallback is intentionally not used here.
   useEffect(() => {
@@ -123,7 +125,11 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
       return;
     }
 
-    if (['picked_up', 'on_the_way', 'delivered'].includes(nextStatus) && !hasAssignedCourier(order)) {
+    const activeAssignedCourier = isRealCourier(order.assignedCourier as Partial<AdminCourierRecord> | null)
+      ? order.assignedCourier
+      : null;
+
+    if (['picked_up', 'on_the_way', 'delivered'].includes(nextStatus) && !activeAssignedCourier?.id) {
       toast.error("Action blocked: assign a courier before handoff or delivery.");
       return;
     }
@@ -169,7 +175,7 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
       }
 
       await updateDoc(orderRef, updateData);
-      const assignedCourierId = order.assignedCourier?.id || order.courierId;
+      const assignedCourierId = activeAssignedCourier?.id || null;
       if (
         assignedCourierId &&
         ['delivered', 'cancelled'].includes(nextStatus)
@@ -277,7 +283,11 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
 
   const orderDate = formatFirestoreDate(order.createdAt, "Unknown Date");
   const normalizedStatus = normalizeOrderStatus(order.status);
-  const assignedCourier = order.assignedCourier || null;
+  const rawAssignedCourier = order.assignedCourier as Partial<AdminCourierRecord> | null;
+  const invalidAssignedCourierReason = rawAssignedCourier && !isRealCourier(rawAssignedCourier)
+    ? getCourierInvalidReason(rawAssignedCourier)
+    : '';
+  const assignedCourier = invalidAssignedCourierReason ? null : order.assignedCourier || null;
   const assignedCourierId = assignedCourier?.id || null;
   const courierVehicleType = normalizeVehicleType(assignedCourier?.vehicleType || assignedCourier?.vehicle || currentCourier?.vehicleType);
   const CourierVehicleIcon =
@@ -483,6 +493,11 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
                   </div>
               ) : (
                   <div className="flex flex-col gap-3">
+                      {invalidAssignedCourierReason ? (
+                        <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm font-semibold text-red-100">
+                          Existing assigned courier snapshot is hidden because it is {invalidAssignedCourierReason}. Assign a real online courier when one is available.
+                        </div>
+                      ) : null}
                       <p className="text-sm text-gray-400">No courier accepted this yet. Manually assign one below:</p>
                       {assignableCouriers.length === 0 ? (
                         <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm font-semibold text-amber-200">

@@ -411,11 +411,17 @@ export function AddressMapPicker({
         ? 'Near selected point'
         : 'Tashkent delivery area';
 
+  const typedAddress = query.trim();
   const selectedTitle = cleanAddressTitle(isReadableAddress(selected.text) ? selected.text : manualAddress);
+  const selectedDisplayTitle = cleanAddressTitle(typedAddress) || selectedTitle;
   const showEmptySuggestions = query.trim().length > 0 && suggestions.length === 0 && !searchingAddress;
   const isAddressLookupError = /\[(YANDEX_GEOCODER|ADDRESS_NOT_RESOLVED)/.test(error)
     || error.startsWith('We could not detect');
-  const showManualMode = resolutionState === 'error' && Boolean(error) && isAddressLookupError;
+  const showLookupHelper = Boolean(searchHint) || (resolutionState === 'error' && Boolean(error) && isAddressLookupError);
+  const showManualInput = resolutionState === 'error' && Boolean(error) && isAddressLookupError && !typedAddress && !selectedTitle;
+  const lookupHelperText = searchHint || (typedAddress
+    ? 'Press OK to use this typed address with the selected map point.'
+    : 'Move the pin or type the street, building, and apartment. Automatic lookup is limited right now.');
 
   // Confirm button is enabled when:
   // - not currently resolving
@@ -439,41 +445,40 @@ export function AddressMapPicker({
           {/* Left panel */}
           <aside className="flex min-h-0 flex-col border-r border-gray-100 bg-white p-4 md:p-5">
             {/* Search */}
-            <div className="flex items-center gap-3 rounded-[24px] bg-gray-100 px-4 py-3.5 ring-1 ring-transparent focus-within:bg-white focus-within:ring-orange-200">
-              <Search size={20} className="shrink-0 text-gray-500" />
-              <input
-                value={query}
-                onChange={(event) => {
-                  setQuery(event.target.value);
-                  setError('');
-                  setSearchHint('');
-                }}
-                placeholder="Search address"
-                className="min-w-0 flex-1 bg-transparent font-bold outline-none"
-              />
-              {query && <button onClick={() => setQuery('')} className="rounded-full bg-white p-1 text-gray-500"><X size={16} /></button>}
+            <div className="grid grid-cols-[1fr_auto] gap-2">
+              <div className="flex items-center gap-3 rounded-[24px] bg-gray-100 px-4 py-3.5 ring-1 ring-transparent focus-within:bg-white focus-within:ring-orange-200">
+                <Search size={20} className="shrink-0 text-gray-500" />
+                <input
+                  value={query}
+                  onChange={(event) => {
+                    setQuery(event.target.value);
+                    setError('');
+                    setSearchHint('');
+                  }}
+                  placeholder="Where to?"
+                  className="min-w-0 flex-1 bg-transparent font-bold outline-none"
+                />
+                {query && <button onClick={() => setQuery('')} className="rounded-full bg-white p-1 text-gray-500"><X size={16} /></button>}
+              </div>
+              <button
+                onClick={confirm}
+                disabled={confirmDisabled}
+                className="rounded-[22px] bg-yellow-300 px-5 font-black text-gray-950 shadow-sm hover:bg-yellow-200 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400"
+              >
+                OK
+              </button>
             </div>
-            {searchHint && (
+            {showLookupHelper && (
               <p className="mt-2 rounded-2xl bg-gray-50 px-4 py-3 text-sm font-bold text-gray-600">
-                {searchHint}
+                {lookupHelperText}
               </p>
             )}
 
             {/* Error + manual input */}
-            {showManualMode ? (
-              <div className="mt-3 rounded-2xl bg-amber-50 p-3 border border-amber-100">
-                <p className="text-sm font-black text-gray-950">
-                  Enter your address manually or select a point on the map.
-                </p>
-                <p className="mt-1 text-xs font-bold text-amber-800">
-                  Automatic address lookup is unavailable for this selection.
-                </p>
-                <details className="mt-2 text-[11px] font-semibold text-amber-700/80">
-                  <summary className="cursor-pointer">Technical detail</summary>
-                  <p className="mt-1">{error}</p>
-                </details>
+            {showManualInput ? (
+              <div className="mt-3 rounded-2xl border border-gray-100 bg-white p-3 shadow-sm">
                 <label className="mt-3 block">
-                  <span className="text-xs font-black uppercase tracking-wider text-amber-700">Enter address manually</span>
+                  <span className="text-xs font-black uppercase tracking-wider text-gray-500">Enter address manually</span>
                   <input
                     value={manualAddress}
                     onChange={(event) => {
@@ -481,11 +486,15 @@ export function AddressMapPicker({
                       setError('');
                     }}
                     placeholder="Street, building, apartment"
-                    className="mt-1.5 w-full rounded-xl bg-white px-3 py-3 font-bold text-gray-950 outline-none ring-1 ring-amber-200 focus:ring-2 focus:ring-orange-300"
+                    className="mt-1.5 w-full rounded-xl bg-gray-50 px-3 py-3 font-bold text-gray-950 outline-none ring-1 ring-gray-100 focus:bg-white focus:ring-2 focus:ring-orange-300"
                   />
                 </label>
+                <details className="mt-2 text-[11px] font-semibold text-gray-400">
+                  <summary className="cursor-pointer">Technical detail</summary>
+                  <p className="mt-1">{error}</p>
+                </details>
               </div>
-            ) : error ? (
+            ) : error && !isAddressLookupError ? (
               <div className="mt-3 rounded-2xl border border-red-100 bg-red-50 px-4 py-3">
                 <p className="text-sm font-bold text-red-700">{error}</p>
               </div>
@@ -544,11 +553,13 @@ export function AddressMapPicker({
                   <p className="mt-1 line-clamp-2 font-black leading-snug">
                     {detectingAddress
                       ? 'Detecting address…'
-                      : selectedTitle || (resolutionState === 'error' ? 'Tap to enter manually →' : 'Choose a point on the map')}
+                      : selectedDisplayTitle || (resolutionState === 'error' ? 'Type the address above' : 'Choose a point on the map')}
                   </p>
                   <p className="mt-1 text-sm font-bold text-gray-300">
-                    {resolutionState === 'error' && !manualAddress.trim()
-                      ? 'Use the manual input above'
+                    {typedAddress
+                      ? 'Typed address, map point selected'
+                      : resolutionState === 'error' && !manualAddress.trim()
+                        ? 'Use the search field above'
                       : selectedSecondary}
                   </p>
                   <p className="mt-1 text-xs font-bold text-gray-600">
@@ -576,7 +587,7 @@ export function AddressMapPicker({
               center={{ lat: selected.lat || TASHKENT_CENTER.lat, lng: selected.lng || TASHKENT_CENTER.lng }}
               points={[{
                 id: 'selected-address',
-                label: selectedTitle || 'Address',
+                label: selectedDisplayTitle || 'Address',
                 lat: selected.lat || TASHKENT_CENTER.lat,
                 lng: selected.lng || TASHKENT_CENTER.lng,
                 color: '#f97316',

@@ -63,6 +63,70 @@ export type CourierTrackingSnapshot = {
   lastUpdated?: string;
 };
 
+type CourierSnapshot = {
+  id?: string;
+  uid?: string;
+  name?: string;
+  displayName?: string;
+  fullName?: string;
+  phone?: string;
+  phoneNumber?: string;
+  vehicle?: string;
+  vehicleType?: string;
+  deleted?: boolean;
+  archived?: boolean;
+  isDeleted?: boolean;
+  isTest?: boolean;
+  test?: boolean;
+  demo?: boolean;
+  isDemo?: boolean;
+  status?: string;
+  isActive?: boolean;
+  active?: boolean;
+};
+
+const BLOCKED_COURIER_STATUSES = new Set(['disabled', 'inactive', 'deleted', 'archived', 'suspended']);
+const TEST_COURIER_PATTERN = /\b(test|demo|fake|sample|dummy|old test)\b/i;
+
+function readCourierId(value?: CourierSnapshot | null) {
+  return String(value?.id || value?.uid || '').trim();
+}
+
+function readCourierName(value?: CourierSnapshot | null) {
+  return String(value?.name || value?.displayName || value?.fullName || '').trim();
+}
+
+function readCourierPhone(value?: CourierSnapshot | null) {
+  return String(value?.phone || value?.phoneNumber || '').trim();
+}
+
+function isRealCourierSnapshot(value?: CourierSnapshot | null) {
+  if (!value || typeof value !== 'object') return false;
+  const id = readCourierId(value);
+  const name = readCourierName(value);
+  const phone = readCourierPhone(value);
+  const status = String(value.status || '').trim().toLowerCase();
+  const flags = [value.deleted, value.archived, value.isDeleted, value.isTest, value.test, value.demo, value.isDemo];
+
+  if (!id || !name || !phone) return false;
+  if (flags.some(Boolean)) return false;
+  if (value.isActive === false || value.active === false || BLOCKED_COURIER_STATUSES.has(status)) return false;
+  return !TEST_COURIER_PATTERN.test(`${id} ${name} ${phone}`);
+}
+
+function normalizeAssignedCourier(value: unknown): LocalOrder['assignedCourier'] {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as CourierSnapshot;
+  if (!isRealCourierSnapshot(raw)) return null;
+  return {
+    id: readCourierId(raw),
+    name: readCourierName(raw),
+    phone: readCourierPhone(raw),
+    vehicle: raw.vehicle ? String(raw.vehicle) : '',
+    vehicleType: raw.vehicleType ? String(raw.vehicleType) : '',
+  };
+}
+
 function dateFromFirestore(value: unknown): string {
   if (value && typeof value === 'object' && 'toDate' in value && typeof value.toDate === 'function') {
     return value.toDate().toISOString();
@@ -104,7 +168,7 @@ function readMockOrders(): LocalOrder[] {
         discount: Number(order.discount ?? 0),
         paymentMethod: order.paymentMethod || 'cash',
         fulfillmentType: order.fulfillmentType || 'delivery',
-        assignedCourier: order.assignedCourier || null,
+        assignedCourier: normalizeAssignedCourier(order.assignedCourier),
       }))
       : [];
   } catch {
@@ -124,19 +188,12 @@ function writeMockOrders(orders: LocalOrder[]) {
 
 function mapFirestoreOrder(data: DocumentData, id: string): LocalOrder {
   const status = normalizeOrderStatus(String(data.status || 'pending'));
-  const assignedCourier = data.assignedCourier && typeof data.assignedCourier === 'object'
-    ? {
-      id: String(data.assignedCourier.id || ''),
-      name: String(data.assignedCourier.name || 'Courier'),
-      phone: data.assignedCourier.phone ? String(data.assignedCourier.phone) : '',
-      vehicle: data.assignedCourier.vehicle ? String(data.assignedCourier.vehicle) : '',
-      vehicleType: data.assignedCourier.vehicleType ? String(data.assignedCourier.vehicleType) : '',
-    }
-    : null;
+  const assignedCourier = normalizeAssignedCourier(data.assignedCourier);
   const rawCourier = data.courier && typeof data.courier === 'object' ? data.courier : null;
   const hasRawCourier = Boolean(
     rawCourier
     && (rawCourier.id || rawCourier.uid || rawCourier.name || rawCourier.phone || rawCourier.vehicle)
+    && isRealCourierSnapshot(rawCourier as CourierSnapshot)
   );
   const courier = assignedCourier
     ? {

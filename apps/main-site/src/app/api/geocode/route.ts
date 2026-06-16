@@ -14,9 +14,21 @@ export async function GET(request: NextRequest) {
   }
 
   const query = request.nextUrl.searchParams.get('query')?.trim();
-  const lat = Number(request.nextUrl.searchParams.get('lat'));
-  const lng = Number(request.nextUrl.searchParams.get('lng'));
-  const isReverse = Number.isFinite(lat) && Number.isFinite(lng);
+  const latParam = request.nextUrl.searchParams.get('lat');
+  const lngParam = request.nextUrl.searchParams.get('lng');
+  const hasCoordinates = Boolean(latParam?.trim() && lngParam?.trim());
+  const lat = hasCoordinates ? Number(latParam) : NaN;
+  const lng = hasCoordinates ? Number(lngParam) : NaN;
+  const isReverse = hasCoordinates && Number.isFinite(lat) && Number.isFinite(lng);
+
+  if (hasCoordinates && !isReverse) {
+    return NextResponse.json({
+      ok: false,
+      results: [],
+      error: 'Valid coordinates are required.',
+      errorCode: 'INVALID_COORDINATES',
+    }, { status: 400 });
+  }
 
   if (!query && !isReverse) {
     return NextResponse.json({ ok: false, results: [], error: 'A search query or coordinates are required.' }, { status: 400 });

@@ -11,9 +11,12 @@ export async function GET(request: NextRequest) {
     }, { status: 503 });
   }
 
-  const lat = Number(request.nextUrl.searchParams.get('lat'));
-  const lng = Number(request.nextUrl.searchParams.get('lng'));
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+  const latParam = request.nextUrl.searchParams.get('lat');
+  const lngParam = request.nextUrl.searchParams.get('lng');
+  const hasCoordinates = Boolean(latParam?.trim() && lngParam?.trim());
+  const lat = hasCoordinates ? Number(latParam) : NaN;
+  const lng = hasCoordinates ? Number(lngParam) : NaN;
+  if (!hasCoordinates || !Number.isFinite(lat) || !Number.isFinite(lng)) {
     return NextResponse.json({
       ok: false,
       results: [],

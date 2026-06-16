@@ -225,8 +225,8 @@ service cloud.firestore {
     match /users/{userId} {
       // Users can read their own profile; admins can read all
       allow read: if isAuth() && (isOwner(userId) || isAdmin());
-      // Users can create their own profile
-      allow create: if isAuth() && isOwner(userId);
+      // Users can create their own profile; admins can create managed accounts
+      allow create: if isAdmin() || (isAuth() && isOwner(userId));
       // Users can update their own profile; admins can update any
       allow update: if isAuth() && (isOwner(userId) || isAdmin());
       // Only admins can delete users

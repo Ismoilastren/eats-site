@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { MenuItem } from '@repo/shared-types';
-import { db, doc, updateDoc, arrayUnion, arrayRemove } from '@repo/firebase-config';
+import { db, doc, setDoc, deleteDoc } from '@repo/firebase-config';
 import { COLLECTIONS } from '@repo/shared-types';
 import { useAuthStore } from './authStore';
 
@@ -21,11 +21,20 @@ export const useMenuStore = create<MenuState>()((set, get) => ({
     const restaurantId = useAuthStore.getState().restaurant?.id;
     if (!restaurantId) return;
 
-    const docRef = doc(db, COLLECTIONS.RESTAURANTS, restaurantId);
-    await updateDoc(docRef, {
-      menu: arrayUnion(item)
-    });
-    // Optimistic UI update not strictly needed if onSnapshot is fast, but good for UX
+    const normalizedItem = {
+      ...item,
+      restaurantId,
+      isAvailable: item.isAvailable ?? true,
+      sortOrder: Number(item.sortOrder || 0),
+      updatedAt: new Date(),
+      createdAt: item.createdAt || new Date(),
+    };
+
+    await Promise.all([
+      setDoc(doc(db, COLLECTIONS.MENU_ITEMS, item.id), normalizedItem, { merge: true }),
+      setDoc(doc(db, COLLECTIONS.RESTAURANTS, restaurantId, 'dishes', item.id), normalizedItem, { merge: true }),
+    ]);
+
     set((state) => ({ menuItems: [...state.menuItems, item] }));
   },
 
@@ -37,15 +46,13 @@ export const useMenuStore = create<MenuState>()((set, get) => ({
     const existingItem = state.menuItems.find(i => i.id === id);
     if (!existingItem) return;
 
-    const updatedItem = { ...existingItem, ...updates };
-    
-    // We update the entire array to replace the object
+    const updatedItem = { ...existingItem, ...updates, restaurantId, updatedAt: new Date() };
     const newMenuArray = state.menuItems.map(i => i.id === id ? updatedItem : i);
 
-    const docRef = doc(db, COLLECTIONS.RESTAURANTS, restaurantId);
-    await updateDoc(docRef, {
-      menu: newMenuArray
-    });
+    await Promise.all([
+      setDoc(doc(db, COLLECTIONS.MENU_ITEMS, id), updatedItem, { merge: true }),
+      setDoc(doc(db, COLLECTIONS.RESTAURANTS, restaurantId, 'dishes', id), updatedItem, { merge: true }),
+    ]);
 
     set({ menuItems: newMenuArray });
   },
@@ -58,12 +65,10 @@ export const useMenuStore = create<MenuState>()((set, get) => ({
     const itemToDelete = state.menuItems.find(i => i.id === id);
     if (!itemToDelete) return;
 
-    const docRef = doc(db, COLLECTIONS.RESTAURANTS, restaurantId);
-    
-    // We can use arrayRemove if we pass the EXACT object, or just update the whole array
-    await updateDoc(docRef, {
-      menu: arrayRemove(itemToDelete)
-    });
+    await Promise.all([
+      deleteDoc(doc(db, COLLECTIONS.MENU_ITEMS, id)),
+      deleteDoc(doc(db, COLLECTIONS.RESTAURANTS, restaurantId, 'dishes', id)),
+    ]);
 
     set({ menuItems: state.menuItems.filter(i => i.id !== id) });
   },
@@ -76,13 +81,13 @@ export const useMenuStore = create<MenuState>()((set, get) => ({
     const item = state.menuItems.find(i => i.id === id);
     if (!item) return;
 
-    const updatedItem = { ...item, isAvailable: !item.isAvailable };
+    const updatedItem = { ...item, restaurantId, isAvailable: !item.isAvailable, updatedAt: new Date() };
     const newMenuArray = state.menuItems.map(i => i.id === id ? updatedItem : i);
 
-    const docRef = doc(db, COLLECTIONS.RESTAURANTS, restaurantId);
-    await updateDoc(docRef, {
-      menu: newMenuArray
-    });
+    await Promise.all([
+      setDoc(doc(db, COLLECTIONS.MENU_ITEMS, id), updatedItem, { merge: true }),
+      setDoc(doc(db, COLLECTIONS.RESTAURANTS, restaurantId, 'dishes', id), updatedItem, { merge: true }),
+    ]);
 
     set({ menuItems: newMenuArray });
   },

@@ -13,6 +13,23 @@ import type { MenuItem } from '@repo/shared-types';
 const { width } = Dimensions.get('window');
 const isSmallScreen = width < 380;
 
+function normalizeMenuItem(data: any, id: string, restaurantId: string): MenuItem {
+  return {
+    id,
+    restaurantId: String(data.restaurantId || restaurantId),
+    name: String(data.name || 'Untitled item'),
+    description: String(data.description || ''),
+    imageUrl: String(data.imageUrl || ''),
+    price: Number(data.price || 0),
+    category: String(data.category || data.categoryId || 'General'),
+    categoryId: data.categoryId ? String(data.categoryId) : undefined,
+    isAvailable: data.isAvailable ?? data.available ?? true,
+    sortOrder: Number(data.sortOrder || 0),
+    createdAt: data.createdAt,
+    updatedAt: data.updatedAt,
+  };
+}
+
 export default function MenuScreen() {
   const { menuItems, setMenuItems } = useMenuStore();
   const restaurant = useAuthStore(state => state.restaurant);
@@ -31,32 +48,52 @@ export default function MenuScreen() {
       return;
     }
 
-    // LOGIC LEVEL MAX: Listen to both the Document Array (failsafe) AND the true MENU_ITEMS Collection
-    let collectionMenu: any[] = [];
-    let docMenu: any[] = [];
+    let dishesMenu: MenuItem[] = [];
+    let collectionMenu: MenuItem[] = [];
+    let docMenu: MenuItem[] = [];
 
     const updateStore = () => {
-      // Merge items from collection and legacy document arrays (deduplicating by ID if needed)
-      const combined = [...collectionMenu, ...docMenu];
-      // Use Map to deduplicate by ID just in case
+      const combined = [...dishesMenu, ...collectionMenu, ...docMenu];
       const uniqueItems = Array.from(new Map(combined.map(item => [item.id, item])).values());
+      uniqueItems.sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0));
       setMenuItems(uniqueItems);
       setLoading(false);
     };
 
-    // 1. Listen to the true MENU_ITEMS Collection (which the Admin Panel actually writes to)
+    // Admin Panel writes the canonical menu here.
+    const unsubscribeDishes = onSnapshot(
+      collection(db, COLLECTIONS.RESTAURANTS, restaurantId, 'dishes'),
+      (snapshot) => {
+        dishesMenu = snapshot.docs.map((documentSnapshot) =>
+          normalizeMenuItem(documentSnapshot.data(), documentSnapshot.id, restaurantId)
+        );
+        updateStore();
+      },
+      () => {
+        dishesMenu = [];
+        updateStore();
+      }
+    );
+
+    // Backward-compatible top-level menuItems collection.
     const q = query(collection(db, COLLECTIONS.MENU_ITEMS), where('restaurantId', '==', restaurantId));
     const unsubscribeCollection = onSnapshot(q, (snapshot) => {
-      collectionMenu = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      collectionMenu = snapshot.docs.map((documentSnapshot) =>
+        normalizeMenuItem(documentSnapshot.data(), documentSnapshot.id, restaurantId)
+      );
       updateStore();
     });
 
-    // 2. Exact failsafe block requested: Check all possible array names used by the Admin Panel
+    // Legacy document arrays.
     const unsubscribeDoc = onSnapshot(doc(db, COLLECTIONS.RESTAURANTS, restaurantId), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        // LOGIC LEVEL MAX: Check all possible array names
-        docMenu = data.menu || data.menuItems || data.items || data.foods || data.dishes || [];
+        const legacyItems = data.menu || data.menuItems || data.items || data.foods || data.dishes || [];
+        docMenu = Array.isArray(legacyItems)
+          ? legacyItems.map((item: any, index: number) =>
+              normalizeMenuItem(item, String(item.id || `legacy-${index}`), restaurantId)
+            )
+          : [];
       } else {
         docMenu = [];
       }
@@ -64,6 +101,7 @@ export default function MenuScreen() {
     });
 
     return () => {
+      unsubscribeDishes();
       unsubscribeCollection();
       unsubscribeDoc();
     };

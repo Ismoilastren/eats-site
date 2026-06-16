@@ -7,6 +7,7 @@ import * as Haptics from 'expo-haptics';
 import { db, collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp } from '@repo/firebase-config';
 import { COLLECTIONS, Order, OrderStatus, ORDER_STATUS_LABELS } from '@repo/shared-types';
 import { useAuthStore } from '../../stores/authStore';
+import { getOrderItems } from '../../utils/orderItems';
 
 const { width } = Dimensions.get('window');
 const isSmallScreen = width < 380;
@@ -124,6 +125,7 @@ export default function KitchenDisplayDashboard() {
             {orders.map(order => {
               const action = getNextStatusAction(order);
               const statusCfg = getStatusConfig(order.status);
+              const orderItems = getOrderItems(order);
               
               return (
                 <View 
@@ -137,7 +139,7 @@ export default function KitchenDisplayDashboard() {
                   <View className="p-4 bg-gray-800 border-b border-gray-700 flex-row justify-between items-center">
                     <View>
                       <Text className="text-2xl font-black text-white tracking-wider">#{order.id.slice(0, 6).toUpperCase()}</Text>
-                      <Text className="text-gray-400 font-semibold text-xs mt-1 uppercase tracking-wider">{order.items?.length || 0} ITEMS</Text>
+                      <Text className="text-gray-400 font-semibold text-xs mt-1 uppercase tracking-wider">{orderItems.length} ITEMS</Text>
                     </View>
                     <View className={`px-3 py-1.5 rounded-lg border ${statusCfg.bg} ${statusCfg.border}`}>
                       <Text className={`font-black text-[10px] uppercase tracking-widest ${statusCfg.text}`}>
@@ -148,7 +150,9 @@ export default function KitchenDisplayDashboard() {
 
                   {/* Order Items */}
                   <View className="p-5 min-h-[120px]">
-                    {order.items?.slice(0, 4).map((item, i) => (
+                    {orderItems.length === 0 ? (
+                      <Text className="text-gray-500 italic font-semibold">No items found in this order.</Text>
+                    ) : orderItems.slice(0, 4).map((item, i) => (
                       <View key={i} className="flex-row items-center mb-3">
                         <View className="w-8 h-8 rounded-lg bg-black/50 items-center justify-center mr-3 border border-gray-700">
                           <Text className="font-black text-sm text-white">{item.quantity}x</Text>
@@ -156,8 +160,8 @@ export default function KitchenDisplayDashboard() {
                         <Text className="font-bold text-gray-200 text-lg flex-1" numberOfLines={2}>{item.name}</Text>
                       </View>
                     ))}
-                    {order.items && order.items.length > 4 && (
-                      <Text className="text-orange-400 font-bold mt-2 text-sm">+{order.items.length - 4} more items...</Text>
+                    {orderItems.length > 4 && (
+                      <Text className="text-orange-400 font-bold mt-2 text-sm">+{orderItems.length - 4} more items...</Text>
                     )}
                   </View>
 

@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { db, doc, onSnapshot, updateDoc, serverTimestamp } from '@repo/firebase-config';
 import { COLLECTIONS, formatCurrencyUZS, Order, OrderStatus, ORDER_STATUS_LABELS } from '@repo/shared-types';
+import { getOrderItems, getOrderTotal } from '../../utils/orderItems';
 
 export default function OrderDetailsModal() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -67,31 +68,39 @@ export default function OrderDetailsModal() {
 
   const action = getNextStatusAction();
   const statusColors = getStatusColor(order.status).split(' ');
+  const orderItems = getOrderItems(order);
 
   return (
-    <SafeAreaView className="flex-1 bg-[#0f172a]">
-      <View className="px-8 py-5 bg-[#0f172a] border-b border-gray-800 flex-row justify-between items-center shadow-sm">
-        <View className="flex-row items-center">
-          <TouchableOpacity onPress={() => router.back()} className="mr-6 p-3 bg-gray-800 rounded-full border border-gray-700">
+    <SafeAreaView className="flex-1" style={{ backgroundColor: '#0f172a' }}>
+      <View className="px-5 py-5 border-b border-gray-800 flex-row items-center shadow-sm" style={{ backgroundColor: '#0f172a' }}>
+        <View className="flex-row items-center flex-1 min-w-0">
+          <TouchableOpacity onPress={() => router.back()} className="mr-4 p-3 bg-gray-800 rounded-full border border-gray-700">
             <Ionicons name="close" size={28} color="#9CA3AF" />
           </TouchableOpacity>
-          <Text className="text-3xl font-black text-white tracking-wide">ORDER #{order.id.slice(0, 6).toUpperCase()}</Text>
+          <Text className="text-3xl font-black text-white tracking-wide flex-1" numberOfLines={1}>
+            ORDER #{order.id.slice(0, 6).toUpperCase()}
+          </Text>
         </View>
-        <View className={`px-6 py-3 rounded-xl border-2 ${statusColors[1]} ${statusColors[2]}`}>
+        <View className={`px-4 py-3 rounded-xl border-2 ml-3 ${statusColors[1]} ${statusColors[2]}`}>
           <Text className={`font-black uppercase tracking-widest text-lg ${statusColors[0]}`}>
             {ORDER_STATUS_LABELS[order.status] || order.status}
           </Text>
         </View>
       </View>
 
-      <ScrollView className="flex-1 bg-[#0f172a] p-5" contentContainerStyle={{ paddingBottom: 40 }}>
+      <ScrollView
+        className="flex-1"
+        style={{ backgroundColor: '#0f172a' }}
+        contentContainerStyle={{ padding: 20, paddingBottom: 40, backgroundColor: '#0f172a', flexGrow: 1 }}
+      >
         <Text className="text-gray-400 mb-4 uppercase tracking-wider font-bold text-xs">Order Items</Text>
 
-        {/* Failsafe Mapping */}
-        {(!order?.items && !(order as any)?.cartItems) ? (
-            <Text className="text-gray-500 italic">No items found in this order.</Text>
+        {orderItems.length === 0 ? (
+            <View className="bg-white/5 border border-white/10 p-4 rounded-xl">
+              <Text className="text-gray-400 italic font-semibold">No items found in this order.</Text>
+            </View>
         ) : (
-            (order.items || (order as any).cartItems || []).map((item, index) => (
+            orderItems.map((item, index) => (
                 <View key={index} className="flex-row justify-between items-center bg-white/5 border border-white/10 p-4 rounded-xl mb-3">
                     <View className="flex-row items-center flex-1">
                         <View className="bg-orange-500/20 w-8 h-8 rounded-full items-center justify-center mr-3 border border-orange-500/30">
@@ -112,7 +121,7 @@ export default function OrderDetailsModal() {
         <View className="mt-6 border-t border-white/10 pt-4 flex-row justify-between items-center">
             <Text className="text-gray-400 font-bold">Total Amount</Text>
             <Text className="text-white text-2xl font-black">
-                {formatCurrencyUZS(order?.totalAmount || 0)}
+                {formatCurrencyUZS(getOrderTotal(order))}
             </Text>
         </View>
 

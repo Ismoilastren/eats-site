@@ -306,7 +306,7 @@ service cloud.firestore {
       // Demo app connects by an admin-issued document ID. Profile writes remain restricted.
       allow get: if true;
       allow list: if isAuth();
-      allow create: if (isAuth() && isOwner(courierId)) || courierId == 'courier-demo-1';
+      allow create: if isAdmin() || (isAuth() && isOwner(courierId)) || courierId == 'courier-demo-1';
       allow update: if (isAuth() && (isOwner(courierId) || isAdmin())) ||
         isPublicCourierOperationalUpdate();
       allow delete: if isAdmin();

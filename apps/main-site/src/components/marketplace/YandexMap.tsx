@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { LocateFixed, MapPin, Minus, Plus } from 'lucide-react';
 import { toYandexCoords } from '@repo/shared-types';
 import {
@@ -101,9 +101,9 @@ export function YandexMap({
   const [loadError, setLoadError] = useState('');
   const [zoom, setZoom] = useState(14);
   const mapCenter = points[0] || center;
-  const pointsSignature = useMemo(() => JSON.stringify(points), [points]);
-  const lineSignature = useMemo(() => JSON.stringify(line || []), [line]);
-  const pathsSignature = useMemo(() => JSON.stringify(paths), [paths]);
+  const pointsSignature = JSON.stringify(points);
+  const lineSignature = JSON.stringify(line || []);
+  const pathsSignature = JSON.stringify(paths);
 
   useEffect(() => {
     onSelectRef.current = onSelect;
@@ -202,7 +202,7 @@ export function YandexMap({
     mapRef.current.update({
       location: { center: toYandexCoords(mapCenter), zoom, duration: 250 },
     });
-  }, [mapCenter.lat, mapCenter.lng, points, pointsSignature, status, zoom]);
+  }, [mapCenter.lat, mapCenter.lng, points.length, pointsSignature, status, zoom]);
 
   // Update markers/lines without remounting
   useEffect(() => {
@@ -247,7 +247,7 @@ export function YandexMap({
     });
 
     dynamicChildrenRef.current = nextChildren;
-  }, [line, lineSignature, paths, pathsSignature, points, pointsSignature, status]);
+  }, [lineSignature, pathsSignature, pointsSignature, status]);
 
   const updateZoom = (nextZoom: number) => {
     const bounded = Math.min(18, Math.max(4, nextZoom));

@@ -36,6 +36,24 @@ interface OrderDoc {
   [key: string]: any;
 }
 
+function getCourierVehicleSnapshot(courier: NonNullable<ReturnType<typeof useAuthStore.getState>['courier']>) {
+  const vehicle = [
+    courier.vehicleName || courier.vehicleBrand,
+    courier.vehicleModel,
+    courier.plateNumber || courier.licensePlate,
+  ].filter(Boolean).join(' ') || courier.vehicleName || courier.vehicleType;
+
+  return {
+    vehicle,
+    vehicleType: courier.vehicleType,
+    vehicleName: courier.vehicleName,
+    vehicleBrand: courier.vehicleBrand,
+    vehicleModel: courier.vehicleModel,
+    plateNumber: courier.plateNumber,
+    licensePlate: courier.licensePlate,
+  };
+}
+
 export default function RadarScreen() {
   const courier = useAuthStore((state) => state.courier);
   const isOnline = useAuthStore((state) => state.isOnline);
@@ -113,6 +131,7 @@ export default function RadarScreen() {
         if (!COURIER_RADAR_STATUSES.includes(status) || orderData.assignedCourier || orderData.courierId) {
           throw new Error('This order was already accepted or cancelled.');
         }
+        const vehicleSnapshot = getCourierVehicleSnapshot(courier);
 
         transaction.update(orderRef, {
           courierId: courier.id,
@@ -122,7 +141,14 @@ export default function RadarScreen() {
             id: courier.id,
             name: courier.name,
             phone: courier.phone,
-            vehicleType: courier.vehicleType,
+            ...vehicleSnapshot,
+          },
+          courier: {
+            uid: courier.id,
+            id: courier.id,
+            name: courier.name,
+            phone: courier.phone,
+            ...vehicleSnapshot,
           },
           updatedAt: serverTimestamp(),
         });

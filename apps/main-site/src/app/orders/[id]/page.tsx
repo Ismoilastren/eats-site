@@ -46,14 +46,16 @@ export default function OrderTrackingPage() {
     if (order) setStep(order.statusIndex);
   }, [order]);
 
+  const activeCourierId = order?.assignedCourier?.id || order?.courier?.id || order?.courierId || '';
+
   useEffect(() => {
-    const courierId = order?.assignedCourier?.id;
+    const courierId = activeCourierId;
     if (!courierId) {
       setCourierSnapshot(null);
       return;
     }
     return subscribeToCourierTracking(courierId, setCourierSnapshot);
-  }, [order?.assignedCourier?.id]);
+  }, [activeCourierId]);
 
   useEffect(() => {
     if (!order?.restaurantId) {
@@ -74,8 +76,18 @@ export default function OrderTrackingPage() {
   }, [order?.restaurantId]);
 
   const eta = useMemo(() => Math.max(4, Number(order?.etaMinutes || 24) - step * 4), [order?.etaMinutes, step]);
-  const courier = order?.assignedCourier || order?.courier || null;
-  const hasCourier = Boolean(order?.assignedCourier?.id);
+  const courier = useMemo(() => {
+    const orderCourier = order?.assignedCourier || order?.courier || null;
+    if (!orderCourier && !courierSnapshot) return null;
+    return {
+      ...orderCourier,
+      name: courierSnapshot?.name || orderCourier?.name || 'Assigned courier',
+      phone: courierSnapshot?.phone || orderCourier?.phone || '',
+      vehicle: courierSnapshot?.vehicle || orderCourier?.vehicle || '',
+      vehicleType: courierSnapshot?.vehicleType || orderCourier?.vehicleType || '',
+    };
+  }, [courierSnapshot, order?.assignedCourier, order?.courier]);
+  const hasCourier = Boolean(activeCourierId);
   const restaurant = trackingRestaurant || restaurants.find((item) => item.id === order?.restaurantId);
 
   return (

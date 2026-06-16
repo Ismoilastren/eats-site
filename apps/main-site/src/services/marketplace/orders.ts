@@ -61,6 +61,10 @@ export type CustomerOrderIdentity = {
 export type CourierTrackingSnapshot = {
   currentLocation: ReturnType<typeof readCoordinate>;
   lastUpdated?: string;
+  name?: string;
+  phone?: string;
+  vehicle?: string;
+  vehicleType?: string;
 };
 
 type CourierSnapshot = {
@@ -73,6 +77,15 @@ type CourierSnapshot = {
   phoneNumber?: string;
   vehicle?: string;
   vehicleType?: string;
+  vehicleName?: string;
+  vehicleBrand?: string;
+  vehicleModel?: string;
+  plateNumber?: string;
+  licensePlate?: string;
+  vehiclePlate?: string;
+  currentLocation?: unknown;
+  location?: unknown;
+  lastUpdated?: unknown;
   deleted?: boolean;
   archived?: boolean;
   isDeleted?: boolean;
@@ -100,6 +113,25 @@ function readCourierPhone(value?: CourierSnapshot | null) {
   return String(value?.phone || value?.phoneNumber || '').trim();
 }
 
+function firstText(...values: unknown[]) {
+  for (const value of values) {
+    const text = String(value || '').trim();
+    if (text) return text;
+  }
+  return '';
+}
+
+function readCourierVehicle(value?: CourierSnapshot | null) {
+  if (!value) return '';
+  const vehicleDetails = [
+    firstText(value.vehicleName, value.vehicleBrand),
+    firstText(value.vehicleModel),
+    firstText(value.plateNumber, value.licensePlate, value.vehiclePlate),
+  ].filter(Boolean).join(' ');
+
+  return vehicleDetails || firstText(value.vehicle);
+}
+
 function isRealCourierSnapshot(value?: CourierSnapshot | null) {
   if (!value || typeof value !== 'object') return false;
   const id = readCourierId(value);
@@ -122,7 +154,7 @@ function normalizeAssignedCourier(value: unknown): LocalOrder['assignedCourier']
     id: readCourierId(raw),
     name: readCourierName(raw),
     phone: readCourierPhone(raw),
-    vehicle: raw.vehicle ? String(raw.vehicle) : '',
+    vehicle: readCourierVehicle(raw),
     vehicleType: raw.vehicleType ? String(raw.vehicleType) : '',
   };
 }
@@ -189,7 +221,7 @@ function writeMockOrders(orders: LocalOrder[]) {
 function mapFirestoreOrder(data: DocumentData, id: string): LocalOrder {
   const status = normalizeOrderStatus(String(data.status || 'pending'));
   const assignedCourier = normalizeAssignedCourier(data.assignedCourier);
-  const rawCourier = data.courier && typeof data.courier === 'object' ? data.courier : null;
+  const rawCourier = data.courier && typeof data.courier === 'object' ? data.courier as CourierSnapshot : null;
   const hasRawCourier = Boolean(
     rawCourier
     && (rawCourier.id || rawCourier.uid || rawCourier.name || rawCourier.phone || rawCourier.vehicle)
@@ -198,19 +230,19 @@ function mapFirestoreOrder(data: DocumentData, id: string): LocalOrder {
   const courier = assignedCourier
     ? {
       name: String(assignedCourier.name || 'Courier'),
-      vehicle: String(assignedCourier.vehicle || ''),
+      vehicle: String(assignedCourier.vehicle || readCourierVehicle(rawCourier)),
       vehicleType: String(assignedCourier.vehicleType || ''),
       phone: String(assignedCourier.phone || ''),
       currentLocation: readCoordinate(rawCourier?.currentLocation),
       location: readCoordinate(rawCourier?.location),
       lastUpdated: rawCourier?.lastUpdated ? dateFromFirestore(rawCourier.lastUpdated) : undefined,
     }
-    : hasRawCourier
+    : rawCourier && hasRawCourier
       ? {
-        name: String(rawCourier.name || 'Courier'),
-        vehicle: String(rawCourier.vehicle || ''),
+        name: readCourierName(rawCourier) || 'Courier',
+        vehicle: readCourierVehicle(rawCourier),
         vehicleType: String(rawCourier.vehicleType || ''),
-        phone: String(rawCourier.phone || ''),
+        phone: readCourierPhone(rawCourier),
         currentLocation: readCoordinate(rawCourier.currentLocation),
         location: readCoordinate(rawCourier.location),
         lastUpdated: rawCourier.lastUpdated ? dateFromFirestore(rawCourier.lastUpdated) : undefined,
@@ -545,11 +577,16 @@ export function subscribeToCourierTracking(
         return;
       }
       const data = snapshot.data();
+      const courier = { id: snapshot.id, uid: snapshot.id, ...data } as CourierSnapshot;
       onChange({
         currentLocation: readCoordinate(data.currentLocation),
         lastUpdated: data.lastSeenAt || data.updatedAt
           ? dateFromFirestore(data.lastSeenAt || data.updatedAt)
           : undefined,
+        name: readCourierName(courier) || undefined,
+        phone: readCourierPhone(courier) || undefined,
+        vehicle: readCourierVehicle(courier) || undefined,
+        vehicleType: courier.vehicleType ? String(courier.vehicleType) : undefined,
       });
     },
     () => onChange(null),

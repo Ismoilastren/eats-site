@@ -21,6 +21,7 @@ export type NormalizedCoordinate = {
 export const TERMINAL_ORDER_STATUSES: OrderStatus[] = ['delivered', 'cancelled', 'rejected'];
 export const COURIER_RADAR_STATUSES: OrderStatus[] = ['preparing', 'ready_for_pickup'];
 export const ACTIVE_COURIER_STATUSES: OrderStatus[] = [
+  'preparing',
   'ready_for_pickup',
   'picked_up',
   'on_the_way',

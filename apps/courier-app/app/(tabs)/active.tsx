@@ -25,6 +25,7 @@ import {
   runTransaction,
 } from '@repo/firebase-config';
 import {
+  ACTIVE_COURIER_STATUSES,
   formatCurrencyUZS,
   getVehicleLabel,
   isTerminalOrderStatus,
@@ -65,6 +66,12 @@ interface OrderDoc {
     lng?: number;
   } | null;
   restaurantLocation?: {
+    latitude?: number;
+    longitude?: number;
+    lat?: number;
+    lng?: number;
+  } | null;
+  courierLocation?: {
     latitude?: number;
     longitude?: number;
     lat?: number;
@@ -165,10 +172,26 @@ const getItemQuantity = (item: OrderItemDoc) => {
   return Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
 };
 
+const getOrderTimestamp = (value: unknown) => {
+  if (!value) return 0;
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'string') {
+    const time = Date.parse(value);
+    return Number.isFinite(time) ? time : 0;
+  }
+  if (typeof value === 'object') {
+    const record = value as { toDate?: () => Date; seconds?: number };
+    if (typeof record.toDate === 'function') return record.toDate().getTime();
+    if (typeof record.seconds === 'number') return record.seconds * 1000;
+  }
+  return 0;
+};
+
 export default function ActiveScreen() {
   const courier = useAuthStore((state) => state.courier);
   const isBooting = useAuthStore((state) => state.isLoading);
   const courierId = courier?.id || null;
+  const currentCourierOrderId = courier?.currentOrderId || null;
   const [activeOrders, setActiveOrders] = useState<OrderDoc[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [deliveringId, setDeliveringId] = useState<string | null>(null);
@@ -200,11 +223,16 @@ export default function ActiveScreen() {
       const mergedMap = new Map<string, OrderDoc>();
       [...list1, ...list2].forEach((data) => {
         const status = normalizeOrderStatus(data.status);
-        if (['ready_for_pickup', 'picked_up', 'on_the_way'].includes(status)) {
+        if (ACTIVE_COURIER_STATUSES.includes(status)) {
           mergedMap.set(data.id, data);
         }
       });
-      setActiveOrders(Array.from(mergedMap.values()));
+      const merged = Array.from(mergedMap.values()).sort((a, b) => {
+        if (a.id === currentCourierOrderId) return -1;
+        if (b.id === currentCourierOrderId) return 1;
+        return getOrderTimestamp(b.updatedAt || b.createdAt) - getOrderTimestamp(a.updatedAt || a.createdAt);
+      });
+      setActiveOrders(merged);
       setIsLoading(false);
     };
 
@@ -236,7 +264,7 @@ export default function ActiveScreen() {
       unsub1();
       unsub2();
     };
-  }, [courierId]);
+  }, [courierId, currentCourierOrderId]);
 
   useEffect(() => {
     let locationSubscription: Location.LocationSubscription | null = null;
@@ -479,8 +507,19 @@ export default function ActiveScreen() {
               normalizeCoordinate(order.deliveryLocation) ||
               normalizeCoordinate(order.customerLocation) ||
               TASHKENT_CUSTOMER_FALLBACK;
-            const route = [restaurant, customer];
-            const initialRegion = getMapRegion(restaurant, customer);
+            const courierLocation = normalizeCoordinate(order.courierLocation);
+            const route =
+              normalizedStatus === 'ready_for_pickup' || normalizedStatus === 'preparing'
+                ? courierLocation
+                  ? [courierLocation, restaurant]
+                  : []
+                : ['picked_up', 'on_the_way'].includes(normalizedStatus)
+                  ? [courierLocation || restaurant, customer]
+                  : [];
+            const initialRegion =
+              route.length >= 2
+                ? getMapRegion(route[0], route[route.length - 1])
+                : getMapRegion(restaurant, customer);
             const itemCount = order.items?.length ?? 0;
 
             return (
@@ -527,12 +566,21 @@ export default function ActiveScreen() {
                         <Ionicons name="home" size={16} color="white" />
                       </View>
                     </Marker>
-                    <Polyline
-                      coordinates={route}
-                      strokeColor="#f97316"
-                      strokeWidth={5}
-                      lineDashPattern={[1]}
-                    />
+                    {courierLocation ? (
+                      <Marker coordinate={courierLocation} title="Courier">
+                        <View style={styles.courierMarker}>
+                          <Ionicons name="car" size={16} color="white" />
+                        </View>
+                      </Marker>
+                    ) : null}
+                    {route.length >= 2 ? (
+                      <Polyline
+                        coordinates={route}
+                        strokeColor="#f97316"
+                        strokeWidth={5}
+                        lineDashPattern={[8, 8]}
+                      />
+                    ) : null}
                   </MapView>
                 </View>
 
@@ -800,6 +848,16 @@ const styles = StyleSheet.create({
     height: 34,
     borderRadius: 17,
     backgroundColor: '#10b981',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'white',
+  },
+  courierMarker: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#2563eb',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,

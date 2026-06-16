@@ -290,6 +290,10 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
   const assignedCourier = invalidAssignedCourierReason ? null : order.assignedCourier || null;
   const assignedCourierId = assignedCourier?.id || null;
   const courierVehicleType = normalizeVehicleType(assignedCourier?.vehicleType || assignedCourier?.vehicle || currentCourier?.vehicleType);
+  const courierVehicleDetails = getCourierVehicle({
+    ...(currentCourier || {}),
+    ...(assignedCourier || {}),
+  } as Partial<AdminCourierRecord>);
   const CourierVehicleIcon =
     courierVehicleType === 'car' ? Car :
     courierVehicleType === 'foot' ? Footprints :
@@ -486,7 +490,7 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
                           <p className="text-xs text-blue-400 font-bold uppercase tracking-wider mb-1">Active Courier</p>
                           <p className="text-white font-bold text-lg">{assignedCourier?.name || order?.courierName || 'Courier'}</p>
                           <p className="text-gray-400 text-sm">
-                            {[assignedCourier?.phone || order?.courierPhone, getVehicleLabel(courierVehicleType)].filter(Boolean).join(' - ')}
+                            {[assignedCourier?.phone || order?.courierPhone, courierVehicleDetails.vehicle || getVehicleLabel(courierVehicleType)].filter(Boolean).join(' - ')}
                           </p>
                           </div>
                       </div>

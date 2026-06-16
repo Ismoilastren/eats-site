@@ -43,7 +43,7 @@ function getCourierVehicleSnapshot(courier: NonNullable<ReturnType<typeof useAut
     courier.plateNumber || courier.licensePlate,
   ].filter(Boolean).join(' ') || courier.vehicleName || courier.vehicleType;
 
-  return {
+  return Object.fromEntries(Object.entries({
     vehicle,
     vehicleType: courier.vehicleType,
     vehicleName: courier.vehicleName,
@@ -51,7 +51,7 @@ function getCourierVehicleSnapshot(courier: NonNullable<ReturnType<typeof useAut
     vehicleModel: courier.vehicleModel,
     plateNumber: courier.plateNumber,
     licensePlate: courier.licensePlate,
-  };
+  }).filter(([, value]) => value !== undefined && value !== null && value !== ''));
 }
 
 export default function RadarScreen() {

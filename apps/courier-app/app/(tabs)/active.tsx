@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
+  Platform,
   StyleSheet,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -344,64 +345,84 @@ export default function ActiveScreen() {
     await Linking.openURL(`tel:${phone}`);
   };
 
+  const completeDeliveredOrder = async (orderId: string) => {
+    if (deliveringId) return;
+    setDeliveringId(orderId);
+    try {
+      if (!courierId) throw new Error('Courier ID is missing');
+
+      const orderRef = doc(db, 'orders', orderId);
+      const courierRef = doc(db, 'couriers', courierId);
+
+      await runTransaction(db, async (transaction) => {
+        const orderSnap = await transaction.get(orderRef);
+        if (!orderSnap.exists()) throw new Error('Order no longer exists');
+
+        const orderData = orderSnap.data() as OrderDoc;
+        if (normalizeOrderStatus(orderData.status) === 'delivered') {
+          throw new Error('Order was already delivered');
+        }
+        if (normalizeOrderStatus(orderData.status) !== 'on_the_way') {
+          throw new Error('Order is not ready to be delivered');
+        }
+        const assignedCourierId =
+          orderData.assignedCourier?.id ||
+          String(orderData.courierId || '');
+        if (assignedCourierId !== courierId) {
+          throw new Error('This order is assigned to another courier');
+        }
+
+        transaction.update(orderRef, {
+          status: 'delivered',
+          deliveredAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+
+        transaction.update(courierRef, {
+          currentOrderId: null,
+          status: 'online',
+          isOnline: true,
+          isAvailable: true,
+          lastSeenAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      });
+
+      Alert.alert('Done', 'Order marked as delivered.');
+    } catch (error) {
+      console.error('Failed to mark order delivered:', error);
+      Alert.alert(
+        'Error',
+        error instanceof Error ? error.message : 'Failed to update order.'
+      );
+    } finally {
+      setDeliveringId(null);
+    }
+  };
+
   const markDelivered = async (orderId: string) => {
     if (deliveringId) return;
+
+    if (Platform.OS === 'web') {
+      const webConfirm = (globalThis as unknown as {
+        confirm?: (message?: string) => boolean;
+      }).confirm;
+      const confirmed =
+        typeof webConfirm !== 'function'
+          ? true
+          : webConfirm('Mark this order as delivered?');
+      if (confirmed) {
+        await completeDeliveredOrder(orderId);
+      }
+      return;
+    }
+
     Alert.alert('Confirm Delivery', 'Mark this order as delivered?', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Deliver',
-        onPress: async () => {
-          setDeliveringId(orderId);
-          try {
-            if (!courierId) throw new Error('Courier ID is missing');
-
-            const orderRef = doc(db, 'orders', orderId);
-            const courierRef = doc(db, 'couriers', courierId);
-
-            await runTransaction(db, async (transaction) => {
-              const orderSnap = await transaction.get(orderRef);
-              if (!orderSnap.exists()) throw new Error('Order no longer exists');
-
-              const orderData = orderSnap.data() as OrderDoc;
-              if (normalizeOrderStatus(orderData.status) === 'delivered') {
-                throw new Error('Order was already delivered');
-              }
-              if (normalizeOrderStatus(orderData.status) !== 'on_the_way') {
-                throw new Error('Order is not ready to be delivered');
-              }
-              const assignedCourierId =
-                orderData.assignedCourier?.id ||
-                String(orderData.courierId || '');
-              if (assignedCourierId !== courierId) {
-                throw new Error('This order is assigned to another courier');
-              }
-
-              transaction.update(orderRef, {
-                status: 'delivered',
-                deliveredAt: serverTimestamp(),
-                updatedAt: serverTimestamp(),
-              });
-
-              transaction.update(courierRef, {
-                currentOrderId: null,
-                status: 'online',
-                isOnline: true,
-                isAvailable: true,
-                lastSeenAt: serverTimestamp(),
-                updatedAt: serverTimestamp(),
-              });
-            });
-
-            Alert.alert('Done', 'Order marked as delivered.');
-          } catch (error) {
-            console.error('Failed to mark order delivered:', error);
-            Alert.alert(
-              'Error',
-              error instanceof Error ? error.message : 'Failed to update order.'
-            );
-          } finally {
-            setDeliveringId(null);
-          }
+        onPress: () => {
+          void completeDeliveredOrder(orderId);
         },
       },
     ]);

@@ -1,6 +1,5 @@
-import { create } from 'zustand';
+import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createJSONStorage, persist } from 'zustand/middleware';
 import type { NormalizedCoordinate, OrderItem } from '@repo/shared-types';
 
 export interface CartItem extends OrderItem {
@@ -38,95 +37,138 @@ const money = (value: unknown) => {
   return Number.isFinite(amount) && amount >= 0 ? amount : 0;
 };
 
-export const useCartStore = create<CartState>()(
-  persist(
-    (set, get) => ({
-      items: [],
-      restaurant: null,
-      deliveryFee: 0,
-      lastSwitchWarning: null,
+const CART_STORAGE_KEY = 'client-app-cart';
 
-      addItem: (item, restaurant) => {
-        const { items, restaurant: currentRestaurant } = get();
-        const normalizedItem = {
-          ...item,
-          price: money(item.price),
-          quantity: Math.max(1, Number(item.quantity) || 1),
-          restaurantId: restaurant.id,
-          restaurantName: restaurant.name,
-        };
+type CartStore = UseBoundStore<StoreApi<CartState>> & {
+  persist: {
+    hasHydrated: () => boolean;
+    onFinishHydration: (listener: () => void) => () => void;
+  };
+};
 
-        if (currentRestaurant?.id && currentRestaurant.id !== restaurant.id) {
-          set({
-            items: [normalizedItem],
-            restaurant,
-            deliveryFee: money(restaurant.deliveryFee),
-            lastSwitchWarning: 'Cart switched to the selected restaurant.',
-          });
-          return;
-        }
+let hydrated = false;
+const hydrationListeners = new Set<() => void>();
 
-        const existing = items.find((cartItem) => cartItem.id === normalizedItem.id);
-        if (existing) {
-          set({
-            items: items.map((cartItem) =>
-              cartItem.id === normalizedItem.id
-                ? { ...cartItem, quantity: cartItem.quantity + normalizedItem.quantity }
-                : cartItem
-            ),
-            restaurant,
-            deliveryFee: money(restaurant.deliveryFee),
-          });
-          return;
-        }
+const partialize = (state: CartState) => ({
+  items: state.items,
+  restaurant: state.restaurant,
+  deliveryFee: state.deliveryFee,
+  lastSwitchWarning: null,
+});
 
-        set({
-          items: [...items, normalizedItem],
-          restaurant,
-          deliveryFee: money(restaurant.deliveryFee),
-        });
-      },
+export const useCartStore = create<CartState>()((set, get) => ({
+  items: [],
+  restaurant: null,
+  deliveryFee: 0,
+  lastSwitchWarning: null,
 
-      removeItem: (itemId) => {
-        const nextItems = get().items.filter((item) => item.id !== itemId);
-        set({
-          items: nextItems,
-          ...(nextItems.length === 0
-            ? { restaurant: null, deliveryFee: 0, lastSwitchWarning: null }
-            : {}),
-        });
-      },
+  addItem: (item, restaurant) => {
+    const { items, restaurant: currentRestaurant } = get();
+    const normalizedItem = {
+      ...item,
+      price: money(item.price),
+      quantity: Math.max(1, Number(item.quantity) || 1),
+      restaurantId: restaurant.id,
+      restaurantName: restaurant.name,
+    };
 
-      updateQuantity: (itemId, quantity) => {
-        const nextQuantity = Number(quantity);
-        if (!Number.isFinite(nextQuantity) || nextQuantity <= 0) {
-          get().removeItem(itemId);
-          return;
-        }
-
-        set({
-          items: get().items.map((item) =>
-            item.id === itemId ? { ...item, quantity: Math.floor(nextQuantity) } : item
-          ),
-        });
-      },
-
-      setDeliveryFee: (fee) => set({ deliveryFee: money(fee) }),
-      clearSwitchWarning: () => set({ lastSwitchWarning: null }),
-      clearCart: () => set({ items: [], restaurant: null, deliveryFee: 0, lastSwitchWarning: null }),
-      getSubtotal: () => get().items.reduce((sum, item) => sum + money(item.price) * item.quantity, 0),
-      getTotal: () => get().getSubtotal() + money(get().deliveryFee),
-      getItemCount: () => get().items.reduce((count, item) => count + item.quantity, 0),
-    }),
-    {
-      name: 'client-app-cart',
-      storage: createJSONStorage(() => AsyncStorage),
-      partialize: (state) => ({
-        items: state.items,
-        restaurant: state.restaurant,
-        deliveryFee: state.deliveryFee,
-        lastSwitchWarning: null,
-      }),
+    if (currentRestaurant?.id && currentRestaurant.id !== restaurant.id) {
+      set({
+        items: [normalizedItem],
+        restaurant,
+        deliveryFee: money(restaurant.deliveryFee),
+        lastSwitchWarning: 'Cart switched to the selected restaurant.',
+      });
+      return;
     }
-  )
-);
+
+    const existing = items.find((cartItem) => cartItem.id === normalizedItem.id);
+    if (existing) {
+      set({
+        items: items.map((cartItem) =>
+          cartItem.id === normalizedItem.id
+            ? { ...cartItem, quantity: cartItem.quantity + normalizedItem.quantity }
+            : cartItem
+        ),
+        restaurant,
+        deliveryFee: money(restaurant.deliveryFee),
+      });
+      return;
+    }
+
+    set({
+      items: [...items, normalizedItem],
+      restaurant,
+      deliveryFee: money(restaurant.deliveryFee),
+    });
+  },
+
+  removeItem: (itemId) => {
+    const nextItems = get().items.filter((item) => item.id !== itemId);
+    set({
+      items: nextItems,
+      ...(nextItems.length === 0
+        ? { restaurant: null, deliveryFee: 0, lastSwitchWarning: null }
+        : {}),
+    });
+  },
+
+  updateQuantity: (itemId, quantity) => {
+    const nextQuantity = Number(quantity);
+    if (!Number.isFinite(nextQuantity) || nextQuantity <= 0) {
+      get().removeItem(itemId);
+      return;
+    }
+
+    set({
+      items: get().items.map((item) =>
+        item.id === itemId ? { ...item, quantity: Math.floor(nextQuantity) } : item
+      ),
+    });
+  },
+
+  setDeliveryFee: (fee) => set({ deliveryFee: money(fee) }),
+  clearSwitchWarning: () => set({ lastSwitchWarning: null }),
+  clearCart: () => set({ items: [], restaurant: null, deliveryFee: 0, lastSwitchWarning: null }),
+  getSubtotal: () => get().items.reduce((sum, item) => sum + money(item.price) * item.quantity, 0),
+  getTotal: () => get().getSubtotal() + money(get().deliveryFee),
+  getItemCount: () => get().items.reduce((count, item) => count + item.quantity, 0),
+})) as CartStore;
+
+useCartStore.persist = {
+  hasHydrated: () => hydrated,
+  onFinishHydration: (listener) => {
+    hydrationListeners.add(listener);
+    return () => hydrationListeners.delete(listener);
+  },
+};
+
+useCartStore.subscribe((state) => {
+  if (!hydrated) return;
+  void AsyncStorage.setItem(
+    CART_STORAGE_KEY,
+    JSON.stringify({ state: partialize(state), version: 0 })
+  );
+});
+
+void (async () => {
+  try {
+    const raw = await AsyncStorage.getItem(CART_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as { state?: Partial<CartState> } | Partial<CartState>;
+      const state: Partial<CartState> =
+        'state' in parsed && parsed.state ? parsed.state : (parsed as Partial<CartState>);
+      useCartStore.setState({
+        items: Array.isArray(state.items) ? state.items : [],
+        restaurant: state.restaurant ?? null,
+        deliveryFee: money(state.deliveryFee),
+        lastSwitchWarning: null,
+      });
+    }
+  } catch (error) {
+    console.warn('Cart hydration failed:', error);
+  } finally {
+    hydrated = true;
+    hydrationListeners.forEach((listener) => listener());
+  }
+})();

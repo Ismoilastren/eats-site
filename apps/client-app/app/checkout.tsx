@@ -195,8 +195,8 @@ export default function CheckoutScreen() {
       Alert.alert('Empty cart', 'Add items before checking out.');
       return;
     }
-    if (!location) {
-      Alert.alert('Location required', 'GPS location is needed for delivery tracking.');
+    if (!addressText.trim()) {
+      Alert.alert('Address required', 'Please enter a delivery address.');
       return;
     }
     if (paymentType === 'card' && !selectedCardId) {
@@ -211,6 +211,9 @@ export default function CheckoutScreen() {
       const customerName = user?.displayName || firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Customer';
       const customerPhone = user?.phone || firebaseUser.phoneNumber || '';
       const restaurantLocation = normalizeCoordinate(restaurant.location) || TASHKENT;
+      const deliveryPoint = location?.coords
+        ? { latitude: location.coords.latitude, longitude: location.coords.longitude }
+        : TASHKENT;
       const calculatedTotal = subtotal + latestFee;
 
       const orderRef = await addDoc(collection(db, COLLECTIONS.ORDERS), {
@@ -218,10 +221,10 @@ export default function CheckoutScreen() {
         customerName,
         customerEmail: firebaseUser.email || user?.email || '',
         customerPhone,
-        customerAddress: addressText,
-        customerLocation: { lat: location.coords.latitude, lng: location.coords.longitude },
-        deliveryAddress: addressText,
-        deliveryLocation: { latitude: location.coords.latitude, longitude: location.coords.longitude },
+        customerAddress: addressText.trim(),
+        customerLocation: { lat: deliveryPoint.latitude, lng: deliveryPoint.longitude },
+        deliveryAddress: addressText.trim(),
+        deliveryLocation: deliveryPoint,
         restaurantId: restaurant.id,
         restaurantName: restaurant.name,
         restaurantImage: restaurant.imageUrl || '',

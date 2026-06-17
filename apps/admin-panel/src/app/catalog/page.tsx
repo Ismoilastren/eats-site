@@ -8,8 +8,30 @@ import toast from 'react-hot-toast';
 
 type CatalogItem = MenuItem & {
   restaurantName: string;
+  brandName: string;
+  branchName: string;
+  branchAddress: string;
   source: 'restaurant_dishes' | 'menuItems';
 };
+
+type CatalogRestaurant = Restaurant & {
+  brandName?: string;
+  branchName?: string;
+  branchAddress?: string;
+  cuisines?: string[];
+};
+
+function getBrandName(restaurant?: Partial<CatalogRestaurant> | null) {
+  return String(restaurant?.brandName || restaurant?.name || 'Restaurant brand').trim();
+}
+
+function getBranchName(restaurant?: Partial<CatalogRestaurant> | null) {
+  return String(restaurant?.branchName || 'Main branch').trim();
+}
+
+function getBranchAddress(restaurant?: Partial<CatalogRestaurant> | null) {
+  return String(restaurant?.branchAddress || restaurant?.address || (restaurant as any)?.location?.address || '').trim();
+}
 
 export default function CatalogPage() {
   const [items, setItems] = useState<CatalogItem[]>([]);
@@ -28,8 +50,8 @@ export default function CatalogPage() {
         const restaurants = restaurantsSnap.docs.map((documentSnapshot) => ({
           id: documentSnapshot.id,
           ...documentSnapshot.data(),
-        })) as Restaurant[];
-        const restaurantNames = new Map(restaurants.map((restaurant) => [restaurant.id, restaurant.name]));
+        })) as CatalogRestaurant[];
+        const restaurantMeta = new Map(restaurants.map((restaurant) => [restaurant.id, restaurant]));
 
         const nestedItems = await Promise.all(restaurants.map(async (restaurant) => {
           try {
@@ -38,6 +60,9 @@ export default function CatalogPage() {
               id: documentSnapshot.id,
               restaurantId: restaurant.id,
               restaurantName: restaurant.name,
+              brandName: getBrandName(restaurant),
+              branchName: getBranchName(restaurant),
+              branchAddress: getBranchAddress(restaurant),
               source: 'restaurant_dishes' as const,
               ...documentSnapshot.data(),
             })) as CatalogItem[];
@@ -49,10 +74,14 @@ export default function CatalogPage() {
         const topLevelSnap = await getDocs(collection(db, COLLECTIONS.MENU_ITEMS));
         const topLevelItems = topLevelSnap.docs.map((documentSnapshot) => {
           const data = documentSnapshot.data() as Partial<MenuItem>;
+          const restaurant = restaurantMeta.get(data.restaurantId || '');
           return {
             id: documentSnapshot.id,
             restaurantId: data.restaurantId || '',
-            restaurantName: restaurantNames.get(data.restaurantId || '') || 'Unknown restaurant',
+            restaurantName: restaurant?.name || 'Unknown restaurant',
+            brandName: data.brandName || getBrandName(restaurant),
+            branchName: data.branchName || getBranchName(restaurant),
+            branchAddress: getBranchAddress(restaurant),
             source: 'menuItems' as const,
             ...data,
           } as CatalogItem;
@@ -66,7 +95,7 @@ export default function CatalogPage() {
           return Boolean(item.name);
         });
 
-        setItems(merged.sort((a, b) => a.restaurantName.localeCompare(b.restaurantName) || a.name.localeCompare(b.name)));
+        setItems(merged.sort((a, b) => a.brandName.localeCompare(b.brandName) || a.branchName.localeCompare(b.branchName) || a.name.localeCompare(b.name)));
       } catch (error) {
         console.error(error);
         toast.error('Failed to load catalog');
@@ -78,21 +107,21 @@ export default function CatalogPage() {
     loadCatalog();
   }, []);
 
-  const restaurants = useMemo(() => Array.from(new Set(items.map((item) => item.restaurantName.trim()).filter(Boolean))).sort(), [items]);
+  const restaurants = useMemo(() => Array.from(new Set(items.map((item) => `${item.brandName} · ${item.branchName}`.trim()).filter(Boolean))).sort(), [items]);
   const categories = useMemo(() => Array.from(new Set(items.map((item) => (item.category || 'Uncategorized').trim() || 'Uncategorized'))).sort(), [items]);
 
   const filteredItems = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
     return items.filter((item) => {
       const available = item.isAvailable !== false;
-      const restaurantName = item.restaurantName.trim();
+      const restaurantName = `${item.brandName} · ${item.branchName}`.trim();
       const category = (item.category || 'Uncategorized').trim() || 'Uncategorized';
       if (restaurantFilter !== 'all' && restaurantName !== restaurantFilter) return false;
       if (categoryFilter !== 'all' && category !== categoryFilter) return false;
       if (availabilityFilter === 'available' && !available) return false;
       if (availabilityFilter === 'unavailable' && available) return false;
       if (normalizedSearch) {
-        const haystack = [item.name, item.description, item.category, item.restaurantName].join(' ').toLowerCase();
+        const haystack = [item.name, item.description, item.category, item.restaurantName, item.brandName, item.branchName, item.branchAddress].join(' ').toLowerCase();
         if (!haystack.includes(normalizedSearch)) return false;
       }
       return true;
@@ -176,7 +205,7 @@ export default function CatalogPage() {
               <thead>
                 <tr className="border-b border-gray-200 bg-gray-50 text-xs font-bold uppercase tracking-wide text-gray-500 dark:border-gray-700 dark:bg-gray-800/50 dark:text-gray-400">
                   <th className="px-6 py-3 text-left">Product</th>
-                  <th className="px-6 py-3 text-left">Restaurant</th>
+                  <th className="px-6 py-3 text-left">Brand / Branch</th>
                   <th className="px-6 py-3 text-left">Category</th>
                   <th className="px-6 py-3 text-left">Price</th>
                   <th className="px-6 py-3 text-left">Source</th>
@@ -198,7 +227,9 @@ export default function CatalogPage() {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-sm font-semibold text-gray-700 dark:text-gray-200">
-                      <Link className="hover:text-brand-500" href={`/restaurants/edit/${item.restaurantId}`}>{item.restaurantName}</Link>
+                      <Link className="font-bold hover:text-brand-500" href={`/restaurants/edit/${item.restaurantId}`}>{item.brandName}</Link>
+                      <p className="text-xs font-semibold text-gray-500">{item.branchName}</p>
+                      {item.branchAddress && <p className="max-w-xs truncate text-xs text-gray-400">{item.branchAddress}</p>}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">{item.category || 'Uncategorized'}</td>
                     <td className="px-6 py-4 text-sm font-bold text-gray-900 dark:text-white">{formatCurrencyUZS(item.price || 0)}</td>

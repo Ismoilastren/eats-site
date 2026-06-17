@@ -35,6 +35,10 @@ export type MarketplaceOrderInput = {
   customerEmail?: string;
   restaurantId: string;
   restaurantName: string;
+  brandId?: string;
+  brandName?: string;
+  branchId?: string;
+  branchName?: string;
   restaurantLocation?: { lat: number; lng: number; address?: string };
   customerLocation?: { lat: number; lng: number };
   items: CartLine[];
@@ -255,6 +259,10 @@ function mapFirestoreOrder(data: DocumentData, id: string): LocalOrder {
     customerEmail: data.customerEmail ? String(data.customerEmail) : undefined,
     restaurantId: String(data.restaurantId || data.items?.[0]?.restaurantId || 'unknown'),
     restaurantName: String(data.restaurantName || 'Restaurant'),
+    brandId: data.brandId ? String(data.brandId) : undefined,
+    brandName: data.brandName ? String(data.brandName) : undefined,
+    branchId: data.branchId ? String(data.branchId) : undefined,
+    branchName: data.branchName ? String(data.branchName) : undefined,
     items: Array.isArray(data.items) ? data.items : [],
     address: String(data.customerAddress || data.deliveryAddress || data.address || ''),
     customerAddress: String(data.customerAddress || data.deliveryAddress || data.address || ''),
@@ -291,6 +299,10 @@ export async function createOrder(orderInput: MarketplaceOrderInput): Promise<Lo
       customerEmail: orderInput.customerEmail,
       restaurantId: orderInput.restaurantId,
       restaurantName: orderInput.restaurantName,
+      brandId: orderInput.brandId,
+      brandName: orderInput.brandName,
+      branchId: orderInput.branchId,
+      branchName: orderInput.branchName,
       items: orderInput.items,
       address: orderInput.address,
       customerAddress: orderInput.address,
@@ -342,6 +354,10 @@ export async function createOrder(orderInput: MarketplaceOrderInput): Promise<Lo
     customerEmail: orderInput.customerEmail || null,
     restaurantId: orderInput.restaurantId,
     restaurantName: orderInput.restaurantName,
+    brandId: orderInput.brandId || null,
+    brandName: orderInput.brandName || orderInput.restaurantName,
+    branchId: orderInput.branchId || orderInput.restaurantId,
+    branchName: orderInput.branchName || 'Main branch',
     ...(restaurantLocation ? { restaurantLocation } : {}),
     restaurantAddress: orderInput.restaurantLocation?.address || '',
     items: orderInput.items.map((item) => ({
@@ -350,6 +366,10 @@ export async function createOrder(orderInput: MarketplaceOrderInput): Promise<Lo
       price: item.price,
       quantity: item.quantity,
       restaurantId: item.restaurantId,
+      brandId: item.brandId || orderInput.brandId || null,
+      brandName: item.brandName || orderInput.brandName || null,
+      branchId: item.branchId || orderInput.branchId || item.restaurantId,
+      branchName: item.branchName || orderInput.branchName || null,
     })),
     address: orderInput.address,
     customerAddress: orderInput.address,

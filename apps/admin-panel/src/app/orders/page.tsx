@@ -64,6 +64,20 @@ function getDeliveryType(order: Order): string {
   return String((order as any).deliveryType || ((order as any).isPickup ? 'Pickup' : 'Delivery'));
 }
 
+function getOrderBrandName(order: Order): string {
+  return String(order.brandName || order.restaurantName || 'Restaurant').trim();
+}
+
+function getOrderBranchName(order: Order): string {
+  return String(order.branchName || 'Main branch').trim();
+}
+
+function getOrderBranchLabel(order: Order): string {
+  const brand = getOrderBrandName(order);
+  const branch = getOrderBranchName(order);
+  return `${brand} · ${branch}`;
+}
+
 export default function OrdersPage() {
   const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
@@ -125,7 +139,7 @@ export default function OrdersPage() {
   }, []);
 
   const restaurantOptions = useMemo(() => {
-    return Array.from(new Set(orders.map((order) => order.restaurantName).filter(Boolean))).sort();
+    return Array.from(new Set(orders.map(getOrderBranchLabel).filter(Boolean))).sort();
   }, [orders]);
 
   const courierOptions = useMemo(() => {
@@ -155,7 +169,7 @@ export default function OrdersPage() {
       const payment = order.paymentMethod || 'unknown';
 
       if (statusFilter !== 'all' && status !== statusFilter) return false;
-      if (restaurantFilter !== 'all' && order.restaurantName !== restaurantFilter) return false;
+      if (restaurantFilter !== 'all' && getOrderBranchLabel(order) !== restaurantFilter) return false;
       if (courierFilter === 'unassigned' && hasAssignedCourier(order)) return false;
       if (courierFilter !== 'all' && courierFilter !== 'unassigned' && courierName !== courierFilter) return false;
       if (paymentFilter !== 'all' && payment !== paymentFilter) return false;
@@ -284,6 +298,16 @@ export default function OrdersPage() {
       ),
     },
     {
+      header: 'Branch',
+      accessor: 'branchName',
+      cell: (row) => (
+        <div>
+          <p className="font-bold text-gray-900 dark:text-white">{getOrderBrandName(row)}</p>
+          <p className="text-xs font-semibold text-gray-500">{getOrderBranchName(row)}</p>
+        </div>
+      ),
+    },
+    {
       header: 'Assigned Courier',
       accessor: 'courierName',
       cell: (row) => {
@@ -371,7 +395,7 @@ export default function OrdersPage() {
             onChange={(event) => setRestaurantFilter(event.target.value)}
             className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
           >
-            <option value="all">All restaurants</option>
+            <option value="all">All brands / branches</option>
             {restaurantOptions.map((restaurant) => (
               <option key={restaurant} value={restaurant}>{restaurant}</option>
             ))}
@@ -449,6 +473,8 @@ export default function OrdersPage() {
                 item.customerName,
                 item.customerPhone,
                 item.restaurantName,
+                item.brandName,
+                item.branchName,
                 item.courierName,
                 item.assignedCourier?.name,
                 item.assignedCourier?.phone,

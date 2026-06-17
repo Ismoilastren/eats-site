@@ -4,6 +4,10 @@ export type PriceLevel = '$' | '$$' | '$$$';
 export type Dish = {
   id: string;
   restaurantId: string;
+  brandId?: string;
+  brandName?: string;
+  branchId?: string;
+  branchName?: string;
   name: string;
   description: string;
   category: string;
@@ -16,6 +20,11 @@ export type Dish = {
 export type Restaurant = {
   id: string;
   slug: string;
+  brandId?: string;
+  brandName?: string;
+  branchId?: string;
+  branchName?: string;
+  branchDisplayName?: string;
   name: string;
   imageUrl: string;
   cuisine: string[];

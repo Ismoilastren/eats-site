@@ -22,6 +22,10 @@ export type CartLine = Dish & {
   quantity: number;
   restaurantName: string;
   restaurantSlug: string;
+  brandId?: string;
+  brandName?: string;
+  branchId?: string;
+  branchName?: string;
   restaurantMinOrder: number;
   restaurantDeliveryFee: number;
 };
@@ -41,6 +45,10 @@ export type LocalOrder = {
   customerEmail?: string;
   restaurantId: string;
   restaurantName: string;
+  brandId?: string;
+  brandName?: string;
+  branchId?: string;
+  branchName?: string;
   items: CartLine[];
   address: string;
   customerAddress: string;
@@ -255,6 +263,10 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
           quantity,
           restaurantName: restaurant.name,
           restaurantSlug: restaurant.slug,
+          brandId: restaurant.brandId,
+          brandName: restaurant.brandName,
+          branchId: restaurant.branchId || restaurant.id,
+          branchName: restaurant.branchName,
           restaurantMinOrder: restaurant.minOrder,
           restaurantDeliveryFee: restaurant.deliveryFee,
         }];
@@ -268,6 +280,10 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
         quantity,
         restaurantName: restaurant.name,
         restaurantSlug: restaurant.slug,
+        brandId: restaurant.brandId,
+        brandName: restaurant.brandName,
+        branchId: restaurant.branchId || restaurant.id,
+        branchName: restaurant.branchName,
         restaurantMinOrder: restaurant.minOrder,
         restaurantDeliveryFee: restaurant.deliveryFee,
       }];
@@ -322,6 +338,10 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       customerEmail: (firebaseIdentity.email || user?.email || '').trim().toLowerCase() || undefined,
       restaurantId: restaurant?.id || cart[0]?.restaurantId || 'unknown',
       restaurantName: restaurant?.name || cart[0]?.restaurantName || 'Restaurant',
+      brandId: restaurant?.brandId || cart[0]?.brandId,
+      brandName: restaurant?.brandName || cart[0]?.brandName || restaurant?.name || cart[0]?.restaurantName,
+      branchId: restaurant?.branchId || restaurant?.id || cart[0]?.branchId || cart[0]?.restaurantId,
+      branchName: restaurant?.branchName || cart[0]?.branchName || 'Main branch',
       restaurantLocation: restaurant?.locationIsVerified ? restaurant.location : undefined,
       items: cart,
       address: orderAddress,

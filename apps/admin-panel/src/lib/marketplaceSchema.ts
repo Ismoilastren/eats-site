@@ -11,6 +11,33 @@ export function slugifyRestaurantName(name: string) {
     .replace(/^-+|-+$/g, '') || `restaurant-${Date.now()}`;
 }
 
+export function normalizeBranchName(name?: string) {
+  const value = String(name || '').trim();
+  return value || 'Main branch';
+}
+
+export function deriveRestaurantBrandBranch(data: {
+  id?: string;
+  name?: string;
+  brandId?: string;
+  brandName?: string;
+  branchId?: string;
+  branchName?: string;
+}) {
+  const rawName = String(data.name || '').trim();
+  const brandName = String(data.brandName || '').trim() || rawName || 'Restaurant brand';
+  const branchName = normalizeBranchName(data.branchName || (rawName && rawName !== brandName ? rawName.replace(brandName, '').trim() : ''));
+  return {
+    brandId: String(data.brandId || slugifyRestaurantName(brandName)).trim(),
+    brandName,
+    branchId: String(data.branchId || data.id || '').trim(),
+    branchName,
+    branchDisplayName: branchName.toLowerCase() === 'main branch'
+      ? brandName
+      : `${brandName} · ${branchName}`,
+  };
+}
+
 export function splitList(value: string | string[] | undefined) {
   if (Array.isArray(value)) return value.map(String).map((item) => item.trim()).filter(Boolean);
   return String(value || '')
@@ -22,6 +49,8 @@ export function splitList(value: string | string[] | undefined) {
 export function buildRestaurantPayload(input: {
   id?: string;
   name: string;
+  brandName?: string;
+  branchName?: string;
   cuisine: string;
   address: string;
   description?: string;
@@ -58,9 +87,21 @@ export function buildRestaurantPayload(input: {
     throw new Error('Valid restaurant coordinates are required.');
   }
   const isActive = input.isActive ?? true;
+  const branch = deriveRestaurantBrandBranch({
+    id: input.id,
+    name: input.name,
+    brandName: input.brandName,
+    branchName: input.branchName,
+  });
 
   return {
     ...(input.id ? { id: input.id } : {}),
+    entityType: 'branch',
+    brandId: branch.brandId,
+    brandName: branch.brandName,
+    branchId: branch.branchId || input.id || '',
+    branchName: branch.branchName,
+    branchDisplayName: branch.branchDisplayName,
     slug: slugifyRestaurantName(input.name),
     name: input.name,
     description: input.description || '',
@@ -76,6 +117,7 @@ export function buildRestaurantPayload(input: {
     reviewsCount: 0,
     likedBy: [],
     address,
+    branchAddress: address,
     phone: input.phone || '',
     location: {
       address,
@@ -110,6 +152,10 @@ export function buildRestaurantPayload(input: {
 export function buildDishPayload(input: {
   id?: string;
   restaurantId: string;
+  brandId?: string;
+  brandName?: string;
+  branchId?: string;
+  branchName?: string;
   name: string;
   description?: string;
   imageUrl?: string;
@@ -120,6 +166,10 @@ export function buildDishPayload(input: {
   return {
     ...(input.id ? { id: input.id } : {}),
     restaurantId: input.restaurantId,
+    branchId: input.branchId || input.restaurantId,
+    branchName: input.branchName || '',
+    brandId: input.brandId || '',
+    brandName: input.brandName || '',
     name: input.name,
     description: input.description || '',
     imageUrl: input.imageUrl || '',

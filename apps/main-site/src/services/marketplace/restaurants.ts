@@ -34,6 +34,10 @@ function mapFirestoreDish(data: DocumentData, id: string, restaurantId: string):
   return {
     id: String(data.id || id),
     restaurantId: String(data.restaurantId || restaurantId),
+    brandId: data.brandId ? String(data.brandId) : undefined,
+    brandName: data.brandName ? String(data.brandName) : undefined,
+    branchId: data.branchId ? String(data.branchId) : restaurantId,
+    branchName: data.branchName ? String(data.branchName) : undefined,
     name: String(data.name || 'Dish'),
     description: String(data.description || ''),
     imageUrl: cleanImageUrl(data.imageUrl, FALLBACK_DISH_IMAGES[Math.abs(id.length) % FALLBACK_DISH_IMAGES.length]),
@@ -70,6 +74,11 @@ function mapFirestoreRestaurant(data: DocumentData, id: string, menu: Dish[] = [
   return {
     id: String(data.id || id),
     slug: String(data.slug || id),
+    brandId: data.brandId ? String(data.brandId) : undefined,
+    brandName: data.brandName ? String(data.brandName) : String(data.name || 'Restaurant'),
+    branchId: data.branchId ? String(data.branchId) : id,
+    branchName: data.branchName ? String(data.branchName) : 'Main branch',
+    branchDisplayName: data.branchDisplayName ? String(data.branchDisplayName) : undefined,
     name: String(data.name || 'Restaurant'),
     imageUrl,
     cuisine: cuisines.length > 0 ? cuisines : categories,

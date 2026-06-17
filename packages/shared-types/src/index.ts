@@ -3,7 +3,14 @@
 // =============================================
 
 export type { User, UserRole, Address } from './user';
-export type { Restaurant, MenuItem, MenuCategory, OperatingHours } from './restaurant';
+export type {
+  Restaurant,
+  RestaurantBrand,
+  RestaurantBranch,
+  MenuItem,
+  MenuCategory,
+  OperatingHours,
+} from './restaurant';
 export type {
   AssignedCourier,
   Order,
@@ -63,6 +70,8 @@ export const PAGE_SIZE = 21;
 export const COLLECTIONS = {
   USERS: 'users',
   RESTAURANTS: 'restaurants',
+  RESTAURANT_BRANDS: 'restaurantBrands',
+  RESTAURANT_BRANCHES: 'restaurantBranches',
   MENU_ITEMS: 'menuItems',
   ORDERS: 'orders',
   COURIERS: 'couriers',

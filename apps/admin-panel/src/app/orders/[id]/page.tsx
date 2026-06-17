@@ -303,6 +303,8 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
     ? (order.courierLocation || currentCourier?.currentLocation)
     : undefined;
   const assignableCouriers = couriers.filter(isAssignableCourier);
+  const orderBrandName = String(order.brandName || order.restaurantName || 'Restaurant').trim();
+  const orderBranchName = String(order.branchName || 'Main branch').trim();
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
@@ -329,6 +331,25 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
         
         {/* Left Column: Tracking Map, Order Items & Customer Info */}
         <div className="lg:col-span-2 space-y-8">
+          <div className="bg-white dark:bg-gray-800 dark:text-white rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2 mb-6 pb-4 border-b dark:border-gray-700">
+              <MapPin className="text-brand-500" size={20} /> Restaurant Branch
+            </h2>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div>
+                <p className="text-xs font-bold text-gray-400 uppercase mb-1">Brand</p>
+                <p className="font-bold text-gray-900 dark:text-white">{orderBrandName}</p>
+              </div>
+              <div>
+                <p className="text-xs font-bold text-gray-400 uppercase mb-1">Branch / Filial</p>
+                <p className="font-bold text-gray-900 dark:text-white">{orderBranchName}</p>
+              </div>
+              <div className="md:col-span-1">
+                <p className="text-xs font-bold text-gray-400 uppercase mb-1">Pickup Address</p>
+                <p className="font-medium text-gray-900 dark:text-white">{order.restaurantAddress || 'Restaurant address missing'}</p>
+              </div>
+            </div>
+          </div>
           
           {/* Tracking Map */}
           <div className="w-full h-80 md:h-96 rounded-xl overflow-hidden relative z-0 border border-gray-200 dark:border-gray-700">

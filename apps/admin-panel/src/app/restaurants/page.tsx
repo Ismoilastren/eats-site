@@ -8,6 +8,20 @@ import toast from 'react-hot-toast';
 
 import { useRouter } from 'next/navigation';
 
+type BranchRestaurant = Restaurant & {
+  brandId?: string;
+  brandName?: string;
+  branchId?: string;
+  branchName?: string;
+  branchDisplayName?: string;
+  branchAddress?: string;
+  cuisines?: string[];
+  categories?: string[];
+  status?: string;
+  likedBy?: string[];
+  reviewsCount?: number;
+};
+
 const getRestaurantInitials = (name?: string) => {
   const parts = String(name || 'Restaurant')
     .trim()
@@ -15,6 +29,18 @@ const getRestaurantInitials = (name?: string) => {
     .filter(Boolean);
   return (parts[0]?.[0] || 'R').toUpperCase() + (parts[1]?.[0] || '').toUpperCase();
 };
+
+function getBrandName(row: BranchRestaurant) {
+  return String(row.brandName || row.name || 'Restaurant brand').trim();
+}
+
+function getBranchName(row: BranchRestaurant) {
+  return String(row.branchName || row.branchDisplayName || 'Main branch').trim();
+}
+
+function getBranchAddress(row: BranchRestaurant) {
+  return String(row.branchAddress || row.address || (row as any).location?.address || '').trim();
+}
 
 function RestaurantAvatar({ name, imageUrl }: { name?: string; imageUrl?: string }) {
   const [imageFailed, setImageFailed] = useState(false);
@@ -40,7 +66,7 @@ function RestaurantAvatar({ name, imageUrl }: { name?: string; imageUrl?: string
 
 export default function RestaurantsPage() {
   const router = useRouter();
-  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [restaurants, setRestaurants] = useState<BranchRestaurant[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [deleteRestaurantId, setDeleteRestaurantId] = useState<string | null>(null);
 
@@ -52,9 +78,9 @@ export default function RestaurantsPage() {
     );
 
     const unsubscribe = onSnapshot(q, { includeMetadataChanges: true }, (snapshot) => {
-      const data: Restaurant[] = [];
+      const data: BranchRestaurant[] = [];
       snapshot.forEach((doc) => {
-        data.push({ id: doc.id, ...doc.data() } as Restaurant);
+        data.push({ id: doc.id, ...doc.data() } as BranchRestaurant);
       });
       setRestaurants(data);
       setIsLoading(false);
@@ -66,22 +92,35 @@ export default function RestaurantsPage() {
     return () => unsubscribe();
   }, []);
 
-  const columns: ColumnDef<Restaurant>[] = [
+  const brandCount = new Set(restaurants.map((restaurant) => getBrandName(restaurant).toLowerCase())).size;
+  const activeBranches = restaurants.filter((restaurant) => restaurant.status !== 'inactive' && restaurant.isActive !== false).length;
+
+  const columns: ColumnDef<BranchRestaurant>[] = [
     {
-      header: 'Restaurant',
+      header: 'Brand',
       accessor: 'name',
       cell: (row) => (
         <div className="flex items-center gap-3">
-          <RestaurantAvatar name={row.name} imageUrl={row.imageUrl} />
+          <RestaurantAvatar name={getBrandName(row)} imageUrl={row.imageUrl} />
           <div>
-            <p className="font-medium text-gray-900 dark:text-white">{row.name}</p>
-            <p className="text-xs text-gray-500">{row.id}</p>
+            <p className="font-bold text-gray-900 dark:text-white">{getBrandName(row)}</p>
+            <p className="text-xs text-gray-500">Brand ID: {row.brandId || 'legacy'}</p>
           </div>
         </div>
       ),
     },
     {
-      header: 'Cuisine',
+      header: 'Branch / Filial',
+      accessor: 'branchName',
+      cell: (row) => (
+        <div>
+          <p className="font-semibold text-gray-900 dark:text-white">{getBranchName(row)}</p>
+          <p className="max-w-xs truncate text-xs text-gray-500">{getBranchAddress(row) || 'Address missing'}</p>
+        </div>
+      ),
+    },
+    {
+      header: 'Type',
       accessor: 'cuisine',
       cell: (row) => <span>{Array.isArray((row as any).cuisines) ? (row as any).cuisines.join(', ') : row.cuisine || (row as any).category || '-'}</span>,
     },
@@ -128,12 +167,27 @@ export default function RestaurantsPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Restaurants</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Manage all restaurants. Data is synced in real-time from Firestore.
+            Manage brands and physical branches. Data is synced in real-time from Firestore.
           </p>
         </div>
         <a href="/restaurants/add" className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600">
-          + Add Restaurant
+          + Add Branch
         </a>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-3">
+        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+          <p className="text-xs font-black uppercase tracking-wide text-gray-500">Brands</p>
+          <p className="mt-2 text-2xl font-black text-gray-900 dark:text-white">{brandCount}</p>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+          <p className="text-xs font-black uppercase tracking-wide text-gray-500">Branches</p>
+          <p className="mt-2 text-2xl font-black text-gray-900 dark:text-white">{restaurants.length}</p>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+          <p className="text-xs font-black uppercase tracking-wide text-gray-500">Active branches</p>
+          <p className="mt-2 text-2xl font-black text-emerald-600">{activeBranches}</p>
+        </div>
       </div>
 
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-1">
@@ -150,9 +204,16 @@ export default function RestaurantsPage() {
           <DataTable
             columns={columns}
             data={restaurants}
-            searchPlaceholder="Search restaurants..."
+            searchPlaceholder="Search brand, branch, address, type..."
             searchAccessor={(item, q) =>
-              String(item.name || '').toLowerCase().includes(q) ||
+              [
+                item.name,
+                item.brandName,
+                item.branchName,
+                getBranchAddress(item),
+                item.cuisine,
+                Array.isArray(item.cuisines) ? item.cuisines.join(' ') : '',
+              ].some((value) => String(value || '').toLowerCase().includes(q)) ||
               String(item.cuisine || '').toLowerCase().includes(q) ||
               (Array.isArray((item as any).cuisines) && (item as any).cuisines.join(' ').toLowerCase().includes(q))
             }

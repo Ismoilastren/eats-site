@@ -18,7 +18,7 @@ import { RestaurantImageUploader } from '@/components/restaurants/RestaurantImag
 import { RestaurantLocationPicker } from '@/components/restaurants/RestaurantLocationPicker';
 import { RestaurantTypeSelect } from '@/components/restaurants/RestaurantTypeSelect';
 
-type FormErrors = Partial<Record<'name' | 'restaurantType' | 'address' | 'image', string>>;
+type FormErrors = Partial<Record<'brandName' | 'branchName' | 'name' | 'restaurantType' | 'address' | 'image', string>>;
 
 export default function AddRestaurantPage() {
   const router = useRouter();
@@ -29,6 +29,8 @@ export default function AddRestaurantPage() {
   const [errors, setErrors] = useState<FormErrors>({});
 
   const [formData, setFormData] = useState({
+    brandName: '',
+    branchName: '',
     name: '',
     restaurantType: '',
     description: '',
@@ -43,11 +45,13 @@ export default function AddRestaurantPage() {
   const [location, setLocation] = useState<RestaurantLocationValue>(TASHKENT_CENTER_LOCATION);
 
   const isDirty = useMemo(() => (
+    Boolean(formData.brandName.trim()) ||
+    Boolean(formData.branchName.trim()) ||
     Boolean(formData.name.trim()) ||
     Boolean(formData.restaurantType.trim()) ||
     Boolean(location.address.trim()) ||
     Boolean(imageFile)
-  ), [formData.name, formData.restaurantType, imageFile, location.address]);
+  ), [formData.brandName, formData.branchName, formData.name, formData.restaurantType, imageFile, location.address]);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,7 +90,9 @@ export default function AddRestaurantPage() {
 
   const validate = () => {
     const nextErrors: FormErrors = {};
-    if (!formData.name.trim()) nextErrors.name = 'Restaurant name is required.';
+    if (!formData.brandName.trim()) nextErrors.brandName = 'Brand name is required.';
+    if (!formData.branchName.trim()) nextErrors.branchName = 'Branch / filial name is required.';
+    if (!formData.name.trim() && !formData.brandName.trim()) nextErrors.name = 'Marketplace display name is required.';
     if (!formData.restaurantType.trim()) nextErrors.restaurantType = 'Restaurant type is required.';
     if (!isReadableAddress(location.address)) nextErrors.address = 'Readable restaurant address is required.';
     setErrors(nextErrors);
@@ -108,9 +114,13 @@ export default function AddRestaurantPage() {
 
       const finalImageUrl = imageFile ? await compressImageFile(imageFile) : '';
       const restaurantRef = doc(collection(db, COLLECTIONS.RESTAURANTS));
+      const displayName = formData.name.trim()
+        || `${formData.brandName.trim()} ${formData.branchName.trim()}`.trim();
       const newRestaurant = buildRestaurantPayload({
         id: restaurantRef.id,
-        name: formData.name.trim(),
+        name: displayName,
+        brandName: formData.brandName.trim(),
+        branchName: formData.branchName.trim(),
         cuisine: formData.restaurantType.trim(),
         address: location.address.trim(),
         description: formData.description.trim(),
@@ -212,12 +222,56 @@ export default function AddRestaurantPage() {
         <div className="space-y-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
           <div className="grid gap-4 md:grid-cols-2">
             <div className="md:col-span-2">
-              <label className="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">Restaurant Name</label>
+              <div className="mb-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm font-semibold text-blue-900 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-100">
+                Brand is the restaurant chain. Branch / filial is the physical location used for address, menu, orders, and courier pickup.
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">Brand Name</label>
+                  <input
+                    type="text"
+                    value={formData.brandName}
+                    onChange={(event) => {
+                      const brandName = event.target.value;
+                      setFormData((current) => ({
+                        ...current,
+                        brandName,
+                        name: current.name || `${brandName} ${current.branchName}`.trim(),
+                      }));
+                    }}
+                    placeholder="e.g. Bellissimo Pizza"
+                    className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm font-semibold outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  />
+                  {errors.brandName && <p className="mt-2 text-xs font-semibold text-red-600">{errors.brandName}</p>}
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">Branch / Filial Name</label>
+                  <input
+                    type="text"
+                    value={formData.branchName}
+                    onChange={(event) => {
+                      const branchName = event.target.value;
+                      setFormData((current) => ({
+                        ...current,
+                        branchName,
+                        name: current.name || `${current.brandName} ${branchName}`.trim(),
+                      }));
+                    }}
+                    placeholder="e.g. Yunusabad 4"
+                    className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm font-semibold outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  />
+                  {errors.branchName && <p className="mt-2 text-xs font-semibold text-red-600">{errors.branchName}</p>}
+                </div>
+              </div>
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">Marketplace Display Name</label>
               <input
                 type="text"
                 value={formData.name}
                 onChange={(event) => setFormData({ ...formData, name: event.target.value })}
-                placeholder="e.g. MaxWay Yunusabad"
+                placeholder="e.g. Bellissimo Pizza Yunusabad"
                 className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm font-semibold outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
               />
               {errors.name && <p className="mt-2 text-xs font-semibold text-red-600">{errors.name}</p>}

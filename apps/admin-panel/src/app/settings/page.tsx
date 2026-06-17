@@ -141,13 +141,10 @@ export default function SettingsPage() {
           {activeSection === 'Orders' && (
             <section className="space-y-5">
               <h2 className="border-b border-gray-200 pb-3 text-lg font-bold text-gray-900 dark:border-gray-700 dark:text-white">Orders</h2>
-              <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-                <NumberInput label="Minimum Order Amount (UZS)" value={settings.minOrderAmount} onChange={(value) => patchSettings({ minOrderAmount: value })} />
-                <NumberInput label="Tax Rate (%)" value={settings.taxRate} onChange={(value) => patchSettings({ taxRate: value })} />
-              </div>
-              <ToggleRow label="Auto-accept new orders" enabled={settings.autoAcceptOrders} onChange={(value) => patchSettings({ autoAcceptOrders: value })} />
-              <ToggleRow label="Cash payment enabled" enabled={settings.allowCashPayment} onChange={(value) => patchSettings({ allowCashPayment: value })} />
-              <ToggleRow label="Card payment enabled" enabled={settings.allowCardPayment} onChange={(value) => patchSettings({ allowCardPayment: value })} />
+              <ReadOnlySection
+                title="Order automation is not connected yet"
+                body="Order status transitions, payment method availability, and auto-accept behavior are controlled by the live order/admin flows, not this settings document. This section is intentionally read-only until those controls are wired end-to-end."
+              />
             </section>
           )}
 
@@ -164,11 +161,10 @@ export default function SettingsPage() {
           {activeSection === 'Integrations' && (
             <section className="space-y-5">
               <h2 className="border-b border-gray-200 pb-3 text-lg font-bold text-gray-900 dark:border-gray-700 dark:text-white">Integrations</h2>
-              <ToggleRow label="Yandex Maps integration enabled" enabled={settings.yandexMapsEnabled} onChange={(value) => patchSettings({ yandexMapsEnabled: value })} />
-              <ToggleRow label="Firebase integration enabled" enabled={settings.firebaseEnabled} onChange={(value) => patchSettings({ firebaseEnabled: value })} />
-              <p className="rounded-lg bg-yellow-50 p-4 text-sm font-semibold text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-200">
-                API key values are managed in Vercel environment variables, not stored in this Firestore settings document.
-              </p>
+              <ReadOnlySection
+                title="Environment-managed integrations"
+                body="Firebase and Yandex Maps are controlled by Vercel environment variables and Firebase project configuration. API key switches are not shown here because changing this Firestore document would not enable or disable the integrations."
+              />
             </section>
           )}
 
@@ -216,20 +212,6 @@ function NumberInput({ label, value, onChange }: { label: string; value: number;
         onChange={(event) => onChange(Number(event.target.value))}
         step="100"
         className="w-full rounded-lg border border-gray-300 p-2.5 outline-none focus:border-brand-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-      />
-    </label>
-  );
-}
-
-function ToggleRow({ label, enabled, onChange }: { label: string; enabled: boolean; onChange: (value: boolean) => void }) {
-  return (
-    <label className="flex items-center justify-between rounded-lg border border-gray-200 p-4 dark:border-gray-700">
-      <span className="font-semibold text-gray-700 dark:text-gray-200">{label}</span>
-      <input
-        type="checkbox"
-        checked={enabled}
-        onChange={(event) => onChange(event.target.checked)}
-        className="h-5 w-5 accent-brand-500"
       />
     </label>
   );

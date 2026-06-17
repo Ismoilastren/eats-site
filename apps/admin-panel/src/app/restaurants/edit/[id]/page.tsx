@@ -6,7 +6,7 @@ import { COLLECTIONS, Restaurant, MenuItem, isReadableAddress } from '@repo/shar
 import toast from 'react-hot-toast';
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
-import { buildDishPayload, buildRestaurantPayload } from '@/lib/marketplaceSchema';
+import { buildDishPayload, buildRestaurantPayload, deriveRestaurantBrandBranch } from '@/lib/marketplaceSchema';
 import {
   compressImageFile,
   extractRestaurantLocation,
@@ -39,6 +39,8 @@ export default function EditRestaurantPage() {
   });
   
   const [formData, setFormData] = useState({
+    brandName: '',
+    branchName: '',
     name: '',
     restaurantType: '',
     description: '',
@@ -100,8 +102,18 @@ export default function EditRestaurantPage() {
           const data = docSnap.data() as Restaurant;
           const raw = data as any;
           const existingLocation = extractRestaurantLocation(raw);
+          const branch = deriveRestaurantBrandBranch({
+            id,
+            name: data.name,
+            brandId: raw.brandId,
+            brandName: raw.brandName,
+            branchId: raw.branchId,
+            branchName: raw.branchName,
+          });
           setLocation(existingLocation);
           setFormData({
+            brandName: branch.brandName,
+            branchName: branch.branchName,
             name: data.name || '',
             restaurantType: Array.isArray(raw.cuisines) ? raw.cuisines[0] || '' : data.cuisine || raw.category || '',
             description: data.description || '',
@@ -175,8 +187,8 @@ export default function EditRestaurantPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name.trim() || !formData.restaurantType.trim() || !isReadableAddress(location.address)) {
-      toast.error('Name, restaurant type, and readable location are required.');
+    if (!formData.brandName.trim() || !formData.branchName.trim() || !formData.name.trim() || !formData.restaurantType.trim() || !isReadableAddress(location.address)) {
+      toast.error('Brand, branch, display name, restaurant type, and readable location are required.');
       return;
     }
 
@@ -192,6 +204,8 @@ export default function EditRestaurantPage() {
       const updates = buildRestaurantPayload({
         id,
         name: formData.name.trim(),
+        brandName: formData.brandName.trim(),
+        branchName: formData.branchName.trim(),
         cuisine: formData.restaurantType.trim(),
         address: location.address.trim(),
         description: formData.description.trim(),
@@ -339,6 +353,10 @@ export default function EditRestaurantPage() {
         const updates = buildDishPayload({
           id: editingMenuId,
           restaurantId: id,
+          branchId: id,
+          branchName: formData.branchName.trim(),
+          brandId: deriveRestaurantBrandBranch({ id, name: formData.name, brandName: formData.brandName, branchName: formData.branchName }).brandId,
+          brandName: formData.brandName.trim(),
           name: newMenuItem.name,
           description: newMenuItem.description,
           price: parseFloat(newMenuItem.price),
@@ -368,6 +386,10 @@ export default function EditRestaurantPage() {
         const menuItemData = buildDishPayload({
           id: topLevelRef.id,
           restaurantId: id,
+          branchId: id,
+          branchName: formData.branchName.trim(),
+          brandId: deriveRestaurantBrandBranch({ id, name: formData.name, brandName: formData.brandName, branchName: formData.branchName }).brandId,
+          brandName: formData.brandName.trim(),
           name: newMenuItem.name,
           description: newMenuItem.description,
           price: parseFloat(newMenuItem.price),
@@ -489,12 +511,40 @@ export default function EditRestaurantPage() {
         <div className="space-y-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
           <div className="grid gap-4 md:grid-cols-2">
             <div className="md:col-span-2">
-              <label className="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">Restaurant Name</label>
+              <div className="mb-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm font-semibold text-blue-900 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-100">
+                Brand is the chain. Branch / filial is the physical location used by catalog, orders, courier pickup, and customer tracking.
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">Brand Name</label>
+                  <input
+                    type="text"
+                    value={formData.brandName}
+                    onChange={(event) => setFormData({ ...formData, brandName: event.target.value })}
+                    placeholder="e.g. Bellissimo Pizza"
+                    className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm font-semibold outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">Branch / Filial Name</label>
+                  <input
+                    type="text"
+                    value={formData.branchName}
+                    onChange={(event) => setFormData({ ...formData, branchName: event.target.value })}
+                    placeholder="e.g. Yunusabad 4"
+                    className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm font-semibold outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">Marketplace Display Name</label>
               <input
                 type="text"
                 value={formData.name}
                 onChange={(event) => setFormData({ ...formData, name: event.target.value })}
-                placeholder="e.g. MaxWay Yunusabad"
+                placeholder="e.g. Bellissimo Pizza Yunusabad"
                 className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm font-semibold outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
               />
             </div>

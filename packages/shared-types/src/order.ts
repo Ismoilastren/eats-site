@@ -41,6 +41,10 @@ export interface Order {
   id: string;
   userId: string;
   restaurantId: string;
+  brandId?: string;
+  brandName?: string;
+  branchId?: string;
+  branchName?: string;
   courierId: string | null;
   assignedCourier: AssignedCourier | null;
   status: OrderStatus;
@@ -65,6 +69,7 @@ export interface Order {
   };
   // Denormalized fields for fast reads
   restaurantName: string;
+  restaurantAddress?: string;
   restaurantImage: string;
   customerName: string;
   customerPhone: string;

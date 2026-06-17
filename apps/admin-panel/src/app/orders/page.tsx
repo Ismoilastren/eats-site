@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { DataTable, type ColumnDef } from '@/components/tables/DataTable';
 import { Badge } from '@/components/ui/Badge';
 import { db, collection, query, onSnapshot, doc, updateDoc, getDocs, serverTimestamp } from '@repo/firebase-config';
@@ -27,6 +27,43 @@ import {
   type AdminCourierRecord,
 } from '@/lib/courierFilters';
 
+const STATUS_FILTERS: Array<OrderStatus | 'all'> = [
+  'all',
+  'pending',
+  'accepted',
+  'preparing',
+  'ready_for_pickup',
+  'picked_up',
+  'on_the_way',
+  'delivered',
+  'cancelled',
+  'rejected',
+];
+
+function toDate(value: unknown): Date | null {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value === 'object' && value !== null && 'toDate' in value && typeof (value as { toDate: () => Date }).toDate === 'function') {
+    return (value as { toDate: () => Date }).toDate();
+  }
+  if (typeof value === 'object' && value !== null && 'seconds' in value) {
+    return new Date(Number((value as { seconds: number }).seconds) * 1000);
+  }
+  if (typeof value === 'string' || typeof value === 'number') {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
+}
+
+function getOrderSource(order: Order): string {
+  return String((order as any).source || (order as any).orderSource || (order as any).platform || 'Website');
+}
+
+function getDeliveryType(order: Order): string {
+  return String((order as any).deliveryType || ((order as any).isPickup ? 'Pickup' : 'Delivery'));
+}
+
 export default function OrdersPage() {
   const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
@@ -35,6 +72,13 @@ export default function OrdersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [assignModalData, setAssignModalData] = useState<{ orderId: string, currentCourierId: string | null } | null>(null);
   const [isAssigning, setIsAssigning] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<OrderStatus | 'all'>('all');
+  const [restaurantFilter, setRestaurantFilter] = useState('all');
+  const [courierFilter, setCourierFilter] = useState('all');
+  const [paymentFilter, setPaymentFilter] = useState('all');
+  const [deliveryTypeFilter, setDeliveryTypeFilter] = useState('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   useEffect(() => {
     // Fetch all users to guarantee real-time names
@@ -79,6 +123,48 @@ export default function OrdersPage() {
 
     return () => unsubscribe();
   }, []);
+
+  const restaurantOptions = useMemo(() => {
+    return Array.from(new Set(orders.map((order) => order.restaurantName).filter(Boolean))).sort();
+  }, [orders]);
+
+  const courierOptions = useMemo(() => {
+    const names = orders
+      .map((order) => order.assignedCourier?.name || order.courierName)
+      .filter(Boolean) as string[];
+    return Array.from(new Set(names)).sort();
+  }, [orders]);
+
+  const statusSummary = useMemo(() => {
+    return orders.reduce<Record<string, number>>((acc, order) => {
+      const status = normalizeOrderStatus(order.status);
+      acc[status] = (acc[status] || 0) + 1;
+      acc.all = (acc.all || 0) + 1;
+      return acc;
+    }, { all: 0 });
+  }, [orders]);
+
+  const filteredOrders = useMemo(() => {
+    const from = dateFrom ? new Date(`${dateFrom}T00:00:00`) : null;
+    const to = dateTo ? new Date(`${dateTo}T23:59:59`) : null;
+
+    return orders.filter((order) => {
+      const status = normalizeOrderStatus(order.status);
+      const createdAt = toDate(order.createdAt);
+      const courierName = order.assignedCourier?.name || order.courierName || '';
+      const payment = order.paymentMethod || 'unknown';
+
+      if (statusFilter !== 'all' && status !== statusFilter) return false;
+      if (restaurantFilter !== 'all' && order.restaurantName !== restaurantFilter) return false;
+      if (courierFilter === 'unassigned' && hasAssignedCourier(order)) return false;
+      if (courierFilter !== 'all' && courierFilter !== 'unassigned' && courierName !== courierFilter) return false;
+      if (paymentFilter !== 'all' && payment !== paymentFilter) return false;
+      if (deliveryTypeFilter !== 'all' && getDeliveryType(order).toLowerCase() !== deliveryTypeFilter) return false;
+      if (from && createdAt && createdAt < from) return false;
+      if (to && createdAt && createdAt > to) return false;
+      return true;
+    });
+  }, [orders, statusFilter, restaurantFilter, courierFilter, paymentFilter, deliveryTypeFilter, dateFrom, dateTo]);
 
   const handleUpdateStatus = async (orderId: string, newStatus: OrderStatus, currentCourierId: string | null | undefined) => {
     const order = orders.find((item) => item.id === orderId);
@@ -261,6 +347,87 @@ export default function OrdersPage() {
         </div>
       </div>
 
+      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+        <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
+          {STATUS_FILTERS.map((status) => (
+            <button
+              key={status}
+              type="button"
+              onClick={() => setStatusFilter(status)}
+              className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold transition-colors ${
+                statusFilter === status
+                  ? 'border-brand-500 bg-brand-500 text-white'
+                  : 'border-gray-200 bg-gray-50 text-gray-600 hover:border-brand-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300'
+              }`}
+            >
+              {status === 'all' ? 'All' : ORDER_STATUS_LABELS[status]} <span className="opacity-75">({statusSummary[status] || 0})</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <select
+            value={restaurantFilter}
+            onChange={(event) => setRestaurantFilter(event.target.value)}
+            className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+          >
+            <option value="all">All restaurants</option>
+            {restaurantOptions.map((restaurant) => (
+              <option key={restaurant} value={restaurant}>{restaurant}</option>
+            ))}
+          </select>
+          <select
+            value={courierFilter}
+            onChange={(event) => setCourierFilter(event.target.value)}
+            className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+          >
+            <option value="all">All couriers</option>
+            <option value="unassigned">Unassigned</option>
+            {courierOptions.map((courier) => (
+              <option key={courier} value={courier}>{courier}</option>
+            ))}
+          </select>
+          <select
+            value={paymentFilter}
+            onChange={(event) => setPaymentFilter(event.target.value)}
+            className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+          >
+            <option value="all">All payments</option>
+            <option value="cash">Cash</option>
+            <option value="card">Card</option>
+            <option value="unknown">Unknown</option>
+          </select>
+          <select
+            value={deliveryTypeFilter}
+            onChange={(event) => setDeliveryTypeFilter(event.target.value)}
+            className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+          >
+            <option value="all">Delivery + pickup</option>
+            <option value="delivery">Delivery</option>
+            <option value="pickup">Pickup</option>
+          </select>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(event) => setDateFrom(event.target.value)}
+            className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+            aria-label="Orders from date"
+          />
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(event) => setDateTo(event.target.value)}
+            className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+            aria-label="Orders to date"
+          />
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+          <span>Showing {filteredOrders.length} of {orders.length} orders</span>
+          <span>Sources: {Array.from(new Set(filteredOrders.map(getOrderSource))).join(', ') || 'None'}</span>
+        </div>
+      </div>
+
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-1">
         {isLoading ? (
           <div className="flex justify-center items-center p-12">
@@ -274,7 +441,7 @@ export default function OrdersPage() {
         ) : (
           <DataTable
             columns={columns}
-            data={orders}
+            data={filteredOrders}
             searchPlaceholder="Search by order, customer, phone, restaurant, courier, status..."
             searchAccessor={(item, q) => {
               const searchable = [

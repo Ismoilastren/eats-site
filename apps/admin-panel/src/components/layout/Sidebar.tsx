@@ -143,6 +143,11 @@ const menuSections: MenuSection[] = [
         href: '/restaurants',
       },
       {
+        label: 'Catalog',
+        icon: ShoppingBagIcon,
+        href: '/catalog',
+      },
+      {
         label: 'Couriers',
         icon: TruckIcon,
         href: '/couriers',

@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { db, doc, getDoc, serverTimestamp, setDoc } from '@repo/firebase-config';
 import toast from 'react-hot-toast';
+import Link from 'next/link';
 
 type SettingsState = {
   companyName: string;
@@ -38,6 +39,7 @@ const DEFAULT_SETTINGS: SettingsState = {
 
 const SETTINGS_SECTIONS = [
   'Company',
+  'Branches',
   'Orders',
   'Delivery',
   'Geozones',
@@ -118,7 +120,7 @@ export default function SettingsPage() {
               }`}
             >
               {section}
-              {['Geozones', 'Catalog', 'Users & Roles', 'Change History'].includes(section) && (
+              {['Branches', 'Geozones', 'Catalog', 'Users & Roles', 'Change History'].includes(section) && (
                 <span aria-hidden="true" className="text-[10px] opacity-70">view</span>
               )}
             </button>
@@ -134,6 +136,20 @@ export default function SettingsPage() {
                 <TextInput label="Default City" value={settings.defaultCity} onChange={(value) => patchSettings({ defaultCity: value })} />
                 <TextInput label="Support Phone" value={settings.supportPhone} onChange={(value) => patchSettings({ supportPhone: value })} />
                 <TextInput label="Support Email" value={settings.supportEmail} onChange={(value) => patchSettings({ supportEmail: value })} />
+              </div>
+            </section>
+          )}
+
+          {activeSection === 'Branches' && (
+            <section className="space-y-5">
+              <h2 className="border-b border-gray-200 pb-3 text-lg font-bold text-gray-900 dark:border-gray-700 dark:text-white">Branches</h2>
+              <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-6 text-sm font-medium text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
+                Branches are managed from the Restaurants module because each branch owns address, coordinates, hours, status, menu, and manager link.
+                <div className="mt-4">
+                  <Link href="/restaurants" className="inline-flex rounded-lg bg-brand-500 px-4 py-2 text-sm font-bold text-white hover:bg-brand-600">
+                    Open branch management
+                  </Link>
+                </div>
               </div>
             </section>
           )}
@@ -173,15 +189,17 @@ export default function SettingsPage() {
           {activeSection === 'Users & Roles' && <ReadOnlySection title="Users & Roles" body="Admin accounts and roles are managed from the Admins page. Restaurant manager linking is managed inside each restaurant edit page." />}
           {activeSection === 'Change History' && <ReadOnlySection title="Change History" body="A full audit log is not implemented yet. This page stores updatedAt for the global settings document so changes can still be traced at document level." />}
 
-          <div className="mt-8 flex justify-end">
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="rounded-lg bg-brand-500 px-6 py-2.5 font-bold text-white transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {isSaving ? 'Saving to Firestore...' : 'Save Settings'}
-            </button>
-          </div>
+          {['Company', 'Delivery'].includes(activeSection) ? (
+            <div className="mt-8 flex justify-end">
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="rounded-lg bg-brand-500 px-6 py-2.5 font-bold text-white transition-colors hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isSaving ? 'Saving to Firestore...' : 'Save Settings'}
+              </button>
+            </div>
+          ) : null}
         </div>
       </form>
     </div>

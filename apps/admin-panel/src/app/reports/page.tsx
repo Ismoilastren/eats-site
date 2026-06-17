@@ -1,11 +1,11 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { db, collection, getDocs } from '@repo/firebase-config';
 import { COLLECTIONS, Order, formatCurrencyUZS, normalizeOrderStatus } from '@repo/shared-types';
 import toast from 'react-hot-toast';
 
-type ReportType = 'orders' | 'financial' | 'couriers' | 'restaurants' | 'users';
+type ReportType = 'orders' | 'financial' | 'couriers' | 'restaurants' | 'products' | 'users';
 
 type ReportDefinition = {
   id: ReportType;
@@ -18,6 +18,7 @@ const REPORTS: ReportDefinition[] = [
   { id: 'financial', title: 'Financial Report', description: 'Delivered revenue, delivery fees, subtotal and cancellation rows.' },
   { id: 'couriers', title: 'Courier Performance', description: 'Courier profile data plus assigned and delivered order counts.' },
   { id: 'restaurants', title: 'Restaurant Performance', description: 'Restaurant catalog status with order count and delivered revenue.' },
+  { id: 'products', title: 'Product/Menu Report', description: 'Menu item, category, price, branch and availability export.' },
   { id: 'users', title: 'Client Growth Report', description: 'Customer/admin user records with registration fields where available.' },
 ];
 
@@ -70,36 +71,78 @@ export default function ReportsPage() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [branchFilter, setBranchFilter] = useState('all');
+  const [courierFilter, setCourierFilter] = useState('all');
+  const [branchOptions, setBranchOptions] = useState<Array<{ id: string; label: string }>>([]);
+  const [courierOptions, setCourierOptions] = useState<Array<{ id: string; label: string }>>([]);
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadFilters() {
+      try {
+        const [restaurantsSnap, couriersSnap] = await Promise.all([
+          getDocs(collection(db, COLLECTIONS.RESTAURANTS)),
+          getDocs(collection(db, COLLECTIONS.COURIERS)),
+        ]);
+        if (cancelled) return;
+        setBranchOptions(restaurantsSnap.docs.map((item) => {
+          const data = item.data() as Record<string, any>;
+          return {
+            id: item.id,
+            label: data.branchName ? `${data.brandName || data.name || item.id} · ${data.branchName}` : data.name || item.id,
+          };
+        }).sort((a, b) => a.label.localeCompare(b.label)));
+        setCourierOptions(couriersSnap.docs.map((item) => {
+          const data = item.data() as Record<string, any>;
+          return {
+            id: item.id,
+            label: data.fullName || data.displayName || data.name || item.id,
+          };
+        }).sort((a, b) => a.label.localeCompare(b.label)));
+      } catch (error) {
+        console.error('Failed to load report filters:', error);
+      }
+    }
+    void loadFilters();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const generateReport = async (type: ReportType) => {
     setIsGenerating(type);
     toast.loading('Reading live Firestore data...', { id: 'report' });
 
     try {
-      const [ordersSnap, usersSnap, restaurantsSnap, couriersSnap] = await Promise.all([
+      const [ordersSnap, usersSnap, restaurantsSnap, couriersSnap, menuSnap] = await Promise.all([
         getDocs(collection(db, COLLECTIONS.ORDERS)),
         getDocs(collection(db, COLLECTIONS.USERS)),
         getDocs(collection(db, COLLECTIONS.RESTAURANTS)),
         getDocs(collection(db, COLLECTIONS.COURIERS)),
+        getDocs(collection(db, COLLECTIONS.MENU_ITEMS)),
       ]);
 
       const orders = ordersSnap.docs
         .map((documentSnapshot) => ({ id: documentSnapshot.id, ...documentSnapshot.data() }) as Order)
         .filter((order) => orderInDateRange(order, dateFrom, dateTo))
-        .filter((order) => statusFilter === 'all' || normalizeOrderStatus(order.status) === statusFilter);
+        .filter((order) => statusFilter === 'all' || normalizeOrderStatus(order.status) === statusFilter)
+        .filter((order) => branchFilter === 'all' || order.restaurantId === branchFilter || order.branchId === branchFilter)
+        .filter((order) => courierFilter === 'all' || order.courierId === courierFilter || order.assignedCourier?.id === courierFilter);
 
       if (type === 'orders') {
         downloadCsv(
           `orders_report_${today}.csv`,
-          ['order_id', 'created_at', 'status', 'customer', 'phone', 'restaurant', 'courier', 'payment', 'subtotal', 'delivery_fee', 'total', 'address'],
+          ['order_id', 'created_at', 'status', 'customer', 'phone', 'brand', 'branch', 'restaurant', 'courier', 'payment', 'subtotal', 'delivery_fee', 'total', 'address'],
           orders.map((order) => [
             order.id,
             toDate(order.createdAt),
             normalizeOrderStatus(order.status),
             order.customerName,
             order.customerPhone,
+            order.brandName || '',
+            order.branchName || '',
             order.restaurantName,
             order.assignedCourier?.name || order.courierName || '',
             order.paymentMethod || '',
@@ -114,13 +157,15 @@ export default function ReportsPage() {
       if (type === 'financial') {
         downloadCsv(
           `financial_report_${today}.csv`,
-          ['order_id', 'created_at', 'status', 'restaurant', 'subtotal', 'delivery_fee', 'total', 'recognized_revenue'],
+          ['order_id', 'created_at', 'status', 'brand', 'branch', 'restaurant', 'subtotal', 'delivery_fee', 'total', 'recognized_revenue'],
           orders.map((order) => {
             const status = normalizeOrderStatus(order.status);
             return [
               order.id,
               toDate(order.createdAt),
               status,
+              order.brandName || '',
+              order.branchName || '',
               order.restaurantName,
               order.subtotal || 0,
               order.deliveryFee || 0,
@@ -164,7 +209,8 @@ export default function ReportsPage() {
           const deliveredRevenue = deliveredOrders.reduce((sum, order) => sum + Number(order.totalAmount || 0), 0);
           return [
             restaurant.id,
-            restaurant.name || '',
+            restaurant.brandName || restaurant.name || '',
+            restaurant.branchName || 'Main branch',
             restaurant.cuisine || (Array.isArray(restaurant.cuisines) ? restaurant.cuisines.join(', ') : ''),
             restaurant.address || '',
             restaurant.isActive ?? restaurant.status ?? '',
@@ -176,7 +222,30 @@ export default function ReportsPage() {
         });
         downloadCsv(
           `restaurant_performance_${today}.csv`,
-          ['restaurant_id', 'name', 'cuisine', 'address', 'status', 'rating', 'orders', 'delivered_orders', 'delivered_revenue'],
+          ['restaurant_id', 'brand', 'branch', 'cuisine', 'address', 'status', 'rating', 'orders', 'delivered_orders', 'delivered_revenue'],
+          rows
+        );
+      }
+
+      if (type === 'products') {
+        const rows = menuSnap.docs
+          .map((documentSnapshot) => ({ id: documentSnapshot.id, ...documentSnapshot.data() }) as Record<string, any>)
+          .filter((item) => branchFilter === 'all' || item.restaurantId === branchFilter || item.branchId === branchFilter)
+          .map((item) => [
+            item.id,
+            item.brandName || '',
+            item.branchName || '',
+            item.restaurantId || item.branchId || '',
+            item.name || '',
+            item.category || '',
+            item.price || 0,
+            item.isAvailable !== false ? 'available' : 'unavailable',
+            item.imageUrl ? 'yes' : 'no',
+            toDate(item.updatedAt),
+          ]);
+        downloadCsv(
+          `product_menu_report_${today}.csv`,
+          ['product_id', 'brand', 'branch', 'restaurant_id', 'name', 'category', 'price', 'status', 'has_image', 'updated_at'],
           rows
         );
       }
@@ -202,7 +271,9 @@ export default function ReportsPage() {
 
       const summary = type === 'financial'
         ? `Delivered revenue in export: ${formatCurrencyUZS(orders.filter((order) => normalizeOrderStatus(order.status) === 'delivered').reduce((sum, order) => sum + Number(order.totalAmount || 0), 0))}`
-        : `${orders.length} filtered orders included where applicable.`;
+        : type === 'products'
+          ? 'Product/menu export generated from live catalog data.'
+          : `${orders.length} filtered orders included where applicable.`;
       toast.success(summary, { id: 'report', duration: 5000 });
     } catch (error) {
       console.error(error);
@@ -216,12 +287,12 @@ export default function ReportsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Reports</h1>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Generate filtered CSV exports from live Firestore data.</p>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Generate filtered CSV exports from live Firestore data. Empty reports export headers only, never fake rows.</p>
       </div>
 
       <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400">Report Filters</h2>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
           <input
             type="date"
             value={dateFrom}
@@ -251,6 +322,26 @@ export default function ReportsPage() {
             <option value="delivered">Delivered</option>
             <option value="cancelled">Cancelled</option>
             <option value="rejected">Rejected</option>
+          </select>
+          <select
+            value={branchFilter}
+            onChange={(event) => setBranchFilter(event.target.value)}
+            className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+          >
+            <option value="all">All branches</option>
+            {branchOptions.map((branch) => (
+              <option key={branch.id} value={branch.id}>{branch.label}</option>
+            ))}
+          </select>
+          <select
+            value={courierFilter}
+            onChange={(event) => setCourierFilter(event.target.value)}
+            className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+          >
+            <option value="all">All couriers</option>
+            {courierOptions.map((courier) => (
+              <option key={courier.id} value={courier.id}>{courier.label}</option>
+            ))}
           </select>
         </div>
       </div>

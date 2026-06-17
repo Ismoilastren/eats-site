@@ -161,8 +161,10 @@ export function buildDishPayload(input: {
   imageUrl?: string;
   category: string;
   price: number;
+  isAvailable?: boolean;
   sortOrder?: number;
 }) {
+  const isAvailable = input.isAvailable ?? true;
   return {
     ...(input.id ? { id: input.id } : {}),
     restaurantId: input.restaurantId,
@@ -176,8 +178,8 @@ export function buildDishPayload(input: {
     category: input.category,
     price: Number(input.price || 0),
     oldPrice: null,
-    isAvailable: true,
-    available: true,
+    isAvailable,
+    available: isAvailable,
     tags: [],
     sortOrder: input.sortOrder || 0,
     updatedAt: serverTimestamp(),

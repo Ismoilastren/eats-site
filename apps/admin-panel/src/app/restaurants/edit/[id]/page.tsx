@@ -64,13 +64,35 @@ export default function EditRestaurantPage() {
   const [deleteMenuId, setDeleteMenuId] = useState<string | null>(null);
   const [editingMenuId, setEditingMenuId] = useState<string | null>(null);
   const [newMenuImageFile, setNewMenuImageFile] = useState<File | null>(null);
+  const [newMenuImageError, setNewMenuImageError] = useState('');
   const [newMenuItem, setNewMenuItem] = useState({
     name: '',
     description: '',
     price: '',
     category: '',
-    imageUrl: ''
+    imageUrl: '',
+    isAvailable: true,
   });
+
+  const menuCategoryOptions = React.useMemo(() => {
+    const names = new Set<string>();
+    restaurantTypes.forEach((type) => names.add(type.name));
+    menuItems.forEach((item) => {
+      if (item.category) names.add(item.category);
+    });
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [menuItems, restaurantTypes]);
+
+  const menuImagePreviewUrl = React.useMemo(
+    () => (newMenuImageFile ? URL.createObjectURL(newMenuImageFile) : newMenuItem.imageUrl),
+    [newMenuImageFile, newMenuItem.imageUrl],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (menuImagePreviewUrl.startsWith('blob:')) URL.revokeObjectURL(menuImagePreviewUrl);
+    };
+  }, [menuImagePreviewUrl]);
 
   useEffect(() => {
     let cancelled = false;
@@ -322,31 +344,16 @@ export default function EditRestaurantPage() {
       toast.error('Name, price, and category are required.');
       return;
     }
+    if (Number(newMenuItem.price) <= 0) {
+      toast.error('Price must be greater than 0.');
+      return;
+    }
     
     setIsSaving(true);
     try {
       let finalImageUrl = newMenuItem.imageUrl;
       if (newMenuImageFile) {
-        finalImageUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.readAsDataURL(newMenuImageFile);
-          reader.onload = (event) => {
-            const img = new Image();
-            img.src = event.target?.result as string;
-            img.onload = () => {
-              const canvas = document.createElement('canvas');
-              const MAX_WIDTH = 500;
-              const scaleSize = MAX_WIDTH / img.width;
-              canvas.width = MAX_WIDTH;
-              canvas.height = img.height * scaleSize;
-              const ctx = canvas.getContext('2d');
-              ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
-              resolve(canvas.toDataURL('image/webp', 0.7));
-            };
-            img.onerror = (error) => reject(error);
-          };
-          reader.onerror = (error) => reject(error);
-        });
+        finalImageUrl = await compressImageFile(newMenuImageFile, 700);
       }
 
       if (editingMenuId) {
@@ -362,6 +369,7 @@ export default function EditRestaurantPage() {
           price: parseFloat(newMenuItem.price),
           category: newMenuItem.category,
           imageUrl: finalImageUrl,
+          isAvailable: newMenuItem.isAvailable,
           sortOrder: menuItems.find((item) => item.id === editingMenuId)?.sortOrder || 0,
         });
         await setDoc(doc(db, COLLECTIONS.MENU_ITEMS, editingMenuId), updates, { merge: true });
@@ -376,7 +384,7 @@ export default function EditRestaurantPage() {
           price: parseFloat(newMenuItem.price),
           category: newMenuItem.category,
           imageUrl: finalImageUrl,
-          isAvailable: true,
+          isAvailable: newMenuItem.isAvailable,
           sortOrder: menuItems.find((menuItem) => menuItem.id === editingMenuId)?.sortOrder || 0,
           updatedAt: new Date(),
         } : item));
@@ -395,6 +403,7 @@ export default function EditRestaurantPage() {
           price: parseFloat(newMenuItem.price),
           category: newMenuItem.category,
           imageUrl: finalImageUrl,
+          isAvailable: newMenuItem.isAvailable,
           sortOrder: menuItems.length,
         });
 
@@ -408,7 +417,7 @@ export default function EditRestaurantPage() {
           price: parseFloat(newMenuItem.price),
           category: newMenuItem.category,
           imageUrl: finalImageUrl,
-          isAvailable: true,
+          isAvailable: newMenuItem.isAvailable,
           sortOrder: menuItems.length,
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -416,8 +425,9 @@ export default function EditRestaurantPage() {
         toast.success('Menu item added successfully!');
       }
 
-      setNewMenuItem({ name: '', description: '', price: '', category: '', imageUrl: '' });
+      setNewMenuItem({ name: '', description: '', price: '', category: '', imageUrl: '', isAvailable: true });
       setNewMenuImageFile(null);
+      setNewMenuImageError('');
       setEditingMenuId(null);
       setIsMenuModalOpen(false);
     } catch (error) {
@@ -485,7 +495,7 @@ export default function EditRestaurantPage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-gray-500">ETA minutes</label>
+              <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-gray-500">Average delivery time (min)</label>
                 <input
                   type="number"
                   min="5"
@@ -705,7 +715,9 @@ export default function EditRestaurantPage() {
           <button 
             onClick={() => {
               setEditingMenuId(null);
-              setNewMenuItem({ name: '', description: '', price: '', category: '', imageUrl: '' });
+              setNewMenuItem({ name: '', description: '', price: '', category: '', imageUrl: '', isAvailable: true });
+              setNewMenuImageFile(null);
+              setNewMenuImageError('');
               setIsMenuModalOpen(true);
             }}
             className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 transition-colors shadow-sm"
@@ -745,8 +757,11 @@ export default function EditRestaurantPage() {
                           description: item.description || '',
                           price: item.price.toString(),
                           category: item.category || '',
-                          imageUrl: item.imageUrl || ''
+                          imageUrl: item.imageUrl || '',
+                          isAvailable: item.isAvailable !== false,
                         });
+                        setNewMenuImageFile(null);
+                        setNewMenuImageError('');
                         setIsMenuModalOpen(true);
                       }}
                       className="text-blue-500 hover:text-blue-700 text-sm font-medium"
@@ -774,24 +789,71 @@ export default function EditRestaurantPage() {
             <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
               {editingMenuId ? 'Edit Menu Item' : 'Add Menu Item'}
             </h2>
+            <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs font-semibold text-blue-900 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-100">
+              Adding to {formData.brandName || 'Brand'} / {formData.branchName || 'Branch'}. The item will sync to Catalog and customer site when active.
+            </div>
             <form onSubmit={handleSaveMenuItem} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Food Image</label>
-                {newMenuItem.imageUrl && !newMenuImageFile && (
-                  <div className="mb-2">
-                    <img src={newMenuItem.imageUrl} alt="Current" className="h-20 w-20 object-cover rounded-lg border border-gray-200" />
-                  </div>
-                )}
-                <input 
-                  type="file" 
-                  accept="image/*"
-                  onChange={(e) => {
-                    if (e.target.files && e.target.files[0]) {
-                      setNewMenuImageFile(e.target.files[0]);
-                    }
-                  }}
-                  className="w-full rounded-lg border border-gray-300 p-2 text-sm dark:border-gray-600 dark:bg-gray-700" 
-                />
+                <label className="group relative flex min-h-[180px] cursor-pointer items-center justify-center overflow-hidden rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 dark:border-gray-700 dark:bg-gray-900">
+                  {menuImagePreviewUrl ? (
+                    <>
+                      <img
+                        src={menuImagePreviewUrl}
+                        alt="Food preview"
+                        onError={(event) => {
+                          event.currentTarget.style.display = 'none';
+                          setNewMenuImageError('Image preview failed. Use another image or remove it.');
+                        }}
+                        className="absolute inset-0 h-full w-full object-cover"
+                      />
+                      <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-sm font-bold text-white opacity-0 transition group-hover:opacity-100">
+                        Change image
+                      </span>
+                    </>
+                  ) : (
+                    <div className="text-center">
+                      <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-orange-50 text-xl dark:bg-orange-500/10">🍽️</div>
+                      <p className="text-sm font-bold text-gray-900 dark:text-white">Upload food image</p>
+                      <p className="mt-1 text-xs text-gray-500">JPG, PNG or WebP. Preview appears here.</p>
+                    </div>
+                  )}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="sr-only"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (!file) return;
+                      const validation = validateRestaurantImage(file);
+                      if (validation) {
+                        setNewMenuImageError(validation);
+                        return;
+                      }
+                      setNewMenuImageFile(file);
+                      setNewMenuImageError('');
+                    }}
+                  />
+                </label>
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  <p className="truncate text-xs font-medium text-gray-500">
+                    {newMenuImageFile ? `Selected: ${newMenuImageFile.name}` : newMenuItem.imageUrl ? 'Existing image attached.' : 'No image selected.'}
+                  </p>
+                  {menuImagePreviewUrl ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewMenuImageFile(null);
+                        setNewMenuItem((current) => ({ ...current, imageUrl: '' }));
+                        setNewMenuImageError('');
+                      }}
+                      className="rounded-lg bg-red-50 px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-100 dark:bg-red-500/10 dark:text-red-300"
+                    >
+                      Remove image
+                    </button>
+                  ) : null}
+                </div>
+                {newMenuImageError && <p className="mt-2 text-xs font-semibold text-red-600">{newMenuImageError}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
@@ -800,7 +862,12 @@ export default function EditRestaurantPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Category</label>
-                  <input required value={newMenuItem.category} onChange={e => setNewMenuItem({...newMenuItem, category: e.target.value})} type="text" className="w-full rounded-lg border border-gray-300 p-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="e.g. Pizza" />
+                  <select required value={newMenuItem.category} onChange={e => setNewMenuItem({...newMenuItem, category: e.target.value})} className="w-full rounded-lg border border-gray-300 p-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                    <option value="">Select category</option>
+                    {menuCategoryOptions.map((category) => (
+                      <option key={category} value={category}>{category}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Price (UZS)</label>
@@ -811,9 +878,18 @@ export default function EditRestaurantPage() {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description (Optional)</label>
                 <textarea value={newMenuItem.description} onChange={e => setNewMenuItem({...newMenuItem, description: e.target.value})} className="w-full rounded-lg border border-gray-300 p-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="Ingredients, etc." rows={3} />
               </div>
+              <label className="flex items-center justify-between rounded-xl border border-gray-200 p-3 text-sm font-semibold text-gray-700 dark:border-gray-700 dark:text-gray-200">
+                Active on customer site
+                <input
+                  type="checkbox"
+                  checked={newMenuItem.isAvailable}
+                  onChange={(event) => setNewMenuItem({ ...newMenuItem, isAvailable: event.target.checked })}
+                  className="h-5 w-5 accent-brand-500"
+                />
+              </label>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-gray-700 mt-6">
-                <button type="button" onClick={() => { setIsMenuModalOpen(false); setEditingMenuId(null); }} className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">Cancel</button>
+                <button type="button" onClick={() => { setIsMenuModalOpen(false); setEditingMenuId(null); setNewMenuImageFile(null); setNewMenuImageError(''); }} className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">Cancel</button>
                 <button type="submit" disabled={isSaving} className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50">
                   {editingMenuId ? 'Save Changes' : 'Add Item'}
                 </button>

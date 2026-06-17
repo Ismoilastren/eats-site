@@ -19,11 +19,11 @@ type RestaurantLocationPickerProps = {
 };
 
 const PRESET_LOCATIONS = [
-  { label: 'Amir Temur Avenue 14', address: 'Tashkent, Amir Temur Avenue 14', lat: 41.3266, lng: 69.2817 },
-  { label: 'Chorsu Bazaar entrance', address: 'Tashkent, Chorsu Bazaar entrance', lat: 41.3261, lng: 69.2358 },
-  { label: 'Mirabad Street 27', address: 'Tashkent, Mirabad Street 27', lat: 41.2958, lng: 69.2831 },
-  { label: 'Chilanzar C-5, house 12', address: 'Tashkent, Chilanzar C-5, house 12', lat: 41.2859, lng: 69.2031 },
-  { label: 'Yunusabad 4', address: 'Tashkent, Yunusabad 4', lat: 41.3672, lng: 69.2892 },
+  { label: 'Amir Temur branch', address: 'Tashkent, Amir Temur Avenue 14', lat: 41.3266, lng: 69.2817 },
+  { label: 'Chorsu branch', address: 'Tashkent, Chorsu Bazaar entrance', lat: 41.3261, lng: 69.2358 },
+  { label: 'Mirabad branch', address: 'Tashkent, Mirabad Street 27', lat: 41.2958, lng: 69.2831 },
+  { label: 'Chilanzar branch', address: 'Tashkent, Chilanzar C-5, house 12', lat: 41.2859, lng: 69.2031 },
+  { label: 'Yunusabad branch', address: 'Tashkent, Yunusabad 4', lat: 41.3672, lng: 69.2892 },
 ];
 
 function markerElement() {
@@ -200,7 +200,7 @@ export function RestaurantLocationPicker({ value, onChange, error }: RestaurantL
       address: preset.address,
       lat: preset.lat,
       lng: preset.lng,
-      source: 'popular',
+      source: 'admin',
       coordinatesConfirmed: true,
     });
     setQuery('');
@@ -252,13 +252,13 @@ export function RestaurantLocationPicker({ value, onChange, error }: RestaurantL
     <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
       <div className="mb-4">
         <label className="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">
-          Location Address
+          Branch / filial address
         </label>
         <textarea
           value={value.address}
           onChange={(event) => updateAddress(event.target.value)}
           rows={3}
-          placeholder="Enter readable restaurant address, e.g. Amir Temur Avenue 14, Tashkent"
+          placeholder="Enter exact branch pickup address, e.g. Tashkent, Amir Temur Avenue 14"
           className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm font-medium text-gray-900 outline-none transition focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
         />
         {error && <p className="mt-2 text-xs font-semibold text-red-600">{error}</p>}
@@ -274,7 +274,7 @@ export function RestaurantLocationPicker({ value, onChange, error }: RestaurantL
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search preset address"
+            placeholder="Search branch address preset"
             className="w-full rounded-xl border border-gray-300 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-900 outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
           />
           <button
@@ -282,12 +282,12 @@ export function RestaurantLocationPicker({ value, onChange, error }: RestaurantL
             onClick={useCurrentLocation}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-gray-950 px-4 py-3 text-sm font-bold text-white hover:bg-gray-800 dark:bg-orange-500 dark:hover:bg-orange-600"
           >
-            <LocateFixed size={17} /> Use current location
+            <LocateFixed size={17} /> Use this device location
           </button>
 
           <div>
             <div className="mb-2 flex items-center justify-between">
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-gray-400">Popular addresses</p>
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-gray-400">Branch address presets</p>
               <span className="rounded-full bg-orange-50 px-2 py-1 text-xs font-bold text-orange-600">
                 {filteredPresets.length}
               </span>
@@ -305,7 +305,7 @@ export function RestaurantLocationPicker({ value, onChange, error }: RestaurantL
                   </span>
                   <span>
                     <span className="block text-sm font-bold text-gray-900 dark:text-white">{preset.label}</span>
-                    <span className="text-xs font-semibold text-gray-500">Tashkent delivery area</span>
+                    <span className="text-xs font-semibold text-gray-500">{preset.address}</span>
                   </span>
                 </button>
               )) : (

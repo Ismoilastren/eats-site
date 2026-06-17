@@ -5,13 +5,38 @@ import { useSidebar } from '@/context/SidebarContext';
 import { ThemeToggle } from '@/components/ui/ThemeToggle';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { db, collection, getDocs, limit, onSnapshot, orderBy, query } from '@repo/firebase-config';
+import { COLLECTIONS, normalizeOrderStatus } from '@repo/shared-types';
+
+type GlobalSearchResult = {
+  id: string;
+  label: string;
+  detail: string;
+  href: string;
+  type: 'Order' | 'Branch' | 'Product' | 'Courier' | 'User';
+};
+
+type OrderNotification = {
+  id: string;
+  title: string;
+  desc: string;
+  href: string;
+};
 
 export function Header() {
   const { toggleMobileSidebar } = useSidebar();
+  const router = useRouter();
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [searchValue, setSearchValue] = useState('');
+  const [searchResults, setSearchResults] = useState<GlobalSearchResult[]>([]);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [notifications, setNotifications] = useState<OrderNotification[]>([]);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLDivElement>(null);
   
   const { user, logout } = useAuth();
 
@@ -24,10 +49,142 @@ export function Header() {
       if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
         setIsNotificationsOpen(false);
       }
+      if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
+        setIsSearchOpen(false);
+      }
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
+
+  useEffect(() => {
+    const ordersQuery = query(collection(db, COLLECTIONS.ORDERS), orderBy('createdAt', 'desc'), limit(5));
+    return onSnapshot(
+      ordersQuery,
+      (snapshot) => {
+        setNotifications(snapshot.docs.map((item) => {
+          const data = item.data() as Record<string, any>;
+          const shortId = String(item.id).slice(0, 6).toUpperCase();
+          return {
+            id: item.id,
+            title: `Order #${shortId}`,
+            desc: `${normalizeOrderStatus(data.status || 'pending')} · ${data.customerName || 'Customer'} · ${data.restaurantName || data.branchName || 'Branch'}`,
+            href: `/orders/${item.id}`,
+          };
+        }));
+      },
+      (error) => {
+        console.error('Header notifications failed:', error);
+        setNotifications([]);
+      },
+    );
+  }, []);
+
+  useEffect(() => {
+    const term = searchValue.trim().toLowerCase();
+    if (term.length < 2) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsSearching(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        const [ordersSnap, restaurantsSnap, menuSnap, couriersSnap, usersSnap] = await Promise.all([
+          getDocs(collection(db, COLLECTIONS.ORDERS)),
+          getDocs(collection(db, COLLECTIONS.RESTAURANTS)),
+          getDocs(collection(db, COLLECTIONS.MENU_ITEMS)),
+          getDocs(collection(db, COLLECTIONS.COURIERS)),
+          getDocs(collection(db, COLLECTIONS.USERS)),
+        ]);
+
+        if (cancelled) return;
+        const results: GlobalSearchResult[] = [];
+        const matches = (...values: unknown[]) => values.some((value) => String(value || '').toLowerCase().includes(term));
+
+        ordersSnap.docs.forEach((item) => {
+          const data = item.data() as Record<string, any>;
+          if (!matches(item.id, data.customerName, data.customerPhone, data.restaurantName, data.branchName, data.status)) return;
+          results.push({
+            id: `order-${item.id}`,
+            label: `#${item.id.slice(0, 6).toUpperCase()} · ${data.customerName || 'Customer'}`,
+            detail: `${data.restaurantName || data.branchName || 'Branch'} · ${normalizeOrderStatus(data.status || 'pending')}`,
+            href: `/orders/${item.id}`,
+            type: 'Order',
+          });
+        });
+
+        restaurantsSnap.docs.forEach((item) => {
+          const data = item.data() as Record<string, any>;
+          if (!matches(data.name, data.brandName, data.branchName, data.address, data.cuisine)) return;
+          results.push({
+            id: `restaurant-${item.id}`,
+            label: data.branchName ? `${data.brandName || data.name} · ${data.branchName}` : data.name || item.id,
+            detail: data.address || data.cuisine || 'Restaurant branch',
+            href: `/restaurants/edit/${item.id}`,
+            type: 'Branch',
+          });
+        });
+
+        menuSnap.docs.forEach((item) => {
+          const data = item.data() as Record<string, any>;
+          if (!matches(data.name, data.category, data.brandName, data.branchName)) return;
+          results.push({
+            id: `product-${item.id}`,
+            label: data.name || item.id,
+            detail: `${data.brandName || data.restaurantName || 'Brand'} · ${data.category || 'Category'}`,
+            href: '/catalog',
+            type: 'Product',
+          });
+        });
+
+        couriersSnap.docs.forEach((item) => {
+          const data = item.data() as Record<string, any>;
+          if (!matches(item.id, data.fullName, data.displayName, data.name, data.phone, data.licensePlate, data.plateNumber)) return;
+          results.push({
+            id: `courier-${item.id}`,
+            label: data.fullName || data.displayName || data.name || item.id,
+            detail: `${data.phone || 'No phone'} · ${data.status || 'offline'}`,
+            href: '/couriers',
+            type: 'Courier',
+          });
+        });
+
+        usersSnap.docs.forEach((item) => {
+          const data = item.data() as Record<string, any>;
+          if (!matches(data.fullName, data.displayName, data.name, data.email, data.phone, data.role)) return;
+          results.push({
+            id: `user-${item.id}`,
+            label: data.fullName || data.displayName || data.name || data.email || item.id,
+            detail: `${data.role || 'user'} · ${data.email || data.phone || 'No contact'}`,
+            href: '/users',
+            type: 'User',
+          });
+        });
+
+        setSearchResults(results.slice(0, 8));
+      } catch (error) {
+        console.error('Global search failed:', error);
+        if (!cancelled) setSearchResults([]);
+      } finally {
+        if (!cancelled) setIsSearching(false);
+      }
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [searchValue]);
+
+  const openSearchResult = (result: GlobalSearchResult) => {
+    setSearchValue('');
+    setSearchResults([]);
+    setIsSearchOpen(false);
+    router.push(result.href);
+  };
 
   return (
     <header className="sticky top-0 z-30 flex h-[72px] w-full items-center border-b border-gray-200 bg-white px-4 dark:border-gray-700 dark:bg-gray-900 md:px-6">
@@ -47,7 +204,7 @@ export function Header() {
         </button>
 
         {/* Search input */}
-        <div className="hidden sm:block relative w-full max-w-[320px]">
+        <div ref={searchRef} className="hidden sm:block relative w-full max-w-[360px]">
           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
               <circle cx="9" cy="9" r="6" />
@@ -56,9 +213,50 @@ export function Header() {
           </span>
           <input
             type="text"
-            placeholder="Search or type command..."
+            value={searchValue}
+            onChange={(event) => {
+              setSearchValue(event.target.value);
+              setIsSearchOpen(true);
+            }}
+            onFocus={() => setIsSearchOpen(true)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && searchResults[0]) openSearchResult(searchResults[0]);
+              if (event.key === 'Escape') setIsSearchOpen(false);
+            }}
+            placeholder="Search orders, branches, products..."
             className="h-10 w-full rounded-lg border border-gray-200 bg-gray-50 pl-10 pr-4 text-sm text-gray-700 placeholder-gray-400 outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500 dark:focus:border-brand-400"
           />
+          {isSearchOpen && searchValue.trim().length >= 2 && (
+            <div className="absolute left-0 top-full z-50 mt-2 w-[420px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800">
+              <div className="border-b border-gray-100 px-4 py-2 text-xs font-bold uppercase tracking-wide text-gray-500 dark:border-gray-700">
+                {isSearching ? 'Searching live Firestore...' : `${searchResults.length} result${searchResults.length === 1 ? '' : 's'}`}
+              </div>
+              {searchResults.length ? (
+                <div className="max-h-80 overflow-y-auto py-1">
+                  {searchResults.map((result) => (
+                    <button
+                      key={result.id}
+                      type="button"
+                      onClick={() => openSearchResult(result)}
+                      className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                    >
+                      <span className="rounded-full bg-brand-50 px-2 py-1 text-[10px] font-black uppercase text-brand-600 dark:bg-brand-500/10 dark:text-brand-300">
+                        {result.type}
+                      </span>
+                      <span>
+                        <span className="block text-sm font-bold text-gray-900 dark:text-white">{result.label}</span>
+                        <span className="block text-xs text-gray-500 dark:text-gray-400">{result.detail}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="px-4 py-6 text-sm font-semibold text-gray-500 dark:text-gray-400">
+                  No live records match this search.
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -79,7 +277,7 @@ export function Header() {
               <path d="M13.73 21a2 2 0 01-3.46 0" />
             </svg>
             <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-error-500 text-[10px] font-semibold text-white">
-              5
+              {notifications.length}
             </span>
           </button>
 
@@ -87,22 +285,26 @@ export function Header() {
             <div className="absolute right-0 top-full mt-2 w-80 rounded-xl border border-gray-200 bg-white p-4 shadow-xl dark:border-gray-700 dark:bg-gray-800">
               <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-gray-100">Notifications</h3>
               <div className="space-y-3">
-                {[
-                  { title: 'New order #ORD-2847', time: '2 min ago', desc: 'A new order has been placed' },
-                  { title: 'Courier assigned', time: '15 min ago', desc: 'Courier Alex assigned to order #ORD-2845' },
-                  { title: 'Restaurant approved', time: '1 hour ago', desc: 'Pizza Palace has been approved' },
-                ].map((n, i) => (
-                  <div key={i} className="flex gap-3 rounded-lg p-2 hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                {notifications.length ? notifications.map((n) => (
+                  <Link
+                    key={n.id}
+                    href={n.href}
+                    onClick={() => setIsNotificationsOpen(false)}
+                    className="flex gap-3 rounded-lg p-2 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                  >
                     <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-500 dark:bg-brand-500/10">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="4" /></svg>
                     </div>
                     <div>
                       <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{n.title}</p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">{n.desc}</p>
-                      <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">{n.time}</p>
                     </div>
-                  </div>
-                ))}
+                  </Link>
+                )) : (
+                  <p className="rounded-lg bg-gray-50 p-3 text-sm font-semibold text-gray-500 dark:bg-gray-700/50 dark:text-gray-400">
+                    No recent live orders.
+                  </p>
+                )}
               </div>
             </div>
           )}

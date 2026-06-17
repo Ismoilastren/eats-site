@@ -246,6 +246,7 @@ export default function CouriersPage() {
       const newId = 'courier_' + Date.now().toString();
       const data: any = {
         id: newId,
+        uid: newId,
         name: form.fullName.trim(),
         fullName: form.fullName.trim(),
         displayName: form.fullName.trim(),
@@ -253,6 +254,13 @@ export default function CouriersPage() {
         vehicleType: normalizeCanonicalVehicleType(form.vehicleType),
         vehicleName: form.vehicleBrand.trim() || null,
         plateNumber: form.licensePlate.toUpperCase() || null,
+        active: true,
+        isActive: true,
+        archived: false,
+        deleted: false,
+        isDeleted: false,
+        isTest: false,
+        isDemo: false,
         status: 'offline',
         isOnline: false,
         isAvailable: false,
@@ -275,9 +283,12 @@ export default function CouriersPage() {
         if (form.vehicleBrand) data.vehicleBrand = form.vehicleBrand;
       }
       await setDoc(doc(db, COLLECTIONS.COURIERS, newId), data);
-      toast.success('Courier created! Copy the ID and send it to them.', { duration: 5000 });
+      setSearch('');
+      setCopiedId(newId);
+      toast.success('Courier created and visible in fleet. It becomes assignable after courier app login/online status.', { duration: 7000 });
       setShowAddModal(false);
       resetForm();
+      setTimeout(() => setCopiedId(null), 3000);
     } catch (err) {
       console.error(err);
       toast.error('Failed to create courier');
@@ -371,6 +382,9 @@ export default function CouriersPage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Courier Fleet</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             Dispatch Center — Create couriers and copy their ID to send via messaging apps.
+          </p>
+          <p className="mt-2 text-xs font-semibold text-gray-500 dark:text-slate-400">
+            New couriers appear immediately as offline. Assignment only shows online, available, non-busy couriers.
           </p>
           {hiddenRecordsCount > 0 && (
             <p className="mt-2 text-xs font-semibold text-amber-600 dark:text-amber-400">
@@ -554,7 +568,7 @@ export default function CouriersPage() {
           <div className="mb-5 rounded-xl border border-orange-200 bg-orange-50 p-4 dark:border-orange-500/30 dark:bg-orange-500/10">
             <p className="text-sm font-semibold text-orange-700 dark:text-orange-400">📋 After creating, copy the Courier ID</p>
             <p className="text-xs text-orange-600/80 dark:text-orange-300/70 mt-1">
-              The generated ID appears in the table. Tap "Copy ID" and send it to the courier via Telegram/WhatsApp. They use it to login.
+              The generated ID appears in the table immediately. It is not assignable until the courier logs into the courier app and goes online.
             </p>
           </div>
           <FormFields form={form} setForm={setForm} isSubmitting={isSubmitting} onSubmit={handleAdd} submitLabel="Create Courier" onClose={() => { setShowAddModal(false); resetForm(); }} />

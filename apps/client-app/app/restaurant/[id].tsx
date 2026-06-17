@@ -67,15 +67,23 @@ export default function RestaurantDetailScreen() {
         }
 
         const restaurantData = { id: restaurantSnap.id, ...restaurantSnap.data() } as Restaurant;
-        const menuSnap = await getDocs(
-          query(
-            collection(db, COLLECTIONS.MENU_ITEMS),
-            where('restaurantId', '==', id),
-            where('isAvailable', '==', true)
-          )
-        );
         const items: MenuItem[] = [];
-        menuSnap.forEach((itemDoc) => items.push({ id: itemDoc.id, ...itemDoc.data() } as MenuItem));
+        const dishesSnap = await getDocs(collection(db, COLLECTIONS.RESTAURANTS, id, 'dishes'));
+        dishesSnap.forEach((itemDoc) => {
+          const item = { id: itemDoc.id, ...itemDoc.data(), restaurantId: id } as MenuItem;
+          if (item.isAvailable !== false) items.push(item);
+        });
+
+        if (items.length === 0) {
+          const menuSnap = await getDocs(
+            query(
+              collection(db, COLLECTIONS.MENU_ITEMS),
+              where('restaurantId', '==', id),
+              where('isAvailable', '==', true)
+            )
+          );
+          menuSnap.forEach((itemDoc) => items.push({ id: itemDoc.id, ...itemDoc.data() } as MenuItem));
+        }
 
         setRestaurant(restaurantData);
         setMenuItems(items.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)));

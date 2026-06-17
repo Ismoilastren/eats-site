@@ -81,8 +81,8 @@ export default function OrderDetailsModal() {
             ORDER #{order.id.slice(0, 6).toUpperCase()}
           </Text>
         </View>
-        <View className={`px-4 py-3 rounded-xl border-2 ml-3 ${statusColors[1]} ${statusColors[2]}`}>
-          <Text className={`font-black uppercase tracking-widest text-lg ${statusColors[0]}`}>
+        <View className={`shrink-0 max-w-[34%] px-3 py-2 rounded-xl border-2 ml-2 ${statusColors[1]} ${statusColors[2]}`}>
+          <Text className={`font-black uppercase tracking-widest text-xs ${statusColors[0]}`} numberOfLines={1}>
             {ORDER_STATUS_LABELS[order.status] || order.status}
           </Text>
         </View>

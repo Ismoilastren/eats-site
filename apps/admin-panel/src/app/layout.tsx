@@ -1,14 +1,7 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
 import './globals.css';
 import { Providers } from './providers';
 import { AppShell } from '@/components/layout/AppShell';
-
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-inter',
-  display: 'swap',
-});
 
 export const metadata: Metadata = {
   title: '2(13) Admin Panel',
@@ -22,7 +15,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} font-[family-name:var(--font-inter)]`}>
+      <body>
         <Providers>
           <AppShell>{children}</AppShell>
         </Providers>

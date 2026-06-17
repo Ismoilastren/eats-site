@@ -25,6 +25,31 @@ import {
   normalizeOrderStatus,
 } from '@repo/shared-types';
 
+function firstText(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
+function getCourierVehicleSnapshot(courierData: Record<string, unknown>) {
+  const vehicle = [
+    firstText(courierData.vehicleName, courierData.vehicleBrand),
+    firstText(courierData.vehicleModel),
+    firstText(courierData.plateNumber, courierData.licensePlate),
+  ].filter(Boolean).join(' ') || firstText(courierData.vehicleName, courierData.vehicleType);
+
+  return Object.fromEntries(Object.entries({
+    vehicle,
+    vehicleType: firstText(courierData.vehicleType, courierData.vehicle),
+    vehicleName: firstText(courierData.vehicleName, courierData.vehicleBrand),
+    vehicleBrand: firstText(courierData.vehicleBrand, courierData.vehicleName),
+    vehicleModel: firstText(courierData.vehicleModel),
+    plateNumber: firstText(courierData.plateNumber, courierData.licensePlate).toUpperCase(),
+    licensePlate: firstText(courierData.licensePlate, courierData.plateNumber).toUpperCase(),
+  }).filter(([, value]) => value !== undefined && value !== null && value !== ''));
+}
+
 interface DeliveryState {
   availableDeliveries: Order[];
   activeDeliveries: Order[];
@@ -151,12 +176,15 @@ export const useDeliveryStore = create<DeliveryState>()((set, get) => ({
       await runTransaction(db, async (transaction) => {
         const orderSnap = await transaction.get(orderRef);
         if (!orderSnap.exists()) throw new Error('Order no longer exists');
+        const courierSnap = await transaction.get(courierRef);
+        const courierData = courierSnap.exists() ? courierSnap.data() : {};
 
         const orderData = orderSnap.data();
         const status = normalizeOrderStatus(orderData.status);
         if (!COURIER_RADAR_STATUSES.includes(status) || orderData.courierId || orderData.assignedCourier) {
           throw new Error('Order is no longer available');
         }
+        const vehicleSnapshot = getCourierVehicleSnapshot(courierData);
 
         transaction.update(orderRef, {
           courierId,
@@ -166,6 +194,14 @@ export const useDeliveryStore = create<DeliveryState>()((set, get) => ({
             id: courierId,
             name: courierName,
             phone: courierPhone,
+            ...vehicleSnapshot,
+          },
+          courier: {
+            uid: courierId,
+            id: courierId,
+            name: courierName,
+            phone: courierPhone,
+            ...vehicleSnapshot,
           },
           updatedAt: serverTimestamp(),
         });

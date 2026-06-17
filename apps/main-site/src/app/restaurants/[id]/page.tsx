@@ -53,20 +53,29 @@ export default function RestaurantDetail({ params }: { params: Promise<{ id: str
           return; // Skip fetching menu items if restaurant doesn't exist
         }
 
-        // Fetch Menu Items
-        const q = query(
-          collection(db, COLLECTIONS.MENU_ITEMS),
-          where("restaurantId", "==", restaurantId),
-          where("isAvailable", "==", true)
-        );
-
-        const menuSnap = await getDocs(q);
+        // Admin writes the canonical menu to restaurants/{id}/dishes. Keep
+        // top-level menuItems as a legacy fallback for older seeded records.
+        const dishesSnap = await getDocs(collection(db, COLLECTIONS.RESTAURANTS, restaurantId, 'dishes'));
         const items: MenuItem[] = [];
-        menuSnap.forEach((d) => {
-          items.push({ id: d.id, ...d.data() } as MenuItem);
+        dishesSnap.forEach((d) => {
+          const item = { id: d.id, ...d.data(), restaurantId } as MenuItem;
+          if (item.isAvailable !== false) items.push(item);
         });
+
+        if (items.length === 0) {
+          const q = query(
+            collection(db, COLLECTIONS.MENU_ITEMS),
+            where("restaurantId", "==", restaurantId),
+            where("isAvailable", "==", true)
+          );
+
+          const menuSnap = await getDocs(q);
+          menuSnap.forEach((d) => {
+            items.push({ id: d.id, ...d.data() } as MenuItem);
+          });
+        }
         
-        setMenuItems(items);
+        setMenuItems(items.sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0)));
       } catch (error) {
         console.error("Failed to fetch restaurant details:", error);
         setRestaurant(null);

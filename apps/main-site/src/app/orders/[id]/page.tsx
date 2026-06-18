@@ -103,7 +103,7 @@ export default function OrderTrackingPage() {
         ) : !order ? (
           <div className="rounded-[40px] bg-white p-12 text-center">
             <p className="text-3xl font-black">Order not found</p>
-            <p className="mt-2 font-bold text-gray-500">{error || 'Local demo orders are stored in this browser.'}</p>
+            <p className="mt-2 font-bold text-gray-500">{error || 'This order is not available in the current data source.'}</p>
           </div>
         ) : (
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">

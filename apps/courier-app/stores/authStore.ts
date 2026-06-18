@@ -1,18 +1,16 @@
 import { create } from 'zustand';
 import type { Courier } from '@repo/shared-types';
-import { COLLECTIONS, DEMO_COURIER } from '@repo/shared-types';
+import { COLLECTIONS } from '@repo/shared-types';
 import {
   db,
   doc,
   getDoc,
   onSnapshot,
   serverTimestamp,
-  setDoc,
   updateDoc,
 } from '@repo/firebase-config';
 import {
   getCourierOperationalFields,
-  getDemoCourierDocument,
   mapCourierDocument,
 } from '../services/courierProfileService';
 import {
@@ -30,7 +28,6 @@ interface AuthState {
   error: string | null;
   initialize: () => Promise<void>;
   signIn: (courierId: string) => Promise<void>;
-  useDemoCourier: () => Promise<void>;
   signOut: () => Promise<void>;
   toggleOnline: () => Promise<void>;
   clearError: () => void;
@@ -145,22 +142,6 @@ export const useAuthStore = create<AuthState>()((set, get) => {
       set({ isLoading: true, error: null });
       try {
         await connect(courierId);
-      } catch (error) {
-        set({ isLoading: false, error: getReadableError(error) });
-        throw error;
-      }
-    },
-
-    useDemoCourier: async () => {
-      set({ isLoading: true, error: null });
-      try {
-        const courierRef = doc(db, COLLECTIONS.COURIERS, DEMO_COURIER.id);
-        const snapshot = await getDoc(courierRef);
-        if (!snapshot.exists()) {
-          const timestamp = serverTimestamp();
-          await setDoc(courierRef, getDemoCourierDocument(timestamp));
-        }
-        await connect(DEMO_COURIER.id);
       } catch (error) {
         set({ isLoading: false, error: getReadableError(error) });
         throw error;

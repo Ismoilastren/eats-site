@@ -34,6 +34,8 @@ export default function CreateOrderPage() {
     deliveryType: 'delivery',
     source: 'operator',
     paymentMethod: 'cash',
+    house: '',
+    apartment: '',
     itemName: '',
     itemQty: 1,
     itemPrice: 0,
@@ -87,6 +89,12 @@ export default function CreateOrderPage() {
     if (!form.itemName.trim()) return toast.error('Order item name is required.');
     if (subtotal <= 0) return toast.error('Item quantity and price must be greater than zero.');
 
+    const deliveryAddress = [
+      form.deliveryAddress.trim(),
+      form.house.trim() ? `House ${form.house.trim()}` : '',
+      form.apartment.trim() ? `Apt ${form.apartment.trim()}` : '',
+    ].filter(Boolean).join(', ');
+
     setIsSubmitting(true);
     try {
       const payload = {
@@ -112,7 +120,10 @@ export default function CreateOrderPage() {
         subtotal,
         deliveryFee: Number(form.deliveryFee || 0),
         totalAmount: total,
-        deliveryAddress: form.deliveryAddress.trim(),
+        deliveryAddress,
+        deliveryAddressLine: form.deliveryAddress.trim(),
+        deliveryHouse: form.house.trim(),
+        deliveryApartment: form.apartment.trim(),
         deliveryLocation: TASHKENT_CENTER,
         customerName: form.customerName.trim(),
         customerPhone: form.customerPhone.trim(),
@@ -187,11 +198,11 @@ export default function CreateOrderPage() {
             <div className="mt-4 space-y-4">
               <Textarea label="Address" value={form.deliveryAddress} onChange={(value) => patchForm({ deliveryAddress: value })} />
               <div className="grid grid-cols-2 gap-3">
-                <Input label="House" value="" onChange={() => undefined} placeholder="Optional" disabled />
-                <Input label="Apartment" value="" onChange={() => undefined} placeholder="Optional" disabled />
+                <Input label="House" value={form.house} onChange={(value) => patchForm({ house: value })} placeholder="Optional" />
+                <Input label="Apartment" value={form.apartment} onChange={(value) => patchForm({ apartment: value })} placeholder="Optional" />
               </div>
               <div className="rounded-xl border border-dashed border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-800">
-                Exact map pin picker is the next phase. This form writes a valid order with Tashkent fallback coordinates.
+                Address details are saved to the real order. Manual operator orders use Tashkent fallback coordinates when no exact customer pin is available.
               </div>
             </div>
           </section>

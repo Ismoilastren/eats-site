@@ -187,7 +187,7 @@ export default function SettingsPage() {
           {activeSection === 'Geozones' && <ReadOnlySection title="Geozones" body="Delivery geozones are not yet implemented as editable polygons in this admin. Current production delivery uses address coordinates and global delivery fee settings." />}
           {activeSection === 'Catalog' && <ReadOnlySection title="Catalog" body="Product catalog is managed from Restaurants -> Edit Restaurant -> Menu Items and the new Catalog page. Category names are managed from Restaurants -> Categories." />}
           {activeSection === 'Users & Roles' && <ReadOnlySection title="Users & Roles" body="Admin accounts and roles are managed from the Admins page. Restaurant manager linking is managed inside each restaurant edit page." />}
-          {activeSection === 'Change History' && <ReadOnlySection title="Change History" body="A full audit log is not implemented yet. This page stores updatedAt for the global settings document so changes can still be traced at document level." />}
+          {activeSection === 'Change History' && <ReadOnlySection title="Change History" body="Advanced audit-log browsing is pending. This page stores updatedAt for the global settings document so changes can still be traced at document level." />}
 
           {['Company', 'Delivery'].includes(activeSection) ? (
             <div className="mt-8 flex justify-end">

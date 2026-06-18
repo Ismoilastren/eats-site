@@ -42,7 +42,7 @@ type YandexMapProps = {
 
 function markerElement(point: MapPoint) {
   const element = document.createElement('div');
-  element.className = 'ymaps-demo-marker';
+  element.className = 'ymaps-custom-marker';
   element.style.cssText = 'transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center;';
   const marker = document.createElement('div');
   marker.style.cssText = `

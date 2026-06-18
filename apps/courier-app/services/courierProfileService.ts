@@ -1,8 +1,5 @@
 import type { Courier, CourierLocation, CourierStatus } from '@repo/shared-types';
-import {
-  DEMO_COURIER,
-  normalizeCanonicalVehicleType,
-} from '@repo/shared-types';
+import { normalizeCanonicalVehicleType } from '@repo/shared-types';
 
 type CourierDocument = Record<string, unknown>;
 
@@ -118,23 +115,3 @@ export const getCourierOperationalFields = (
     updatedAt: timestamp,
   };
 };
-
-export const getDemoCourierDocument = (timestamp: unknown) => ({
-  ...DEMO_COURIER,
-  displayName: DEMO_COURIER.name,
-  fullName: DEMO_COURIER.name,
-  status: 'offline',
-  isOnline: false,
-  isAvailable: false,
-  currentOrderId: null,
-  currentLocation: null,
-  totalEarnings: 0,
-  todayEarnings: 0,
-  weeklyEarnings: 0,
-  completedOrders: 0,
-  deliveries: 0,
-  totalDeliveries: 0,
-  createdAt: timestamp,
-  updatedAt: timestamp,
-  lastSeenAt: timestamp,
-});

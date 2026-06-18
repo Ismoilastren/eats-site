@@ -433,20 +433,16 @@ export default function ProfileScreen() {
         </View>
 
         {/* Language */}
-        <TouchableOpacity
-          activeOpacity={0.7}
-          onPress={() => Alert.alert('Language', 'Language selection coming soon.')}
-          style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 16 }}
-        >
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 16 }}>
           <View style={{ width: 38, height: 38, borderRadius: 10, backgroundColor: 'rgba(14,165,233,0.15)', alignItems: 'center', justifyContent: 'center', marginRight: 14 }}>
             <Ionicons name="language" size={20} color="#38bdf8" />
           </View>
           <View style={{ flex: 1 }}>
             <Text style={{ color: 'white', fontWeight: '700', fontSize: 15 }}>App Language</Text>
-            <Text style={{ color: '#64748b', fontSize: 12, fontWeight: '600', marginTop: 2 }}>O'zbek / Русский / English</Text>
+            <Text style={{ color: '#64748b', fontSize: 12, fontWeight: '600', marginTop: 2 }}>Device language</Text>
           </View>
-          <Ionicons name="chevron-forward" size={16} color="#475569" />
-        </TouchableOpacity>
+          <Text style={{ color: '#94a3b8', fontSize: 12, fontWeight: '800' }}>Auto</Text>
+        </View>
       </SheetModal>
 
       {/* ══════════════════════════════════════════

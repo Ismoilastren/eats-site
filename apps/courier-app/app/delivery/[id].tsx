@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, SafeAreaView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, SafeAreaView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
 import {
   db,
@@ -11,7 +12,41 @@ import {
   serverTimestamp,
   runTransaction,
 } from '@repo/firebase-config';
-import { COLLECTIONS, isTerminalOrderStatus, normalizeOrderStatus, Order, getNextCourierStatus } from '@repo/shared-types';
+import {
+  COLLECTIONS,
+  isTerminalOrderStatus,
+  normalizeCoordinate,
+  normalizeOrderStatus,
+  type NormalizedCoordinate,
+  type Order,
+} from '@repo/shared-types';
+
+const TASHKENT_CENTER: NormalizedCoordinate = {
+  latitude: 41.311081,
+  longitude: 69.240562,
+};
+
+const TASHKENT_CUSTOMER_FALLBACK: NormalizedCoordinate = {
+  latitude: 41.318081,
+  longitude: 69.252562,
+};
+
+const getMapRegion = (
+  first: NormalizedCoordinate,
+  second: NormalizedCoordinate
+) => {
+  const minLat = Math.min(first.latitude, second.latitude);
+  const maxLat = Math.max(first.latitude, second.latitude);
+  const minLng = Math.min(first.longitude, second.longitude);
+  const maxLng = Math.max(first.longitude, second.longitude);
+
+  return {
+    latitude: (first.latitude + second.latitude) / 2,
+    longitude: (first.longitude + second.longitude) / 2,
+    latitudeDelta: Math.max((maxLat - minLat) * 2.4, 0.025),
+    longitudeDelta: Math.max((maxLng - minLng) * 2.4, 0.025),
+  };
+};
 
 export default function ActiveDeliveryScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -22,13 +57,18 @@ export default function ActiveDeliveryScreen() {
   useEffect(() => {
     if (!id) return;
     const orderRef = doc(db, COLLECTIONS.ORDERS, id);
-    const unsubscribe = onSnapshot(orderRef, (docSnap) => {
-      if (docSnap.exists()) {
-        setOrder({ id: docSnap.id, ...docSnap.data() } as Order);
+    const unsubscribe = onSnapshot(
+      orderRef,
+      (docSnap) => {
+        if (docSnap.exists()) {
+          setOrder({ id: docSnap.id, ...docSnap.data() } as Order);
+        }
+      },
+      (error) => {
+        if (__DEV__) console.warn('active-delivery-order-sync', error);
+        setLocationError('Unable to sync this delivery. Check courier permissions.');
       }
-    }, (error) => {
-      console.warn('Order sync error:', error);
-    });
+    );
     return () => unsubscribe();
   }, [id]);
 
@@ -62,8 +102,9 @@ export default function ActiveDeliveryScreen() {
               },
               updatedAt: serverTimestamp(),
             });
-          } catch (e) {
-            console.error("Failed to sync location to Firestore", e);
+          } catch (error) {
+            if (__DEV__) console.warn('active-delivery-location-sync', error);
+            setLocationError('Courier GPS could not be synced to the order.');
           }
         }
       );
@@ -115,8 +156,10 @@ export default function ActiveDeliveryScreen() {
       });
 
       router.back();
-    } catch (e) {
-      console.error(e);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to mark delivery as delivered.';
+      setLocationError(message);
+      Alert.alert('Delivery update failed', message);
     }
   };
 
@@ -128,7 +171,12 @@ export default function ActiveDeliveryScreen() {
       await markDelivered();
       return;
     }
-    const nextStatus = getNextCourierStatus(currentStatus);
+    const nextStatus =
+      currentStatus === 'ready_for_pickup'
+        ? 'picked_up'
+        : currentStatus === 'picked_up'
+          ? 'on_the_way'
+          : null;
     if (!nextStatus) return;
 
     try {
@@ -137,7 +185,9 @@ export default function ActiveDeliveryScreen() {
         updatedAt: serverTimestamp(),
       });
     } catch (error) {
-      console.error('Failed to update delivery status', error);
+      const message = error instanceof Error ? error.message : 'Failed to update delivery status.';
+      setLocationError(message);
+      Alert.alert('Delivery update failed', message);
     }
   };
 
@@ -158,6 +208,20 @@ export default function ActiveDeliveryScreen() {
           : normalizedStatus === 'on_the_way'
             ? 'DELIVERED'
             : 'WAITING';
+  const restaurantLocation =
+    normalizeCoordinate(order.restaurantLocation) || TASHKENT_CENTER;
+  const customerLocation =
+    normalizeCoordinate(order.deliveryLocation) || TASHKENT_CUSTOMER_FALLBACK;
+  const courierLocation = normalizeCoordinate(order.courierLocation);
+  const mapRoute =
+    normalizedStatus === 'ready_for_pickup'
+      ? courierLocation
+        ? [courierLocation, restaurantLocation]
+        : [restaurantLocation, customerLocation]
+      : ['picked_up', 'on_the_way'].includes(normalizedStatus)
+        ? [courierLocation || restaurantLocation, customerLocation]
+        : [restaurantLocation, customerLocation];
+  const initialRegion = getMapRegion(mapRoute[0], mapRoute[mapRoute.length - 1]);
 
   return (
     <SafeAreaView className="flex-1 bg-gray-50">
@@ -172,14 +236,52 @@ export default function ActiveDeliveryScreen() {
       </View>
 
       <View className="flex-1 p-6">
-        {/* Mock Map / Info area */}
-        <View className="bg-blue-50 rounded-3xl p-6 mb-6 border-2 border-blue-200 flex-row items-center shadow-sm">
-           <Ionicons name="navigate-circle" size={48} color="#3B82F6" className="mr-4" />
-           <View className="flex-1">
-             <Text className="text-blue-800 font-black text-xl uppercase tracking-wider">GPS Sync Active</Text>
-             <Text className="text-blue-600 font-bold mt-1">Broadcasting courierLocation to Firestore...</Text>
-             {locationError && <Text className="text-red-500 font-bold mt-2 bg-red-50 p-2 rounded">{locationError}</Text>}
-           </View>
+        <View className="mb-6 overflow-hidden rounded-3xl border-2 border-blue-200 bg-blue-50 shadow-sm">
+          <View className="px-5 pt-5">
+            <Text className="text-blue-800 font-black text-xl uppercase tracking-wider">Live delivery map</Text>
+            <Text className="mt-1 text-blue-600 font-bold">
+              Tracking line uses the available restaurant, customer, and courier GPS points.
+            </Text>
+          </View>
+          <View className="m-5 h-72 overflow-hidden rounded-2xl border border-blue-100 bg-slate-200">
+            <MapView
+              style={{ flex: 1 }}
+              initialRegion={initialRegion}
+              pitchEnabled={false}
+              rotateEnabled={false}
+            >
+              <Marker coordinate={restaurantLocation} title={order.restaurantName || 'Restaurant'}>
+                <View className="h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-orange-500">
+                  <Ionicons name="restaurant" size={17} color="white" />
+                </View>
+              </Marker>
+              <Marker coordinate={customerLocation} title={order.customerName || 'Customer'}>
+                <View className="h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-emerald-500">
+                  <Ionicons name="home" size={17} color="white" />
+                </View>
+              </Marker>
+              {courierLocation ? (
+                <Marker coordinate={courierLocation} title="Courier">
+                  <View className="h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-blue-600">
+                    <Ionicons name="navigate" size={17} color="white" />
+                  </View>
+                </Marker>
+              ) : null}
+              {mapRoute.length >= 2 ? (
+                <Polyline
+                  coordinates={mapRoute}
+                  strokeColor="#2563EB"
+                  strokeWidth={5}
+                  lineDashPattern={[8, 8]}
+                />
+              ) : null}
+            </MapView>
+          </View>
+          {locationError && (
+            <Text className="mx-5 mb-5 rounded-xl bg-red-50 p-3 text-red-600 font-bold">
+              {locationError}
+            </Text>
+          )}
         </View>
 
         <View className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 mb-6">

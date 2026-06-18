@@ -78,14 +78,4 @@ export const COLLECTIONS = {
   PAYMENTS: 'payments',
 } as const;
 
-// =============================================
-// DEMO IDENTITY
-// =============================================
-export const DEMO_COURIER = {
-  id: 'courier-demo-1',
-  name: 'Demo Courier',
-  phone: '+998 90 123 45 67',
-  vehicleType: 'bicycle',
-} as const;
-
 export * from './address';

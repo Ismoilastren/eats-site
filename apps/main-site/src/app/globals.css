@@ -53,7 +53,7 @@ body {
   }
 }
 
-.ymaps-demo-marker > div {
+.ymaps-custom-marker > div {
   animation: address-pin-drop 240ms ease-out, address-pin-pulse 1.35s ease-out 240ms 2;
 }
 

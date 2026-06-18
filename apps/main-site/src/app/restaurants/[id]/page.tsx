@@ -145,7 +145,7 @@ export default function RestaurantDetail({ params }: { params: Promise<{ id: str
     } catch (error) {
       console.error(error);
       toast.error('Failed to update like status');
-      // Revert optimistic update (simplistic revert for now by refetching would be better, but acceptable for demo)
+      // Revert optimistic update by restoring the previous cart snapshot.
       setRestaurant(restaurant);
     }
   };

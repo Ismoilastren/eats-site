@@ -165,7 +165,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Live platform overview from Firestore. No demo counters are shown here.
+            Live platform overview from Firestore. Counters are calculated from real records only.
           </p>
         </div>
         <span className="inline-flex w-fit items-center rounded-full bg-success-50 px-3 py-1 text-xs font-bold uppercase tracking-wider text-success-700 dark:bg-success-500/10 dark:text-success-400">

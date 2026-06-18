@@ -76,7 +76,6 @@ export default function RegisterPage() {
         source: "website",
         createdAt: serverTimestamp()
       });
-      console.log("SUCCESS: User profile written to Firestore");
 
       sessionStorage.removeItem('form_draft_register');
       router.push("/");

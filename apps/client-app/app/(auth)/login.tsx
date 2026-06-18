@@ -67,21 +67,6 @@ export default function LoginScreen() {
     }
   };
 
-  const handleDemoLogin = () => {
-    setUser({
-      uid: 'demo-user-001',
-      displayName: 'Demo User',
-      email: 'demo@expresseats.com',
-      phone: '+1 (555) 123-4567',
-      photoURL: '',
-      role: 'client',
-      savedAddresses: [],
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
-    router.replace('/(tabs)');
-  };
-
   return (
     <SafeAreaView className="flex-1 bg-white">
       <KeyboardAvoidingView
@@ -172,24 +157,6 @@ export default function LoginScreen() {
               <Text className="text-lg font-bold text-white">Log In</Text>
             )}
           </TouchableOpacity>
-
-          {/* Demo Login */}
-          <TouchableOpacity
-            onPress={handleDemoLogin}
-            className="mb-6 flex-row items-center justify-center rounded-2xl border border-gray-200 py-4"
-          >
-            <Ionicons name="flash-outline" size={20} color="#FF6B35" />
-            <Text className="ml-2 text-base font-semibold text-gray-700">
-              Continue as Demo User
-            </Text>
-          </TouchableOpacity>
-
-          {/* Divider */}
-          <View className="mb-6 flex-row items-center">
-            <View className="h-px flex-1 bg-gray-200" />
-            <Text className="mx-4 text-sm text-gray-400">or</Text>
-            <View className="h-px flex-1 bg-gray-200" />
-          </View>
 
           {/* Register Link */}
           <View className="flex-row items-center justify-center">

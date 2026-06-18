@@ -276,7 +276,7 @@ export default function ActiveScreen() {
 
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        console.log('Permission to access location was denied');
+        if (__DEV__) console.warn('courier-location-permission-denied');
         return;
       }
 
@@ -323,7 +323,7 @@ export default function ActiveScreen() {
                 updatedAt: serverTimestamp(),
               });
             } catch (error) {
-              console.log('Failed to broadcast courier location', orderId, error);
+              if (__DEV__) console.warn('courier-location-broadcast', orderId, error);
             }
           }
         }

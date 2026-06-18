@@ -18,7 +18,7 @@ import { useAuthStore } from '../../stores/authStore';
 
 export default function LoginScreen() {
   const [courierId, setCourierId] = useState('');
-  const { signIn, useDemoCourier, isLoading, error, clearError } = useAuthStore();
+  const { signIn, isLoading, error, clearError } = useAuthStore();
 
   const handleLogin = async () => {
     if (!courierId.trim()) {
@@ -108,16 +108,6 @@ export default function LoginScreen() {
           >
             <Text className="text-lg font-bold text-white">
               {isLoading ? 'Connecting...' : 'Connect Identity'}
-            </Text>
-          </Pressable>
-
-          <Pressable
-            onPress={() => void useDemoCourier().catch(() => undefined)}
-            disabled={isLoading}
-            className="mt-3 items-center rounded-2xl border border-gray-700 bg-gray-900 py-4"
-          >
-            <Text className="text-base font-bold text-gray-200">
-              Use demo courier
             </Text>
           </Pressable>
 

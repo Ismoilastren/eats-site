@@ -1,9 +1,8 @@
 'use client';
 import React, { useState, useEffect, useMemo } from 'react';
-import { DataTable, type ColumnDef } from '@/components/tables/DataTable';
 import { Badge } from '@/components/ui/Badge';
 import { db, collection, query, onSnapshot, doc, updateDoc, getDocs, serverTimestamp } from '@repo/firebase-config';
-import { orderBy } from 'firebase/firestore';
+import { orderBy } from '@repo/firebase-config';
 import {
   COLLECTIONS,
   Order,
@@ -17,6 +16,8 @@ import {
 } from '@repo/shared-types';
 import toast from 'react-hot-toast';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { useAuth } from '@/context/AuthContext';
 import {
   getCourierId,
   getCourierName,
@@ -26,8 +27,25 @@ import {
   sortCouriers,
   type AdminCourierRecord,
 } from '@/lib/courierFilters';
+import { writeAdminAuditLog } from '@/lib/auditLog';
 
-const STATUS_FILTERS: Array<OrderStatus | 'all'> = [
+type DeleverOrderTab = {
+  id: string;
+  label: string;
+  statuses: OrderStatus[] | 'all';
+};
+
+const ORDER_TABS: DeleverOrderTab[] = [
+  { id: 'handoff', label: 'Predzakaz / Pending', statuses: ['pending'] },
+  { id: 'new', label: 'New', statuses: ['accepted'] },
+  { id: 'operator_accepted', label: 'Operator accepted', statuses: ['preparing'] },
+  { id: 'preparing', label: 'Preparing', statuses: ['ready_for_pickup'] },
+  { id: 'courier_on_way', label: 'Courier on way', statuses: ['picked_up', 'on_the_way'] },
+  { id: 'completed', label: 'Completed', statuses: ['delivered', 'cancelled', 'rejected'] },
+  { id: 'all', label: 'All orders', statuses: 'all' },
+];
+
+const STATUS_OPTIONS: Array<OrderStatus | 'all'> = [
   'all',
   'pending',
   'accepted',
@@ -39,6 +57,15 @@ const STATUS_FILTERS: Array<OrderStatus | 'all'> = [
   'cancelled',
   'rejected',
 ];
+
+const STATUS_TIME_LIMIT_MINUTES: Partial<Record<OrderStatus, number>> = {
+  pending: 5,
+  accepted: 10,
+  preparing: 20,
+  ready_for_pickup: 10,
+  picked_up: 20,
+  on_the_way: 35,
+};
 
 function toDate(value: unknown): Date | null {
   if (!value) return null;
@@ -60,6 +87,14 @@ function getOrderSource(order: Order): string {
   return String((order as any).source || (order as any).orderSource || (order as any).platform || 'Website');
 }
 
+function getOrderOperator(order: Order): string {
+  return String((order as any).operatorName || (order as any).acceptedByName || (order as any).adminName || 'Unassigned operator');
+}
+
+function getOrderPaymentStatus(order: Order): string {
+  return String((order as any).paymentStatus || (order as any).payment?.status || 'unknown').toLowerCase();
+}
+
 function getDeliveryType(order: Order): string {
   return String((order as any).deliveryType || ((order as any).isPickup ? 'Pickup' : 'Delivery'));
 }
@@ -78,21 +113,62 @@ function getOrderBranchLabel(order: Order): string {
   return `${brand} · ${branch}`;
 }
 
+function getOrderAgeMinutes(order: Order): number {
+  const createdAt = toDate(order.createdAt);
+  if (!createdAt) return 0;
+  return Math.max(0, Math.floor((Date.now() - createdAt.getTime()) / 60000));
+}
+
+function getOrderTimerState(order: Order) {
+  const status = normalizeOrderStatus(order.status);
+  const age = getOrderAgeMinutes(order);
+  const limit = STATUS_TIME_LIMIT_MINUTES[status];
+  const isTerminal = ['delivered', 'cancelled', 'rejected'].includes(status);
+
+  if (isTerminal) return { label: 'Closed', tone: 'muted' as const, age, limit };
+  if (!limit) return { label: `${age}m`, tone: 'normal' as const, age, limit };
+  if (age >= limit) return { label: `${age}m overdue`, tone: 'danger' as const, age, limit };
+  if (age >= Math.floor(limit * 0.75)) return { label: `${age}m warning`, tone: 'warning' as const, age, limit };
+  return { label: `${age}m`, tone: 'normal' as const, age, limit };
+}
+
+function getAvailableStatusActions(order: Order): OrderStatus[] {
+  const status = normalizeOrderStatus(order.status);
+  const transitions: Record<OrderStatus, OrderStatus[]> = {
+    pending: ['accepted', 'rejected', 'cancelled'],
+    accepted: ['preparing', 'cancelled'],
+    preparing: ['ready_for_pickup', 'cancelled'],
+    ready_for_pickup: ['picked_up', 'cancelled'],
+    picked_up: ['on_the_way', 'cancelled'],
+    on_the_way: ['delivered', 'cancelled'],
+    delivered: [],
+    cancelled: [],
+    rejected: [],
+  };
+  return transitions[status] || [];
+}
+
 export default function OrdersPage() {
   const router = useRouter();
+  const { user } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [couriers, setCouriers] = useState<AdminCourierRecord[]>([]);
   const [allUsers, setAllUsers] = useState<Record<string, User>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [assignModalData, setAssignModalData] = useState<{ orderId: string, currentCourierId: string | null } | null>(null);
   const [isAssigning, setIsAssigning] = useState(false);
+  const [activeTab, setActiveTab] = useState('all');
   const [statusFilter, setStatusFilter] = useState<OrderStatus | 'all'>('all');
   const [restaurantFilter, setRestaurantFilter] = useState('all');
   const [courierFilter, setCourierFilter] = useState('all');
+  const [operatorFilter, setOperatorFilter] = useState('all');
+  const [sourceFilter, setSourceFilter] = useState('all');
   const [paymentFilter, setPaymentFilter] = useState('all');
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState('all');
   const [deliveryTypeFilter, setDeliveryTypeFilter] = useState('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     // Fetch all users to guarantee real-time names
@@ -149,6 +225,14 @@ export default function OrdersPage() {
     return Array.from(new Set(names)).sort();
   }, [orders]);
 
+  const operatorOptions = useMemo(() => {
+    return Array.from(new Set(orders.map(getOrderOperator).filter(Boolean))).sort();
+  }, [orders]);
+
+  const sourceOptions = useMemo(() => {
+    return Array.from(new Set(orders.map(getOrderSource).filter(Boolean))).sort();
+  }, [orders]);
+
   const statusSummary = useMemo(() => {
     return orders.reduce<Record<string, number>>((acc, order) => {
       const status = normalizeOrderStatus(order.status);
@@ -161,24 +245,68 @@ export default function OrdersPage() {
   const filteredOrders = useMemo(() => {
     const from = dateFrom ? new Date(`${dateFrom}T00:00:00`) : null;
     const to = dateTo ? new Date(`${dateTo}T23:59:59`) : null;
+    const tab = ORDER_TABS.find((item) => item.id === activeTab) || ORDER_TABS[ORDER_TABS.length - 1];
+    const q = searchQuery.trim().toLowerCase();
 
     return orders.filter((order) => {
       const status = normalizeOrderStatus(order.status);
       const createdAt = toDate(order.createdAt);
       const courierName = order.assignedCourier?.name || order.courierName || '';
       const payment = order.paymentMethod || 'unknown';
+      const paymentStatus = getOrderPaymentStatus(order);
+      const operator = getOrderOperator(order);
+      const source = getOrderSource(order);
+      const deliveryType = getDeliveryType(order).toLowerCase();
 
+      if (tab.statuses !== 'all' && !tab.statuses.includes(status)) return false;
       if (statusFilter !== 'all' && status !== statusFilter) return false;
       if (restaurantFilter !== 'all' && getOrderBranchLabel(order) !== restaurantFilter) return false;
       if (courierFilter === 'unassigned' && hasAssignedCourier(order)) return false;
       if (courierFilter !== 'all' && courierFilter !== 'unassigned' && courierName !== courierFilter) return false;
+      if (operatorFilter !== 'all' && operator !== operatorFilter) return false;
+      if (sourceFilter !== 'all' && source !== sourceFilter) return false;
       if (paymentFilter !== 'all' && payment !== paymentFilter) return false;
-      if (deliveryTypeFilter !== 'all' && getDeliveryType(order).toLowerCase() !== deliveryTypeFilter) return false;
+      if (paymentStatusFilter !== 'all' && paymentStatus !== paymentStatusFilter) return false;
+      if (deliveryTypeFilter !== 'all' && deliveryType !== deliveryTypeFilter) return false;
       if (from && createdAt && createdAt < from) return false;
       if (to && createdAt && createdAt > to) return false;
+      if (q) {
+        const searchable = [
+          order.id,
+          order.customerName,
+          order.customerPhone,
+          order.restaurantName,
+          order.brandName,
+          order.branchName,
+          courierName,
+          operator,
+          source,
+          status,
+          payment,
+          paymentStatus,
+          order.deliveryAddress,
+          (order as any).posOrderId,
+          (order as any).externalOrderId,
+        ];
+        if (!searchable.some((value) => String(value || '').toLowerCase().includes(q))) return false;
+      }
       return true;
     });
-  }, [orders, statusFilter, restaurantFilter, courierFilter, paymentFilter, deliveryTypeFilter, dateFrom, dateTo]);
+  }, [
+    activeTab,
+    orders,
+    statusFilter,
+    restaurantFilter,
+    courierFilter,
+    operatorFilter,
+    sourceFilter,
+    paymentFilter,
+    paymentStatusFilter,
+    deliveryTypeFilter,
+    dateFrom,
+    dateTo,
+    searchQuery,
+  ]);
 
   const handleUpdateStatus = async (orderId: string, newStatus: OrderStatus, currentCourierId: string | null | undefined) => {
     const order = orders.find((item) => item.id === orderId);
@@ -199,6 +327,16 @@ export default function OrdersPage() {
         ...(nextStatus === 'delivered' ? { deliveredAt: serverTimestamp() } : {}),
         ...(nextStatus === 'cancelled' ? { cancelledAt: serverTimestamp(), cancelReason: 'Cancelled by admin' } : {}),
         updatedAt: serverTimestamp()
+      });
+      await writeAdminAuditLog({
+        action: 'order.status_changed',
+        entityType: 'order',
+        entityId: orderId,
+        actorEmail: user?.email,
+        actorName: user?.displayName,
+        before: { status: currentStatus },
+        after: { status: nextStatus },
+        metadata: { source: 'admin_orders_table' },
       });
       if (
         currentCourierId &&
@@ -246,6 +384,21 @@ export default function OrdersPage() {
         },
         updatedAt: serverTimestamp()
       });
+      await writeAdminAuditLog({
+        action: 'order.courier_assigned',
+        entityType: 'order',
+        entityId: assignModalData.orderId,
+        actorEmail: user?.email,
+        actorName: user?.displayName,
+        after: {
+          courierId,
+          courierName,
+          courierPhone,
+          vehicle,
+          vehicleType,
+        },
+        metadata: { source: 'admin_orders_table' },
+      });
 
       await updateDoc(doc(db, COLLECTIONS.COURIERS, courierId), {
         currentOrderId: assignModalData.orderId,
@@ -266,130 +419,62 @@ export default function OrdersPage() {
     }
   };
 
-  const columns: ColumnDef<Order>[] = [
-    {
-      header: 'Customer',
-      accessor: 'customerName',
-      cell: (row) => {
-        // Ultimate Truth: Look up the real user document by ID
-        const realUser = allUsers[row.userId];
-        let displayName = (realUser as any)?.fullName || realUser?.displayName || row.customerName;
-        
-        // Final fallback if it's still Customer or missing
-        if (!displayName || displayName === 'Customer') {
-             displayName = 'Unknown User';
-        }
-
-        return (
-          <div>
-            <p className="font-medium text-gray-900 dark:text-white">{displayName}</p>
-            <p className="text-xs text-gray-500 font-mono font-bold tracking-wider">#{row.id.slice(0, 6).toUpperCase()}</p>
-          </div>
-        );
-      },
-    },
-    {
-      header: 'Total Price',
-      accessor: 'totalAmount',
-      cell: (row) => (
-        <span className="font-semibold text-gray-900 dark:text-gray-100">
-          {formatCurrencyUZS(row.totalAmount || 0)}
-        </span>
-      ),
-    },
-    {
-      header: 'Branch',
-      accessor: 'branchName',
-      cell: (row) => (
-        <div>
-          <p className="font-bold text-gray-900 dark:text-white">{getOrderBrandName(row)}</p>
-          <p className="text-xs font-semibold text-gray-500">{getOrderBranchName(row)}</p>
-        </div>
-      ),
-    },
-    {
-      header: 'Assigned Courier',
-      accessor: 'courierName',
-      cell: (row) => {
-        const assignedCourier = row.assignedCourier;
-        const assignedCourierId = assignedCourier?.id || row.courierId;
-        return (
-          <div className="flex items-center gap-2">
-          {assignedCourierId ? (
-            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-brand-100 text-brand-800 text-sm font-bold shadow-sm border border-brand-200">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-              {assignedCourier?.name || row.courierName || 'Courier'}
-            </span>
-          ) : (
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                setAssignModalData({ orderId: row.id, currentCourierId: null });
-              }}
-              className="text-sm font-bold text-brand-700 bg-brand-50 hover:bg-brand-100 px-3 py-1 rounded-full border border-brand-200"
-            >
-              Assign courier
-            </button>
-          )}
-          </div>
-        );
-      },
-    },
-    {
-      header: 'Status',
-      accessor: 'status',
-      cell: (row) => {
-        const status = normalizeOrderStatus(row.status);
-        return (
-        <span
-          className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-bold shadow-sm border"
-          style={{ 
-            backgroundColor: `${ORDER_STATUS_COLORS[status] || '#ccc'}20`,
-            color: ORDER_STATUS_COLORS[status] || '#333',
-            borderColor: `${ORDER_STATUS_COLORS[status] || '#ccc'}50`
-          }}
-        >
-          {status === 'delivered' && <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>}
-          {['picked_up', 'on_the_way'].includes(status) && <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>}
-          {status === 'preparing' && <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 14v6m-3-3h6M6 10h2a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v2a2 2 0 002 2zm10 0h2a2 2 0 002-2V6a2 2 0 00-2-2h-2a2 2 0 00-2 2v2a2 2 0 002 2zM6 20h2a2 2 0 002-2v-2a2 2 0 00-2-2H6a2 2 0 00-2 2v2a2 2 0 002 2z"></path></svg>}
-          {ORDER_STATUS_LABELS[status] || status}
-        </span>
-        );
-      },
-    },
-  ];
-
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Orders Management</h1>
+          <p className="text-xs font-black uppercase tracking-[0.25em] text-brand-500">Dispatch center</p>
+          <h1 className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">Orders</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Track and manage all orders. Assign couriers and update statuses.
+            Delever-style live order control: tabs, timers, branch/operator/courier filters, assignment and status actions.
           </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/orders/dispatch"
+            className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-bold text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+          >
+            Show on map
+          </Link>
+          <Link
+            href="/orders/create"
+            className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-bold text-white hover:bg-brand-600"
+          >
+            + Create order
+          </Link>
         </div>
       </div>
 
       <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
         <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
-          {STATUS_FILTERS.map((status) => (
+          {ORDER_TABS.map((tab) => {
+            const count = tab.statuses === 'all'
+              ? statusSummary.all || 0
+              : tab.statuses.reduce((sum, status) => sum + (statusSummary[status] || 0), 0);
+            return (
             <button
-              key={status}
+              key={tab.id}
               type="button"
-              onClick={() => setStatusFilter(status)}
+              onClick={() => setActiveTab(tab.id)}
               className={`shrink-0 rounded-full border px-4 py-2 text-sm font-bold transition-colors ${
-                statusFilter === status
+                activeTab === tab.id
                   ? 'border-brand-500 bg-brand-500 text-white'
                   : 'border-gray-200 bg-gray-50 text-gray-600 hover:border-brand-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300'
               }`}
             >
-              {status === 'all' ? 'All' : ORDER_STATUS_LABELS[status]} <span className="opacity-75">({statusSummary[status] || 0})</span>
+              {tab.label} <span className="opacity-75">({count})</span>
             </button>
-          ))}
+          );})}
         </div>
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search ID, POS, customer..."
+            className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+          />
           <select
             value={restaurantFilter}
             onChange={(event) => setRestaurantFilter(event.target.value)}
@@ -398,6 +483,16 @@ export default function OrdersPage() {
             <option value="all">All brands / branches</option>
             {restaurantOptions.map((restaurant) => (
               <option key={restaurant} value={restaurant}>{restaurant}</option>
+            ))}
+          </select>
+          <select
+            value={operatorFilter}
+            onChange={(event) => setOperatorFilter(event.target.value)}
+            className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+          >
+            <option value="all">All operators</option>
+            {operatorOptions.map((operator) => (
+              <option key={operator} value={operator}>{operator}</option>
             ))}
           </select>
           <select
@@ -412,6 +507,25 @@ export default function OrdersPage() {
             ))}
           </select>
           <select
+            value={sourceFilter}
+            onChange={(event) => setSourceFilter(event.target.value)}
+            className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+          >
+            <option value="all">All sources</option>
+            {sourceOptions.map((source) => (
+              <option key={source} value={source}>{source}</option>
+            ))}
+          </select>
+          <select
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value as OrderStatus | 'all')}
+            className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+          >
+            {STATUS_OPTIONS.map((status) => (
+              <option key={status} value={status}>{status === 'all' ? 'All statuses' : ORDER_STATUS_LABELS[status]}</option>
+            ))}
+          </select>
+          <select
             value={paymentFilter}
             onChange={(event) => setPaymentFilter(event.target.value)}
             className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
@@ -420,6 +534,17 @@ export default function OrdersPage() {
             <option value="cash">Cash</option>
             <option value="card">Card</option>
             <option value="unknown">Unknown</option>
+          </select>
+          <select
+            value={paymentStatusFilter}
+            onChange={(event) => setPaymentStatusFilter(event.target.value)}
+            className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+          >
+            <option value="all">All payment statuses</option>
+            <option value="paid">Paid</option>
+            <option value="pending">Payment pending</option>
+            <option value="failed">Payment failed</option>
+            <option value="unknown">Unknown payment</option>
           </select>
           <select
             value={deliveryTypeFilter}
@@ -452,7 +577,7 @@ export default function OrdersPage() {
         </div>
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-1">
+      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
         {isLoading ? (
           <div className="flex justify-center items-center p-12">
             <svg className="animate-spin h-8 w-8 text-brand-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -463,29 +588,143 @@ export default function OrdersPage() {
         ) : orders.length === 0 ? (
           <div className="p-12 text-center text-gray-500">No orders found.</div>
         ) : (
-          <DataTable
-            columns={columns}
-            data={filteredOrders}
-            searchPlaceholder="Search by order, customer, phone, restaurant, courier, status..."
-            searchAccessor={(item, q) => {
-              const searchable = [
-                item.id,
-                item.customerName,
-                item.customerPhone,
-                item.restaurantName,
-                item.brandName,
-                item.branchName,
-                item.courierName,
-                item.assignedCourier?.name,
-                item.assignedCourier?.phone,
-                item.status,
-                item.paymentMethod,
-                item.deliveryAddress,
-              ];
-              return searchable.some((value) => String(value || '').toLowerCase().includes(q));
-            }}
-            onView={(row) => router.push(`/orders/${row.id}`)}
-          />
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1280px]">
+              <thead>
+                <tr className="border-b border-gray-200 bg-gray-50 text-left text-xs font-black uppercase tracking-wider text-gray-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400">
+                  <th className="px-4 py-3">#</th>
+                  <th className="px-4 py-3">Client</th>
+                  <th className="px-4 py-3">Order ID</th>
+                  <th className="px-4 py-3">Timer</th>
+                  <th className="px-4 py-3">Courier</th>
+                  <th className="px-4 py-3">Branch</th>
+                  <th className="px-4 py-3">Operator</th>
+                  <th className="px-4 py-3">Type/source</th>
+                  <th className="px-4 py-3">Payment</th>
+                  <th className="px-4 py-3">Status action</th>
+                  <th className="px-4 py-3 text-right">More</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                {filteredOrders.length === 0 ? (
+                  <tr>
+                    <td colSpan={11} className="px-4 py-12 text-center text-sm font-semibold text-gray-500">
+                      No orders match these filters.
+                    </td>
+                  </tr>
+                ) : filteredOrders.map((order, index) => {
+                  const status = normalizeOrderStatus(order.status);
+                  const realUser = allUsers[order.userId];
+                  const displayName = (realUser as any)?.fullName || realUser?.displayName || order.customerName || 'Unknown user';
+                  const assignedCourier = order.assignedCourier;
+                  const assignedCourierId = assignedCourier?.id || order.courierId;
+                  const timer = getOrderTimerState(order);
+                  const statusActions = getAvailableStatusActions(order);
+                  return (
+                    <tr
+                      key={order.id}
+                      className={`text-sm hover:bg-gray-50 dark:hover:bg-gray-900 ${
+                        timer.tone === 'danger' ? 'bg-red-50/70 dark:bg-red-950/20' : timer.tone === 'warning' ? 'bg-amber-50/70 dark:bg-amber-950/20' : ''
+                      }`}
+                    >
+                      <td className="px-4 py-4 text-gray-500">{index + 1}</td>
+                      <td className="px-4 py-4">
+                        <p className="font-bold text-gray-900 dark:text-white">{displayName}</p>
+                        <p className="text-xs font-semibold text-gray-500">{order.customerPhone || 'No phone'}</p>
+                      </td>
+                      <td className="px-4 py-4">
+                        <button
+                          type="button"
+                          onClick={() => router.push(`/orders/${order.id}`)}
+                          className="font-mono text-sm font-black text-brand-600 hover:underline dark:text-brand-400"
+                        >
+                          #{order.id.slice(0, 6).toUpperCase()}
+                        </button>
+                        <p className="text-xs text-gray-500">{(order as any).posOrderId || (order as any).externalOrderId || 'No POS ID'}</p>
+                      </td>
+                      <td className="px-4 py-4">
+                        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-black uppercase ${
+                          timer.tone === 'danger' ? 'bg-red-100 text-red-700' : timer.tone === 'warning' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-200'
+                        }`}>
+                          {timer.label}
+                        </span>
+                        {timer.limit ? <p className="mt-1 text-[11px] font-semibold text-gray-500">limit {timer.limit}m</p> : null}
+                      </td>
+                      <td className="px-4 py-4">
+                        {assignedCourierId ? (
+                          <div>
+                            <p className="font-bold text-gray-900 dark:text-white">{assignedCourier?.name || order.courierName || 'Courier'}</p>
+                            <p className="text-xs text-gray-500">{assignedCourier?.phone || order.courierPhone || 'No phone'}</p>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setAssignModalData({ orderId: order.id, currentCourierId: null })}
+                            className="rounded-full border border-brand-200 bg-brand-50 px-3 py-1 text-xs font-black text-brand-700 hover:bg-brand-100"
+                          >
+                            Assign
+                          </button>
+                        )}
+                      </td>
+                      <td className="px-4 py-4">
+                        <p className="font-bold text-gray-900 dark:text-white">{getOrderBrandName(order)}</p>
+                        <p className="text-xs text-gray-500">{getOrderBranchName(order)}</p>
+                      </td>
+                      <td className="px-4 py-4 text-gray-700 dark:text-gray-200">{getOrderOperator(order)}</td>
+                      <td className="px-4 py-4">
+                        <p className="font-semibold text-gray-900 dark:text-white">{getDeliveryType(order)}</p>
+                        <p className="text-xs text-gray-500">{getOrderSource(order)}</p>
+                      </td>
+                      <td className="px-4 py-4">
+                        <p className="font-bold text-gray-900 dark:text-white">{formatCurrencyUZS(order.totalAmount || 0)}</p>
+                        <p className="text-xs text-gray-500">{order.paymentMethod || 'unknown'} · {getOrderPaymentStatus(order)}</p>
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="flex flex-col gap-2">
+                          <span
+                            className="inline-flex w-fit items-center gap-1 rounded-full border px-3 py-1 text-xs font-black"
+                            style={{
+                              backgroundColor: `${ORDER_STATUS_COLORS[status] || '#ccc'}20`,
+                              color: ORDER_STATUS_COLORS[status] || '#333',
+                              borderColor: `${ORDER_STATUS_COLORS[status] || '#ccc'}50`,
+                            }}
+                          >
+                            {ORDER_STATUS_LABELS[status] || status}
+                          </span>
+                          {statusActions.length ? (
+                            <select
+                              value=""
+                              onChange={(event) => {
+                                if (event.target.value) {
+                                  void handleUpdateStatus(order.id, event.target.value as OrderStatus, assignedCourierId);
+                                  event.target.value = '';
+                                }
+                              }}
+                              className="rounded-lg border border-gray-200 bg-gray-50 px-2 py-1 text-xs font-bold text-gray-700 outline-none focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+                            >
+                              <option value="">Change status...</option>
+                              {statusActions.map((action) => (
+                                <option key={action} value={action}>{ORDER_STATUS_LABELS[action]}</option>
+                              ))}
+                            </select>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-right">
+                        <button
+                          type="button"
+                          onClick={() => router.push(`/orders/${order.id}`)}
+                          className="rounded-lg bg-gray-100 px-3 py-2 text-xs font-black text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200"
+                        >
+                          View
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 

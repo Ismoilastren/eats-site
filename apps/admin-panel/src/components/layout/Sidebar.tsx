@@ -135,7 +135,11 @@ const menuSections: MenuSection[] = [
       {
         label: 'Orders',
         icon: ShoppingBagIcon,
-        href: '/orders',
+        subItems: [
+          { label: 'Live orders', href: '/orders' },
+          { label: 'Create order', href: '/orders/create' },
+          { label: 'Dispatcher map', href: '/orders/dispatch' },
+        ],
       },
       {
         label: 'Restaurants',

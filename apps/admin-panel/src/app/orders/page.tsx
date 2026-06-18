@@ -95,6 +95,28 @@ function getOrderPaymentStatus(order: Order): string {
   return String((order as any).paymentStatus || (order as any).payment?.status || 'unknown').toLowerCase();
 }
 
+function getOrderPaymentMethod(order: Order): string {
+  const raw = (order as any).paymentMethod || (order as any).payment;
+  if (!raw) return 'unknown';
+  if (typeof raw === 'string') return raw.toLowerCase();
+  if (typeof raw === 'object') {
+    return String(raw.type || raw.method || raw.name || 'unknown').toLowerCase();
+  }
+  return String(raw).toLowerCase();
+}
+
+function getOrderPaymentLabel(order: Order): string {
+  const raw = (order as any).paymentMethod || (order as any).payment;
+  if (!raw) return 'unknown';
+  if (typeof raw === 'string') return raw;
+  if (typeof raw === 'object') {
+    const method = String(raw.type || raw.method || raw.name || 'unknown');
+    const details = [raw.brand, raw.last4 ? `••${raw.last4}` : null].filter(Boolean).join(' ');
+    return details ? `${method} ${details}` : method;
+  }
+  return String(raw);
+}
+
 function getDeliveryType(order: Order): string {
   return String((order as any).deliveryType || ((order as any).isPickup ? 'Pickup' : 'Delivery'));
 }
@@ -252,7 +274,7 @@ export default function OrdersPage() {
       const status = normalizeOrderStatus(order.status);
       const createdAt = toDate(order.createdAt);
       const courierName = order.assignedCourier?.name || order.courierName || '';
-      const payment = order.paymentMethod || 'unknown';
+      const payment = getOrderPaymentMethod(order);
       const paymentStatus = getOrderPaymentStatus(order);
       const operator = getOrderOperator(order);
       const source = getOrderSource(order);
@@ -677,7 +699,7 @@ export default function OrdersPage() {
                       </td>
                       <td className="px-4 py-4">
                         <p className="font-bold text-gray-900 dark:text-white">{formatCurrencyUZS(order.totalAmount || 0)}</p>
-                        <p className="text-xs text-gray-500">{order.paymentMethod || 'unknown'} · {getOrderPaymentStatus(order)}</p>
+                        <p className="text-xs text-gray-500">{getOrderPaymentLabel(order)} · {getOrderPaymentStatus(order)}</p>
                       </td>
                       <td className="px-4 py-4">
                         <div className="flex flex-col gap-2">

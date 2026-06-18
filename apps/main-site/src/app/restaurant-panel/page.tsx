@@ -137,6 +137,7 @@ export default function RestaurantPanelPage() {
 
 function OrderRow({ order, busy, onStatus }: { order: LocalOrder; busy: boolean; onStatus: (id: string, status: OrderStatus) => void }) {
   const next = getNextRestaurantStatus(order.status as OrderStatus);
+  const customerNote = order.deliveryInstructions || order.customerComment || '';
   return (
     <tr className="border-t border-gray-100 align-top">
       <td className="p-3">
@@ -147,6 +148,11 @@ function OrderRow({ order, busy, onStatus }: { order: LocalOrder; busy: boolean;
         <p className="font-black">{order.name}</p>
         <p className="font-bold text-gray-500">{order.phone}</p>
         <p className="max-w-[220px] text-sm font-semibold text-gray-400">{order.customerAddress || order.address}</p>
+        {customerNote ? (
+          <p className="mt-2 max-w-[260px] rounded-2xl bg-amber-50 px-3 py-2 text-sm font-black text-amber-700">
+            Note: {customerNote}
+          </p>
+        ) : null}
       </td>
       <td className="p-3">
         {order.items.map((item) => <p key={item.id} className="font-bold">{item.quantity}x {item.name}</p>)}

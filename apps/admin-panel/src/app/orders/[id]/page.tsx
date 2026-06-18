@@ -447,7 +447,7 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
                 <div>
                   <p className="text-xs font-bold text-gray-400 uppercase mb-1">Delivery Instructions</p>
                   <p className="font-medium text-gray-900 dark:text-white bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded-xl border border-yellow-100 dark:border-yellow-800/50 italic">
-                    {(order as any).deliveryInstructions || 'No instructions provided'}
+                    {(order as any).deliveryInstructions || (order as any).customerComment || (order as any).adminComment || 'No instructions provided'}
                   </p>
                 </div>
               </div>

@@ -52,6 +52,8 @@ export type LocalOrder = {
   items: CartLine[];
   address: string;
   customerAddress: string;
+  customerComment?: string;
+  deliveryInstructions?: string;
   phone: string;
   name: string;
   total: number;
@@ -110,7 +112,7 @@ type MarketplaceContextValue = {
   removePromo: () => void;
   setDeliveryMode: (mode: DeliveryMode) => void;
   reloadOrders: () => Promise<void>;
-  placeOrder: (payload: { name: string; phone: string; address: string; paymentMethod?: 'cash' | 'card' }) => Promise<LocalOrder>;
+  placeOrder: (payload: { name: string; phone: string; address: string; paymentMethod?: 'cash' | 'card'; comment?: string }) => Promise<LocalOrder>;
   subtotal: number;
   deliveryFee: number;
   serviceFee: number;
@@ -319,7 +321,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   };
   const removePromo = () => setPromo(null);
 
-  const placeOrder = useCallback(async (payload: { name: string; phone: string; address: string; paymentMethod?: 'cash' | 'card' }) => {
+  const placeOrder = useCallback(async (payload: { name: string; phone: string; address: string; paymentMethod?: 'cash' | 'card'; comment?: string }) => {
     const restaurant = restaurants.find((item) => item.slug === cart[0]?.restaurantSlug || item.id === cart[0]?.restaurantId);
     const isPickup = deliveryMode === 'pickup';
 
@@ -348,6 +350,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       customerLocation: orderLocation,
       customerName: payload.name,
       customerPhone: payload.phone,
+      customerComment: payload.comment?.trim() || undefined,
       paymentMethod: payload.paymentMethod || 'cash',
       fulfillmentType: deliveryMode,
       subtotal,

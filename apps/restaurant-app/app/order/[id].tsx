@@ -69,6 +69,7 @@ export default function OrderDetailsModal() {
   const action = getNextStatusAction();
   const statusColors = getStatusColor(order.status).split(' ');
   const orderItems = getOrderItems(order);
+  const customerComment = order.deliveryInstructions || order.customerComment || (order as any).adminComment || '';
 
   return (
     <SafeAreaView className="flex-1" style={{ backgroundColor: '#0f172a' }}>
@@ -137,6 +138,13 @@ export default function OrderDetailsModal() {
                  </View>
                )}
             </View>
+
+            {customerComment ? (
+              <View className="bg-amber-500/10 p-5 rounded-2xl border border-amber-500/20 mb-4">
+                <Text className="text-amber-400 font-bold mb-2 uppercase tracking-widest text-xs">Customer Note</Text>
+                <Text className="text-white font-bold text-lg leading-6">{customerComment}</Text>
+              </View>
+            ) : null}
 
             {action ? (
               <TouchableOpacity 

@@ -45,6 +45,7 @@ export type MarketplaceOrderInput = {
   address: string;
   customerName: string;
   customerPhone: string;
+  customerComment?: string;
   paymentMethod: 'cash' | 'card';
   fulfillmentType?: DeliveryMode;
   subtotal: number;
@@ -266,6 +267,8 @@ function mapFirestoreOrder(data: DocumentData, id: string): LocalOrder {
     items: Array.isArray(data.items) ? data.items : [],
     address: String(data.customerAddress || data.deliveryAddress || data.address || ''),
     customerAddress: String(data.customerAddress || data.deliveryAddress || data.address || ''),
+    customerComment: String(data.customerComment || data.deliveryInstructions || data.adminComment || ''),
+    deliveryInstructions: String(data.deliveryInstructions || data.customerComment || data.adminComment || ''),
     restaurantAddress: String(data.restaurantAddress || ''),
     restaurantLocation: readCoordinate(data.restaurantLocation),
     customerLocation: readCoordinate(data.customerLocation),
@@ -306,6 +309,8 @@ export async function createOrder(orderInput: MarketplaceOrderInput): Promise<Lo
       items: orderInput.items,
       address: orderInput.address,
       customerAddress: orderInput.address,
+      customerComment: orderInput.customerComment,
+      deliveryInstructions: orderInput.customerComment,
       phone: orderInput.customerPhone,
       name: orderInput.customerName,
       subtotal: orderInput.subtotal,
@@ -377,6 +382,8 @@ export async function createOrder(orderInput: MarketplaceOrderInput): Promise<Lo
     ...(customerLocation ? { customerLocation, deliveryLocation: customerLocation } : {}),
     customerName: orderInput.customerName,
     customerPhone: orderInput.customerPhone,
+    customerComment: orderInput.customerComment || '',
+    deliveryInstructions: orderInput.customerComment || '',
     paymentMethod: orderInput.paymentMethod,
     fulfillmentType: orderInput.fulfillmentType || 'delivery',
     subtotal: orderInput.subtotal,

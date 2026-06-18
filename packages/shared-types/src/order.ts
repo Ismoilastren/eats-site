@@ -53,6 +53,8 @@ export interface Order {
   deliveryFee: number;
   totalAmount: number;
   deliveryAddress: string;
+  deliveryInstructions?: string;
+  customerComment?: string;
   deliveryLocation: OrderCoordinate;
   restaurantLocation?: OrderCoordinate | { lat: number; lng: number };
   courierLocation?: OrderCoordinate | null;

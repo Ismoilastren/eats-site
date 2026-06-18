@@ -222,6 +222,7 @@ export default function ActiveDeliveryScreen() {
         ? [courierLocation || restaurantLocation, customerLocation]
         : [restaurantLocation, customerLocation];
   const initialRegion = getMapRegion(mapRoute[0], mapRoute[mapRoute.length - 1]);
+  const customerComment = order.deliveryInstructions || order.customerComment || (order as any).adminComment || '';
 
   return (
     <SafeAreaView className="flex-1 bg-gray-50">
@@ -300,6 +301,12 @@ export default function ActiveDeliveryScreen() {
                <Text className="text-green-700 font-black text-2xl ml-3 tracking-widest">{order.customerPhone}</Text>
              </TouchableOpacity>
            )}
+           {customerComment ? (
+             <View className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+               <Text className="text-amber-700 font-black uppercase tracking-widest text-sm mb-2">Delivery Note</Text>
+               <Text className="text-gray-900 font-bold text-lg leading-7">{customerComment}</Text>
+             </View>
+           ) : null}
         </View>
 
         <View className="flex-1 justify-end pb-8">

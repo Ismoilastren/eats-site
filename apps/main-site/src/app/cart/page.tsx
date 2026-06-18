@@ -146,7 +146,13 @@ export default function CartPage() {
     setIsSubmitting(true);
     setError('');
     try {
-      const order = await placeOrder({ name: name.trim(), phone: phone.trim(), address: address.text, paymentMethod: payment });
+      const order = await placeOrder({
+        name: name.trim(),
+        phone: phone.trim(),
+        address: address.text,
+        paymentMethod: payment,
+        comment: comment.trim(),
+      });
       router.push(`/orders/${order.id}`);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : 'Could not place order. Please try again.');

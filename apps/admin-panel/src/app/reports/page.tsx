@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { db, collection, getDocs } from '@repo/firebase-config';
 import { COLLECTIONS, Order, formatCurrencyUZS, normalizeOrderStatus } from '@repo/shared-types';
 import toast from 'react-hot-toast';
+import { isRealCourier } from '@/lib/courierFilters';
 
 type ReportType = 'orders' | 'financial' | 'couriers' | 'restaurants' | 'products' | 'users';
 
@@ -94,13 +95,15 @@ export default function ReportsPage() {
             label: data.branchName ? `${data.brandName || data.name || item.id} · ${data.branchName}` : data.name || item.id,
           };
         }).sort((a, b) => a.label.localeCompare(b.label)));
-        setCourierOptions(couriersSnap.docs.map((item) => {
-          const data = item.data() as Record<string, any>;
-          return {
-            id: item.id,
-            label: data.fullName || data.displayName || data.name || item.id,
-          };
-        }).sort((a, b) => a.label.localeCompare(b.label)));
+        setCourierOptions(couriersSnap.docs
+          .map((item) => ({ id: item.id, ...item.data() } as Record<string, any>))
+          .filter(isRealCourier)
+          .map((data) => {
+            return {
+              id: data.id,
+              label: data.fullName || data.displayName || data.name || data.id,
+            };
+          }).sort((a, b) => a.label.localeCompare(b.label)));
       } catch (error) {
         console.error('Failed to load report filters:', error);
       }
@@ -177,23 +180,24 @@ export default function ReportsPage() {
       }
 
       if (type === 'couriers') {
-        const rows = couriersSnap.docs.map((documentSnapshot) => {
-          const courier = { id: documentSnapshot.id, ...documentSnapshot.data() } as any;
-          const courierOrders = orders.filter((order) => order.courierId === courier.id || order.assignedCourier?.id === courier.id);
-          const deliveredOrders = courierOrders.filter((order) => normalizeOrderStatus(order.status) === 'delivered');
-          return [
-            courier.id,
-            courier.fullName || courier.name || courier.displayName || '',
-            courier.phone || '',
-            courier.vehicleType || '',
-            courier.vehicleBrand || '',
-            courier.licensePlate || '',
-            courier.status || '',
-            courier.isOnline ?? '',
-            courierOrders.length,
-            deliveredOrders.length,
-          ];
-        });
+        const rows = couriersSnap.docs.map((documentSnapshot) => ({ id: documentSnapshot.id, ...documentSnapshot.data() } as any))
+          .filter(isRealCourier)
+          .map((courier) => {
+            const courierOrders = orders.filter((order) => order.courierId === courier.id || order.assignedCourier?.id === courier.id);
+            const deliveredOrders = courierOrders.filter((order) => normalizeOrderStatus(order.status) === 'delivered');
+            return [
+              courier.id,
+              courier.fullName || courier.name || courier.displayName || '',
+              courier.phone || '',
+              courier.vehicleType || '',
+              courier.vehicleBrand || '',
+              courier.licensePlate || '',
+              courier.status || '',
+              courier.isOnline ?? '',
+              courierOrders.length,
+              deliveredOrders.length,
+            ];
+          });
         downloadCsv(
           `courier_performance_${today}.csv`,
           ['courier_id', 'name', 'phone', 'vehicle_type', 'vehicle_brand', 'license_plate', 'status', 'is_online', 'assigned_orders', 'delivered_orders'],

@@ -601,22 +601,20 @@ export default function OrdersPage() {
             <option value="pickup">Pickup</option>
           </select>
           <input
-            type="text"
-            inputMode="numeric"
+            type="date"
             value={dateFrom}
             onChange={(event) => setDateFrom(event.target.value)}
-            placeholder="From date (YYYY-MM-DD)"
-            className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+            max={dateTo || undefined}
+            className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none [color-scheme:light] focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:[color-scheme:dark]"
             aria-label="Orders from date"
           />
           <div className="flex gap-2">
             <input
-              type="text"
-              inputMode="numeric"
+              type="date"
               value={dateTo}
               onChange={(event) => setDateTo(event.target.value)}
-              placeholder="To date (YYYY-MM-DD)"
-              className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+              min={dateFrom || undefined}
+              className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none [color-scheme:light] focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:[color-scheme:dark]"
               aria-label="Orders to date"
             />
             {hasDateFilter ? (
@@ -637,13 +635,13 @@ export default function OrdersPage() {
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
           <span>
             Showing {visibleOrders.length} of {orders.length} orders
-            {hasDateFilter ? ' · Date format: YYYY-MM-DD' : ''}
+            {hasDateFilter ? ' · Date filter active' : ''}
           </span>
           <span>Sources: {Array.from(new Set(visibleOrders.map(getOrderSource))).join(', ') || 'None'}</span>
         </div>
         {hasInvalidDateFormat ? (
           <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
-            Use YYYY-MM-DD format, for example 2026-06-19.
+            Select dates from the calendar.
           </div>
         ) : null}
         {isDateRangeInvalid ? (

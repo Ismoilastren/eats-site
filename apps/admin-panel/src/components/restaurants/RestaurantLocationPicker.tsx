@@ -16,9 +16,23 @@ type RestaurantLocationPickerProps = {
   value: RestaurantLocationValue;
   onChange: (value: RestaurantLocationValue) => void;
   error?: string;
+  addressLabel?: string;
+  addressPlaceholder?: string;
+  currentLocationLabel?: string;
+  presetTitle?: string;
+  presetSearchPlaceholder?: string;
+  selectedPointTitle?: string;
+  presets?: LocationPreset[];
 };
 
-const PRESET_LOCATIONS = [
+type LocationPreset = {
+  label: string;
+  address: string;
+  lat: number;
+  lng: number;
+};
+
+const PRESET_LOCATIONS: LocationPreset[] = [
   { label: 'Amir Temur branch', address: 'Tashkent, Amir Temur Avenue 14', lat: 41.3266, lng: 69.2817 },
   { label: 'Chorsu branch', address: 'Tashkent, Chorsu Bazaar entrance', lat: 41.3261, lng: 69.2358 },
   { label: 'Mirabad branch', address: 'Tashkent, Mirabad Street 27', lat: 41.2958, lng: 69.2831 },
@@ -177,25 +191,36 @@ function RestaurantAdminMap({
   );
 }
 
-export function RestaurantLocationPicker({ value, onChange, error }: RestaurantLocationPickerProps) {
+export function RestaurantLocationPicker({
+  value,
+  onChange,
+  error,
+  addressLabel = 'Branch / filial address',
+  addressPlaceholder = 'Enter exact branch pickup address, e.g. Tashkent, Amir Temur Avenue 14',
+  currentLocationLabel = 'Use this device location',
+  presetTitle = 'Branch address presets',
+  presetSearchPlaceholder = 'Search branch address preset',
+  selectedPointTitle = 'Selected point',
+  presets = PRESET_LOCATIONS,
+}: RestaurantLocationPickerProps) {
   const [query, setQuery] = useState('');
   const [resolving, setResolving] = useState(false);
   const [geocodeMessage, setGeocodeMessage] = useState('');
   const requestRef = useRef(0);
   const filteredPresets = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return PRESET_LOCATIONS;
-    return PRESET_LOCATIONS.filter((item) =>
+    if (!normalized) return presets;
+    return presets.filter((item) =>
       `${item.label} ${item.address}`.toLowerCase().includes(normalized),
     );
-  }, [query]);
+  }, [presets, query]);
 
   const updateAddress = (address: string) => {
     onChange({ ...value, address, source: 'manual' });
     setGeocodeMessage('');
   };
 
-  const selectPreset = (preset: typeof PRESET_LOCATIONS[number]) => {
+  const selectPreset = (preset: LocationPreset) => {
     onChange({
       address: preset.address,
       lat: preset.lat,
@@ -252,13 +277,13 @@ export function RestaurantLocationPicker({ value, onChange, error }: RestaurantL
     <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
       <div className="mb-4">
         <label className="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">
-          Branch / filial address
+          {addressLabel}
         </label>
         <textarea
           value={value.address}
           onChange={(event) => updateAddress(event.target.value)}
           rows={3}
-          placeholder="Enter exact branch pickup address, e.g. Tashkent, Amir Temur Avenue 14"
+          placeholder={addressPlaceholder}
           className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm font-medium text-gray-900 outline-none transition focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
         />
         {error && <p className="mt-2 text-xs font-semibold text-red-600">{error}</p>}
@@ -274,7 +299,7 @@ export function RestaurantLocationPicker({ value, onChange, error }: RestaurantL
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search branch address preset"
+            placeholder={presetSearchPlaceholder}
             className="w-full rounded-xl border border-gray-300 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-900 outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
           />
           <button
@@ -282,12 +307,12 @@ export function RestaurantLocationPicker({ value, onChange, error }: RestaurantL
             onClick={useCurrentLocation}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-gray-950 px-4 py-3 text-sm font-bold text-white hover:bg-gray-800 dark:bg-orange-500 dark:hover:bg-orange-600"
           >
-            <LocateFixed size={17} /> Use this device location
+            <LocateFixed size={17} /> {currentLocationLabel}
           </button>
 
           <div>
             <div className="mb-2 flex items-center justify-between">
-              <p className="text-xs font-black uppercase tracking-[0.16em] text-gray-400">Branch address presets</p>
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-gray-400">{presetTitle}</p>
               <span className="rounded-full bg-orange-50 px-2 py-1 text-xs font-bold text-orange-600">
                 {filteredPresets.length}
               </span>
@@ -317,7 +342,7 @@ export function RestaurantLocationPicker({ value, onChange, error }: RestaurantL
           </div>
 
           <div className="rounded-2xl bg-gray-950 p-4 text-white">
-            <p className="text-xs font-black uppercase tracking-[0.16em] text-orange-300">Selected point</p>
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-orange-300">{selectedPointTitle}</p>
             <p className="mt-2 line-clamp-2 text-sm font-bold">
               {resolving ? 'Resolving readable address...' : value.address || 'Enter a readable address'}
             </p>

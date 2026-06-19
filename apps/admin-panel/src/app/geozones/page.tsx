@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { db, collection, doc, getDocs, setDoc, updateDoc, serverTimestamp } from '@repo/firebase-config';
-import { DeliveryGeozone, GeoPoint, formatCurrencyUZS, validatePolygon } from '@repo/shared-types';
+import { COLLECTIONS, DeliveryGeozone, GeoPoint, formatCurrencyUZS, validatePolygon } from '@repo/shared-types';
 import { isAdminYandexMapsKeyConfigured, loadAdminYandexMaps, TASHKENT_CENTER, type YandexMaps3, type YMapInstance } from '@/lib/yandexMaps';
 import { writeAdminAuditLog } from '@/lib/auditLog';
 import { useAuth } from '@/context/AuthContext';
@@ -19,8 +19,16 @@ type GeozoneForm = {
   deliveryFee: string;
   minOrder: string;
   freeDeliveryThreshold: string;
-  branchIds: string;
+  branchIds: string[];
   polygon: GeoPoint[];
+};
+
+type BranchOption = {
+  id: string;
+  brandName: string;
+  branchName: string;
+  address: string;
+  label: string;
 };
 
 const initialForm: GeozoneForm = {
@@ -30,7 +38,7 @@ const initialForm: GeozoneForm = {
   deliveryFee: '8000',
   minOrder: '40000',
   freeDeliveryThreshold: '',
-  branchIds: '',
+  branchIds: [],
   polygon: [
     { lat: 41.33, lng: 69.20 },
     { lat: 41.33, lng: 69.30 },
@@ -68,15 +76,26 @@ function parseMoney(value: string, label: string, options: { required?: boolean 
   return { ok: true as const, value: Math.round(parsed) };
 }
 
-function parseBranchIds(value: string) {
-  return value
-    .split(/[\n,]+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
 function isValidHexColor(value: string) {
   return /^#[0-9a-f]{6}$/i.test(value.trim());
+}
+
+function asText(value: unknown, fallback = '') {
+  return typeof value === 'string' && value.trim() ? value.trim() : fallback;
+}
+
+function createBranchOption(id: string, data: Record<string, unknown>): BranchOption {
+  const location = data.location && typeof data.location === 'object' ? data.location as Record<string, unknown> : {};
+  const brandName = asText(data.brandName, asText(data.name, 'Restaurant'));
+  const branchName = asText(data.branchName, asText(data.branchDisplayName, 'Main branch'));
+  const address = asText(data.branchAddress, asText(data.address, asText(location.address, 'No address')));
+  return {
+    id,
+    brandName,
+    branchName,
+    address,
+    label: `${brandName} · ${branchName}`,
+  };
 }
 
 function markerElement(index: number, color: string) {
@@ -236,11 +255,26 @@ function GeozoneMapEditor({
 export default function GeozonesPage() {
   const { user } = useAuth();
   const [zones, setZones] = useState<DeliveryGeozone[]>([]);
+  const [branches, setBranches] = useState<BranchOption[]>([]);
   const [form, setForm] = useState<GeozoneForm>(() => createInitialForm());
+  const [branchSearch, setBranchSearch] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [loadError, setLoadError] = useState('');
+  const [branchesLoadError, setBranchesLoadError] = useState('');
   const activeZones = useMemo(() => zones.filter((zone) => zone.status !== 'archived'), [zones]);
+  const branchLabelById = useMemo(() => new Map(branches.map((branch) => [branch.id, branch.label])), [branches]);
+  const filteredBranches = useMemo(() => {
+    const search = branchSearch.trim().toLowerCase();
+    if (!search) return branches;
+    return branches.filter((branch) => {
+      const haystack = `${branch.id} ${branch.brandName} ${branch.branchName} ${branch.address}`.toLowerCase();
+      return haystack.includes(search);
+    });
+  }, [branchSearch, branches]);
+  const selectedBranchLabels = useMemo(() => (
+    form.branchIds.map((id) => branchLabelById.get(id) || id)
+  ), [branchLabelById, form.branchIds]);
 
   const loadZones = async () => {
     setIsLoading(true);
@@ -260,8 +294,23 @@ export default function GeozonesPage() {
     }
   };
 
+  const loadBranches = async () => {
+    try {
+      setBranchesLoadError('');
+      const snapshot = await getDocs(collection(db, COLLECTIONS.RESTAURANTS));
+      const nextBranches = snapshot.docs
+        .map((documentSnapshot) => createBranchOption(documentSnapshot.id, documentSnapshot.data() as Record<string, unknown>))
+        .sort((a, b) => a.label.localeCompare(b.label));
+      setBranches(nextBranches);
+    } catch (error) {
+      console.error('Failed to load branches for geozones:', error);
+      setBranchesLoadError(error instanceof Error ? error.message : 'Unable to load restaurant branches.');
+    }
+  };
+
   useEffect(() => {
     void loadZones();
+    void loadBranches();
   }, []);
 
   const patchPoint = (index: number, key: keyof GeoPoint, value: string) => {
@@ -281,6 +330,26 @@ export default function GeozonesPage() {
     setForm((current) => ({ ...current, polygon: current.polygon.filter((_, pointIndex) => pointIndex !== index) }));
   };
 
+  const toggleBranch = (branchId: string) => {
+    setForm((current) => ({
+      ...current,
+      branchIds: current.branchIds.includes(branchId)
+        ? current.branchIds.filter((id) => id !== branchId)
+        : [...current.branchIds, branchId],
+    }));
+  };
+
+  const selectVisibleBranches = () => {
+    setForm((current) => ({
+      ...current,
+      branchIds: Array.from(new Set([...current.branchIds, ...filteredBranches.map((branch) => branch.id)])),
+    }));
+  };
+
+  const clearBranches = () => {
+    setForm((current) => ({ ...current, branchIds: [] }));
+  };
+
   const editZone = (zone: DeliveryGeozone) => {
     setForm({
       id: zone.id,
@@ -290,7 +359,7 @@ export default function GeozonesPage() {
       deliveryFee: String(zone.deliveryFee || ''),
       minOrder: String(zone.minOrder || ''),
       freeDeliveryThreshold: String(zone.freeDeliveryThreshold || ''),
-      branchIds: (zone.branchIds || []).join(', '),
+      branchIds: Array.isArray(zone.branchIds) ? zone.branchIds.map(String).filter(Boolean) : [],
       polygon: Array.isArray(zone.polygon) ? zone.polygon : [],
     });
   };
@@ -335,7 +404,7 @@ export default function GeozonesPage() {
       status: form.status,
       color: form.color || DEFAULT_COLOR,
       polygon: validation.polygon,
-      branchIds: parseBranchIds(form.branchIds),
+      branchIds: form.branchIds,
       deliveryFee: deliveryFee.value,
       minOrder: minOrder.value,
       freeDeliveryThreshold: freeDeliveryThreshold.value,
@@ -440,11 +509,83 @@ export default function GeozonesPage() {
               Free delivery threshold
               <input inputMode="numeric" value={form.freeDeliveryThreshold} onChange={(event) => setForm({ ...form, freeDeliveryThreshold: event.target.value })} className="mt-2 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 outline-none dark:border-gray-700 dark:bg-gray-900" />
             </label>
-            <label className="text-sm font-bold text-gray-700 dark:text-gray-200 md:col-span-2">
-              Branch IDs
-              <input value={form.branchIds} onChange={(event) => setForm({ ...form, branchIds: event.target.value })} placeholder="bellissimo-pizza, maxway" className="mt-2 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 outline-none dark:border-gray-700 dark:bg-gray-900" />
-              <span className="mt-1 block text-xs font-semibold text-gray-500">Comma or new-line separated branch IDs.</span>
-            </label>
+            <div className="text-sm font-bold text-gray-700 dark:text-gray-200 md:col-span-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <span>Branches / filiallar</span>
+                  <span className="ml-2 rounded-full bg-brand-50 px-2 py-1 text-xs font-black text-brand-700 dark:bg-brand-900/30 dark:text-brand-100">
+                    {form.branchIds.length} selected
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={selectVisibleBranches}
+                    disabled={filteredBranches.length === 0}
+                    className="rounded-lg bg-gray-100 px-3 py-2 text-xs font-black text-gray-700 hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-900 dark:text-gray-200 dark:hover:bg-gray-700"
+                  >
+                    Select visible
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearBranches}
+                    disabled={form.branchIds.length === 0}
+                    className="rounded-lg bg-red-50 px-3 py-2 text-xs font-black text-red-700 hover:bg-red-100 disabled:opacity-50 dark:bg-red-900/20 dark:text-red-200"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <input
+                value={branchSearch}
+                onChange={(event) => setBranchSearch(event.target.value)}
+                placeholder="Search branch by brand, filial, address..."
+                className="mt-2 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 outline-none focus:border-brand-400 dark:border-gray-700 dark:bg-gray-900"
+              />
+              {branchesLoadError ? (
+                <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs font-bold text-red-700 dark:bg-red-900/20 dark:text-red-200">
+                  Branches could not load: {branchesLoadError}
+                </p>
+              ) : (
+                <div className="mt-2 max-h-56 overflow-y-auto rounded-xl border border-gray-200 bg-gray-50 p-2 dark:border-gray-700 dark:bg-gray-900">
+                  {filteredBranches.length === 0 ? (
+                    <p className="p-3 text-center text-xs font-bold text-gray-500">
+                      {branches.length === 0 ? 'No restaurant branches found yet.' : 'No branches match this search.'}
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {filteredBranches.map((branch) => (
+                        <label
+                          key={branch.id}
+                          className="flex cursor-pointer items-start gap-3 rounded-lg bg-white p-3 transition hover:bg-brand-50 dark:bg-gray-800 dark:hover:bg-gray-700"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={form.branchIds.includes(branch.id)}
+                            onChange={() => toggleBranch(branch.id)}
+                            className="mt-1 h-4 w-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500"
+                          />
+                          <span className="min-w-0">
+                            <span className="block truncate font-black text-gray-900 dark:text-white">{branch.label}</span>
+                            <span className="block truncate text-xs font-semibold text-gray-500">{branch.address}</span>
+                            <span className="block truncate text-[11px] font-semibold text-gray-400">{branch.id}</span>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {selectedBranchLabels.length ? (
+                <p className="mt-2 text-xs font-semibold text-gray-500">
+                  Zone applies to: {selectedBranchLabels.join(', ')}
+                </p>
+              ) : (
+                <p className="mt-2 text-xs font-semibold text-orange-600">
+                  No branches selected. This zone will not be tied to restaurant branches until you select them.
+                </p>
+              )}
+            </div>
           </div>
 
           <div className="mt-6">
@@ -454,10 +595,10 @@ export default function GeozonesPage() {
             </div>
             <div className="mt-3 space-y-2">
               {form.polygon.map((point, index) => (
-                <div key={`${index}-${point.lat}-${point.lng}`} className="grid grid-cols-[auto_1fr_1fr_auto] items-center gap-2">
+                <div key={`point-${index}`} className="grid grid-cols-[auto_1fr_1fr_auto] items-center gap-2">
                   <span className="text-xs font-black text-gray-400">#{index + 1}</span>
-                  <input inputMode="decimal" value={point.lat} onChange={(event) => patchPoint(index, 'lat', event.target.value)} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" />
-                  <input inputMode="decimal" value={point.lng} onChange={(event) => patchPoint(index, 'lng', event.target.value)} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" />
+                  <input inputMode="decimal" value={String(point.lat)} onChange={(event) => patchPoint(index, 'lat', event.target.value)} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" />
+                  <input inputMode="decimal" value={String(point.lng)} onChange={(event) => patchPoint(index, 'lng', event.target.value)} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" />
                   <button type="button" onClick={() => removePoint(index)} className="rounded-lg bg-red-100 px-3 py-2 text-xs font-black text-red-700 dark:bg-red-900/30 dark:text-red-200">Remove</button>
                 </div>
               ))}
@@ -499,7 +640,13 @@ export default function GeozonesPage() {
                       <p className="mt-2 text-sm text-gray-500">
                         {zone.polygon?.length || 0} points · fee {formatCurrencyUZS(zone.deliveryFee || 0)} · min {formatCurrencyUZS(zone.minOrder || 0)}
                       </p>
-                      {zone.branchIds?.length ? <p className="mt-1 text-xs font-semibold text-gray-400">Branches: {zone.branchIds.join(', ')}</p> : null}
+                      {zone.branchIds?.length ? (
+                        <p className="mt-1 text-xs font-semibold text-gray-400">
+                          Branches: {zone.branchIds.map((branchId) => branchLabelById.get(branchId) || branchId).join(', ')}
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-xs font-semibold text-orange-500">No branches assigned to this zone.</p>
+                      )}
                     </div>
                     <div className="flex gap-2">
                       <button type="button" onClick={() => editZone(zone)} className="rounded-lg bg-blue-100 px-3 py-2 text-xs font-black text-blue-700 dark:bg-blue-900/30 dark:text-blue-200">Edit</button>

@@ -1,9 +1,9 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { DataTable, type ColumnDef } from '@/components/tables/DataTable';
 import { Badge } from '@/components/ui/Badge';
-import { db, collection, query, limit, onSnapshot } from '@repo/firebase-config';
-import { COLLECTIONS, PAGE_SIZE, Restaurant } from '@repo/shared-types';
+import { db, collection, onSnapshot } from '@repo/firebase-config';
+import { COLLECTIONS, Restaurant } from '@repo/shared-types';
 import toast from 'react-hot-toast';
 
 import { useRouter } from 'next/navigation';
@@ -20,6 +20,14 @@ type BranchRestaurant = Restaurant & {
   status?: string;
   likedBy?: string[];
   reviewsCount?: number;
+};
+
+type BrandGroup = {
+  key: string;
+  name: string;
+  branches: BranchRestaurant[];
+  activeCount: number;
+  imageUrl?: string;
 };
 
 const getRestaurantInitials = (name?: string) => {
@@ -69,20 +77,15 @@ export default function RestaurantsPage() {
   const [restaurants, setRestaurants] = useState<BranchRestaurant[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [deleteRestaurantId, setDeleteRestaurantId] = useState<string | null>(null);
+  const [selectedBrandKey, setSelectedBrandKey] = useState('all');
 
   useEffect(() => {
-    // Strict 21-item pagination rule applied
-    const q = query(
-      collection(db, COLLECTIONS.RESTAURANTS),
-      limit(PAGE_SIZE)
-    );
-
-    const unsubscribe = onSnapshot(q, { includeMetadataChanges: true }, (snapshot) => {
+    const unsubscribe = onSnapshot(collection(db, COLLECTIONS.RESTAURANTS), { includeMetadataChanges: true }, (snapshot) => {
       const data: BranchRestaurant[] = [];
       snapshot.forEach((doc) => {
         data.push({ id: doc.id, ...doc.data() } as BranchRestaurant);
       });
-      setRestaurants(data);
+      setRestaurants(data.sort((a, b) => getBrandName(a).localeCompare(getBrandName(b)) || getBranchName(a).localeCompare(getBranchName(b))));
       setIsLoading(false);
     }, (error) => {
       console.error("Error fetching restaurants:", error);
@@ -92,7 +95,32 @@ export default function RestaurantsPage() {
     return () => unsubscribe();
   }, []);
 
-  const brandCount = new Set(restaurants.map((restaurant) => getBrandName(restaurant).toLowerCase())).size;
+  const brandGroups = useMemo<BrandGroup[]>(() => {
+    const groups = new Map<string, BrandGroup>();
+    restaurants.forEach((restaurant) => {
+      const brandName = getBrandName(restaurant);
+      const key = String(restaurant.brandId || brandName.toLowerCase().replace(/[^a-z0-9]+/g, '-')).trim() || brandName.toLowerCase();
+      const existing = groups.get(key);
+      if (existing) {
+        existing.branches.push(restaurant);
+        if (restaurant.status !== 'inactive' && restaurant.isActive !== false) existing.activeCount += 1;
+        if (!existing.imageUrl && restaurant.imageUrl) existing.imageUrl = restaurant.imageUrl;
+      } else {
+        groups.set(key, {
+          key,
+          name: brandName,
+          branches: [restaurant],
+          activeCount: restaurant.status !== 'inactive' && restaurant.isActive !== false ? 1 : 0,
+          imageUrl: restaurant.imageUrl,
+        });
+      }
+    });
+    return Array.from(groups.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [restaurants]);
+
+  const selectedBrand = useMemo(() => brandGroups.find((brand) => brand.key === selectedBrandKey), [brandGroups, selectedBrandKey]);
+  const visibleRestaurants = selectedBrandKey === 'all' ? restaurants : selectedBrand?.branches || [];
+  const brandCount = brandGroups.length;
   const activeBranches = restaurants.filter((restaurant) => restaurant.status !== 'inactive' && restaurant.isActive !== false).length;
 
   const columns: ColumnDef<BranchRestaurant>[] = [
@@ -167,7 +195,7 @@ export default function RestaurantsPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Restaurants</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Manage brands and physical branches. Data is synced in real-time from Firestore.
+            Manage restaurant brands, physical branches, locations and branch-specific catalog.
           </p>
         </div>
         <a href="/restaurants/add" className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600">
@@ -190,7 +218,81 @@ export default function RestaurantsPage() {
         </div>
       </div>
 
+      <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-wide text-brand-500">Brand portfolio</p>
+            <h2 className="text-lg font-black text-gray-900 dark:text-white">Brands and filiallar</h2>
+            <p className="text-sm font-semibold text-gray-500">
+              Select a brand to manage only its branches. Menu can still be handled per branch in Edit or globally in Catalog matrix.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSelectedBrandKey('all')}
+            className={`rounded-lg px-4 py-2 text-sm font-black ${selectedBrandKey === 'all' ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900' : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-900 dark:text-gray-200'}`}
+          >
+            Show all branches
+          </button>
+        </div>
+
+        {isLoading ? (
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            {[0, 1, 2].map((index) => <div key={index} className="h-28 animate-pulse rounded-xl bg-gray-100 dark:bg-gray-900" />)}
+          </div>
+        ) : brandGroups.length === 0 ? (
+          <div className="mt-4 rounded-xl bg-gray-50 p-6 text-center text-sm font-semibold text-gray-500 dark:bg-gray-900">
+            No brands yet. Add the first branch to create a brand group.
+          </div>
+        ) : (
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {brandGroups.map((brand) => {
+              const isSelected = selectedBrandKey === brand.key;
+              const firstBranch = brand.branches[0];
+              return (
+                <button
+                  key={brand.key}
+                  type="button"
+                  onClick={() => setSelectedBrandKey(brand.key)}
+                  className={`rounded-xl border p-4 text-left transition ${
+                    isSelected
+                      ? 'border-brand-500 bg-brand-50 shadow-sm dark:bg-brand-900/20'
+                      : 'border-gray-200 bg-gray-50 hover:border-brand-300 hover:bg-white dark:border-gray-700 dark:bg-gray-900 dark:hover:bg-gray-800'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <RestaurantAvatar name={brand.name} imageUrl={brand.imageUrl} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-base font-black text-gray-900 dark:text-white">{brand.name}</p>
+                      <p className="text-xs font-bold text-gray-500">{brand.branches.length} branches · {brand.activeCount} active</p>
+                      <p className="mt-2 line-clamp-2 text-xs font-semibold text-gray-500">
+                        {getBranchAddress(firstBranch) || 'Branch address missing'}
+                      </p>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-1">
+        <div className="flex flex-col gap-2 border-b border-gray-200 p-4 dark:border-gray-700 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-lg font-black text-gray-900 dark:text-white">
+              {selectedBrand ? `${selectedBrand.name} branches` : 'All restaurant branches'}
+            </h2>
+            <p className="text-sm font-semibold text-gray-500">
+              Showing {visibleRestaurants.length} of {restaurants.length} live Firestore branch records.
+            </p>
+          </div>
+          {selectedBrand ? (
+            <a href="/restaurants/add" className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-black text-white hover:bg-brand-600">
+              + Add {selectedBrand.name} branch
+            </a>
+          ) : null}
+        </div>
         {isLoading ? (
           <div className="flex justify-center items-center p-12">
             <svg className="animate-spin h-8 w-8 text-brand-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -198,12 +300,12 @@ export default function RestaurantsPage() {
                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
           </div>
-        ) : restaurants.length === 0 ? (
+        ) : visibleRestaurants.length === 0 ? (
           <div className="p-12 text-center text-gray-500">No restaurants found. Add one to get started!</div>
         ) : (
           <DataTable
             columns={columns}
-            data={restaurants}
+            data={visibleRestaurants}
             searchPlaceholder="Search brand, branch, address, type..."
             searchAccessor={(item, q) =>
               [
@@ -226,9 +328,9 @@ export default function RestaurantsPage() {
       {deleteRestaurantId && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Delete Restaurant?</h3>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">Delete branch?</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-              Are you sure you want to permanently delete this restaurant? This action cannot be undone.
+              Are you sure you want to permanently delete this branch? This action cannot be undone.
             </p>
             <div className="flex justify-end gap-3">
               <button 

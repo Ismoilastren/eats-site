@@ -17,19 +17,14 @@ import {
   formatCurrencyUZS,
   normalizeOrderStatus,
 } from '@repo/shared-types';
+import { getCourierStatus, isRealCourier, type AdminCourierRecord } from '@/lib/courierFilters';
 
 type DashboardUser = {
   uid?: string;
   role?: string;
 };
 
-type DashboardCourier = {
-  id?: string;
-  uid?: string;
-  status?: string;
-  isOnline?: boolean;
-  isAvailable?: boolean;
-};
+type DashboardCourier = AdminCourierRecord;
 
 type DashboardRestaurant = {
   id?: string;
@@ -108,7 +103,7 @@ export default function DashboardPage() {
       onSnapshot(
         collection(db, COLLECTIONS.COURIERS),
         (snapshot) => {
-          setCouriers(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as DashboardCourier));
+          setCouriers(snapshot.docs.map((item) => ({ id: item.id, uid: item.id, ...item.data() }) as DashboardCourier));
         },
         (error) => console.error('Dashboard couriers subscription failed:', error)
       ),
@@ -127,7 +122,8 @@ export default function DashboardPage() {
     const cancelledOrders = normalizedOrders.filter((order) => CANCELLED_STATUSES.includes(order.normalizedStatus));
     const customerUsers = users.filter((user) => ['client', 'customer', 'user'].includes(String(user.role || 'customer')));
     const activeRestaurants = restaurants.filter((restaurant) => restaurant.isActive !== false && restaurant.active !== false && restaurant.status !== 'inactive');
-    const onlineCouriers = couriers.filter((courier) => courier.isOnline === true || ['online', 'busy'].includes(String(courier.status || '').toLowerCase()));
+    const productionCouriers = couriers.filter(isRealCourier);
+    const onlineCouriers = productionCouriers.filter((courier) => ['online', 'busy'].includes(getCourierStatus(courier)));
 
     return {
       totalRevenue: deliveredOrders.reduce((sum, order) => sum + getOrderTotal(order), 0),
@@ -138,7 +134,7 @@ export default function DashboardPage() {
       customers: customerUsers.length,
       restaurants: restaurants.length,
       activeRestaurants: activeRestaurants.length,
-      couriers: couriers.length,
+      couriers: productionCouriers.length,
       onlineCouriers: onlineCouriers.length,
     };
   }, [orders, users, restaurants, couriers]);

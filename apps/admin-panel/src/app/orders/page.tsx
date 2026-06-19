@@ -24,6 +24,7 @@ import {
   getCourierPhone,
   getCourierVehicle,
   isAssignableCourier,
+  isRealCourier,
   sortCouriers,
   type AdminCourierRecord,
 } from '@/lib/courierFilters';
@@ -220,6 +221,7 @@ export default function OrdersPage() {
         setAllUsers(usersObj);
         setCouriers(courierSnap.docs
           .map((d) => ({ ...d.data(), uid: d.id, id: d.id } as AdminCourierRecord))
+          .filter(isRealCourier)
           .sort(sortCouriers));
       } catch (err) {
         console.error("Failed to fetch users", err);

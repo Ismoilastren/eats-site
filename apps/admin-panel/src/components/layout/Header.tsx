@@ -8,6 +8,13 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { db, collection, getDocs, limit, onSnapshot, orderBy, query } from '@repo/firebase-config';
 import { COLLECTIONS, normalizeOrderStatus } from '@repo/shared-types';
+import {
+  getCourierName,
+  getCourierPhone,
+  getCourierStatus,
+  isRealCourier,
+  type AdminCourierRecord,
+} from '@/lib/courierFilters';
 
 type GlobalSearchResult = {
   id: string;
@@ -140,17 +147,20 @@ export function Header() {
           });
         });
 
-        couriersSnap.docs.forEach((item) => {
-          const data = item.data() as Record<string, any>;
-          if (!matches(item.id, data.fullName, data.displayName, data.name, data.phone, data.licensePlate, data.plateNumber)) return;
-          results.push({
-            id: `courier-${item.id}`,
-            label: data.fullName || data.displayName || data.name || item.id,
-            detail: `${data.phone || 'No phone'} · ${data.status || 'offline'}`,
-            href: '/couriers',
-            type: 'Courier',
+        couriersSnap.docs
+          .map((item) => ({ id: item.id, uid: item.id, ...item.data() }) as AdminCourierRecord)
+          .filter(isRealCourier)
+          .forEach((data) => {
+            const courierId = data.id || data.uid || '';
+            if (!matches(courierId, data.fullName, data.displayName, data.name, data.phone, data.licensePlate, data.plateNumber)) return;
+            results.push({
+              id: `courier-${courierId}`,
+              label: getCourierName(data) || courierId,
+              detail: `${getCourierPhone(data) || 'No phone'} · ${getCourierStatus(data)}`,
+              href: '/couriers',
+              type: 'Courier',
+            });
           });
-        });
 
         usersSnap.docs.forEach((item) => {
           const data = item.data() as Record<string, any>;

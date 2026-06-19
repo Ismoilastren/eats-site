@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { MapPin } from 'lucide-react';
-import { normalizeCoordinate, toYandexCoords } from '@repo/shared-types';
+import { normalizeCoordinate, toYandexCoords, type CoordinateLike } from '@repo/shared-types';
 import {
   isAdminYandexMapsKeyConfigured,
   loadAdminYandexMaps,
@@ -11,9 +11,9 @@ import {
 } from '@/lib/yandexMaps';
 
 interface LiveTrackingMapProps {
-  restaurantLocation?: { latitude?: number; longitude?: number; lat?: number; lng?: number };
-  customerLocation?: { latitude?: number; longitude?: number; lat?: number; lng?: number };
-  courierLocation?: { latitude?: number; longitude?: number; lat?: number; lng?: number };
+  restaurantLocation?: CoordinateLike | null;
+  customerLocation?: CoordinateLike | null;
+  courierLocation?: CoordinateLike | null;
 }
 
 type Point = {
@@ -53,6 +53,26 @@ function markerElement(point: Point) {
 
   wrapper.append(marker, label);
   return wrapper;
+}
+
+function buildMapLocation(points: Point[]) {
+  if (points.length === 0) {
+    return { center: toYandexCoords({ lat: 41.311081, lng: 69.240562 }), zoom: 12 };
+  }
+
+  if (points.length === 1) {
+    return { center: toYandexCoords(points[0]), zoom: 14 };
+  }
+
+  const lngs = points.map((point) => point.lng);
+  const lats = points.map((point) => point.lat);
+  return {
+    bounds: [
+      [Math.min(...lngs), Math.min(...lats)],
+      [Math.max(...lngs), Math.max(...lats)],
+    ],
+    margin: [55, 55, 55, 55],
+  };
 }
 
 function AdminMapSetupPanel({ loadError }: { loadError: string }) {
@@ -129,8 +149,7 @@ export default function LiveTrackingMap({
   const pointsSignature = JSON.stringify(points);
 
   useEffect(() => {
-    if (restaurantLat === undefined || restaurantLng === undefined || customerLat === undefined || customerLng === undefined) return;
-    const initialRestaurant = { lat: restaurantLat, lng: restaurantLng };
+    if (!points.length) return;
     let cancelled = false;
 
     async function init() {
@@ -141,7 +160,7 @@ export default function LiveTrackingMap({
         const ymaps3 = await loadAdminYandexMaps();
         if (cancelled || !containerRef.current) return;
         const map = new ymaps3.YMap(containerRef.current, {
-          location: { center: toYandexCoords(initialRestaurant), zoom: 13 },
+          location: buildMapLocation(points),
           theme: 'light',
           behaviors: ['drag', 'scrollZoom', 'pinchZoom', 'dblClick'],
         });
@@ -166,7 +185,7 @@ export default function LiveTrackingMap({
       apiRef.current = null;
       childrenRef.current = [];
     };
-  }, [customerLat, customerLng, restaurantLat, restaurantLng]);
+  }, [pointsSignature]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -175,10 +194,7 @@ export default function LiveTrackingMap({
       !map
       || !ymaps3
       || status !== 'loaded'
-      || restaurantLat === undefined
-      || restaurantLng === undefined
-      || customerLat === undefined
-      || customerLng === undefined
+      || !points.length
     ) return;
 
     childrenRef.current.forEach((child) => map.removeChild?.(child));
@@ -191,15 +207,9 @@ export default function LiveTrackingMap({
     });
     childrenRef.current = children;
 
-    const lngs = points.map((point) => point.lng);
-    const lats = points.map((point) => point.lat);
     map.update({
       location: {
-        bounds: [
-          [Math.min(...lngs), Math.min(...lats)],
-          [Math.max(...lngs), Math.max(...lats)],
-        ],
-        margin: [55, 55, 55, 55],
+        ...buildMapLocation(points),
         duration: 250,
       },
     });
@@ -215,13 +225,13 @@ export default function LiveTrackingMap({
     status,
   ]);
 
-  if (!restaurant || !customer) {
+  if (!points.length) {
     return (
       <div className="flex h-full min-h-72 items-center justify-center bg-amber-50 p-6 text-center">
         <div>
           <MapPin className="mx-auto text-amber-600" size={30} />
-          <p className="mt-3 font-bold text-gray-900">Tracking map unavailable because coordinates are missing.</p>
-          <p className="mt-1 text-sm font-semibold text-gray-500">No pickup or destination point is being estimated.</p>
+          <p className="mt-3 font-bold text-gray-900">Tracking map unavailable because all coordinates are missing.</p>
+          <p className="mt-1 text-sm font-semibold text-gray-500">No pickup, destination, or courier point is being estimated.</p>
         </div>
       </div>
     );

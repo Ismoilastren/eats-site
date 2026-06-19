@@ -12,6 +12,8 @@ import {
   hasAssignedCourier,
   normalizeCoordinate,
   normalizeOrderStatus,
+  type CoordinateLike,
+  type NormalizedCoordinate,
 } from '@repo/shared-types';
 import LiveTrackingMap from '@/components/LiveTrackingMap';
 import {
@@ -39,7 +41,46 @@ function getBranchLabel(order: Order) {
 }
 
 function getOrderCourierLocation(order: Order) {
-  return normalizeCoordinate(order.courierLocation || order.courier?.location || order.courier?.currentLocation || null);
+  return getFirstCoordinate(
+    order.courierLocation,
+    order.courier?.location,
+    order.courier?.currentLocation,
+    (order.assignedCourier as { location?: CoordinateLike; currentLocation?: CoordinateLike } | null)?.location,
+    (order.assignedCourier as { location?: CoordinateLike; currentLocation?: CoordinateLike } | null)?.currentLocation,
+  );
+}
+
+function getFirstCoordinate(...values: Array<CoordinateLike | null | undefined>): NormalizedCoordinate | null {
+  for (const value of values) {
+    const coordinate = normalizeCoordinate(value);
+    if (coordinate) return coordinate;
+  }
+  return null;
+}
+
+function getRestaurantPoint(order: Order) {
+  const looseOrder = order as unknown as {
+    restaurantLocation?: CoordinateLike | null;
+    branchLocation?: CoordinateLike | null;
+    restaurant?: { location?: CoordinateLike | null; coordinates?: CoordinateLike | null };
+    branch?: { location?: CoordinateLike | null; coordinates?: CoordinateLike | null };
+  };
+  return getFirstCoordinate(
+    looseOrder.restaurantLocation,
+    looseOrder.branchLocation,
+    looseOrder.branch?.location,
+    looseOrder.branch?.coordinates,
+    looseOrder.restaurant?.location,
+    looseOrder.restaurant?.coordinates,
+  );
+}
+
+function getCustomerPoint(order: Order) {
+  const looseOrder = order as unknown as {
+    deliveryLocation?: CoordinateLike | null;
+    customerLocation?: CoordinateLike | null;
+  };
+  return getFirstCoordinate(looseOrder.deliveryLocation, looseOrder.customerLocation);
 }
 
 export default function DispatchMapPage() {
@@ -49,8 +90,6 @@ export default function DispatchMapPage() {
   const [branchFilter, setBranchFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState<OrderStatus | 'all'>('all');
   const [onlyOnlineCouriers, setOnlyOnlineCouriers] = useState(true);
-  const [dispatcherMode, setDispatcherMode] = useState(true);
-  const [routingMode, setRoutingMode] = useState<'points' | 'road'>('points');
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -112,6 +151,9 @@ export default function DispatchMapPage() {
   }, [couriers, onlyOnlineCouriers]);
 
   const mapCourierLocation = selectedOrder ? getOrderCourierLocation(selectedOrder) : null;
+  const mapRestaurantLocation = selectedOrder ? getRestaurantPoint(selectedOrder) : null;
+  const mapCustomerLocation = selectedOrder ? getCustomerPoint(selectedOrder) : null;
+  const selectedHasCourier = selectedOrder ? hasAssignedCourier(selectedOrder) : false;
 
   return (
     <div className="space-y-6">
@@ -176,32 +218,22 @@ export default function DispatchMapPage() {
             />
             <span className="text-sm font-bold text-gray-700 dark:text-gray-200">Only online/busy couriers</span>
           </label>
-          <label className="flex items-end gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-900">
-            <input
-              type="checkbox"
-              checked={dispatcherMode}
-              onChange={(event) => setDispatcherMode(event.target.checked)}
-              className="mb-1 h-4 w-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500"
-            />
-            <span className="text-sm font-bold text-gray-700 dark:text-gray-200">Dispatcher mode</span>
-          </label>
+          <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-900">
+            <span className="mb-1 block text-xs font-black uppercase tracking-wide text-gray-500">Dispatcher mode</span>
+            <p className="text-sm font-bold text-gray-700 dark:text-gray-200">Selected order controls the map.</p>
+          </div>
           <label className="block">
             <span className="mb-1 block text-xs font-black uppercase tracking-wide text-gray-500">Route mode</span>
             <select
-              value={routingMode}
-              onChange={(event) => setRoutingMode(event.target.value as 'points' | 'road')}
-              className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-bold text-gray-700 outline-none focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+              value="points"
+              disabled
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-700 outline-none dark:border-gray-700 dark:bg-gray-950 dark:text-gray-200"
             >
-              <option value="points">Tracking points</option>
-              <option value="road">Road route not connected</option>
+              <option value="points">Tracking points only</option>
             </select>
+            <p className="mt-1 text-[11px] font-semibold text-gray-500">Road routing is not connected, so no fake route is shown.</p>
           </label>
         </div>
-        {routingMode === 'road' ? (
-          <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-800">
-            Road routing needs a paid Yandex routing/directions API endpoint. This page currently renders exact pickup, customer and courier points only.
-          </div>
-        ) : null}
       </section>
 
       <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
@@ -214,16 +246,29 @@ export default function DispatchMapPage() {
               </h2>
             </div>
             <div className="rounded-full bg-gray-100 px-3 py-1 text-xs font-black uppercase text-gray-600 dark:bg-gray-900 dark:text-gray-300">
-              {dispatcherMode ? 'Dispatcher' : 'Monitor'}
+              Dispatcher
             </div>
           </div>
+          {selectedOrder ? (
+            <div className="grid gap-2 border-b border-gray-200 p-4 text-xs font-black uppercase tracking-wide dark:border-gray-700 sm:grid-cols-3">
+              <div className={`rounded-xl px-3 py-2 ${mapRestaurantLocation ? 'bg-orange-50 text-orange-700' : 'bg-red-50 text-red-700'}`}>
+                Pickup: {mapRestaurantLocation ? 'shown' : 'missing coords'}
+              </div>
+              <div className={`rounded-xl px-3 py-2 ${mapCustomerLocation ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700'}`}>
+                Customer: {mapCustomerLocation ? 'shown' : 'missing coords'}
+              </div>
+              <div className={`rounded-xl px-3 py-2 ${mapCourierLocation ? 'bg-green-50 text-green-700' : selectedHasCourier ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-600'}`}>
+                Courier: {mapCourierLocation ? 'shown' : selectedHasCourier ? 'location unavailable' : 'not assigned'}
+              </div>
+            </div>
+          ) : null}
           <div className="h-[520px]">
             {isLoading ? (
               <div className="flex h-full items-center justify-center text-sm font-bold text-gray-500">Loading live orders...</div>
             ) : selectedOrder ? (
               <LiveTrackingMap
-                restaurantLocation={selectedOrder.restaurantLocation}
-                customerLocation={selectedOrder.deliveryLocation}
+                restaurantLocation={mapRestaurantLocation}
+                customerLocation={mapCustomerLocation}
                 courierLocation={mapCourierLocation || undefined}
               />
             ) : (

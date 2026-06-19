@@ -39,8 +39,44 @@ const initialForm: GeozoneForm = {
   ],
 };
 
+function createInitialForm(): GeozoneForm {
+  return {
+    ...initialForm,
+    polygon: initialForm.polygon.map((point) => ({ ...point })),
+  };
+}
+
 function slugify(value: string) {
   return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || `zone-${Date.now()}`;
+}
+
+function parseLocalizedNumber(value: string | number | null | undefined) {
+  const normalized = String(value ?? '').trim().replace(/\s+/g, '').replace(',', '.');
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseMoney(value: string, label: string, options: { required?: boolean } = {}) {
+  const parsed = parseLocalizedNumber(value);
+  if (parsed === null) {
+    return options.required ? { ok: false as const, error: `${label} is required.` } : { ok: true as const, value: null };
+  }
+  if (parsed < 0) {
+    return { ok: false as const, error: `${label} cannot be negative.` };
+  }
+  return { ok: true as const, value: Math.round(parsed) };
+}
+
+function parseBranchIds(value: string) {
+  return value
+    .split(/[\n,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function isValidHexColor(value: string) {
+  return /^#[0-9a-f]{6}$/i.test(value.trim());
 }
 
 function markerElement(index: number, color: string) {
@@ -200,7 +236,7 @@ function GeozoneMapEditor({
 export default function GeozonesPage() {
   const { user } = useAuth();
   const [zones, setZones] = useState<DeliveryGeozone[]>([]);
-  const [form, setForm] = useState<GeozoneForm>(initialForm);
+  const [form, setForm] = useState<GeozoneForm>(() => createInitialForm());
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [loadError, setLoadError] = useState('');
@@ -229,9 +265,11 @@ export default function GeozonesPage() {
   }, []);
 
   const patchPoint = (index: number, key: keyof GeoPoint, value: string) => {
+    const parsed = parseLocalizedNumber(value);
+    if (parsed === null) return;
     setForm((current) => ({
       ...current,
-      polygon: current.polygon.map((point, pointIndex) => pointIndex === index ? { ...point, [key]: Number(value) } : point),
+      polygon: current.polygon.map((point, pointIndex) => pointIndex === index ? { ...point, [key]: parsed } : point),
     }));
   };
 
@@ -257,16 +295,35 @@ export default function GeozonesPage() {
     });
   };
 
-  const resetForm = () => setForm(initialForm);
+  const resetForm = () => setForm(createInitialForm());
 
   const saveZone = async () => {
     const validation = validatePolygon(form.polygon);
+    const deliveryFee = parseMoney(form.deliveryFee, 'Delivery fee', { required: true });
+    const minOrder = parseMoney(form.minOrder, 'Minimum order', { required: true });
+    const freeDeliveryThreshold = parseMoney(form.freeDeliveryThreshold, 'Free delivery threshold');
     if (!form.name.trim()) {
       toast.error('Zone name is required');
       return;
     }
+    if (!isValidHexColor(form.color || DEFAULT_COLOR)) {
+      toast.error('Color must be a hex value like #f97316');
+      return;
+    }
     if (!validation.ok) {
       toast.error(validation.error);
+      return;
+    }
+    if (!deliveryFee.ok) {
+      toast.error(deliveryFee.error);
+      return;
+    }
+    if (!minOrder.ok) {
+      toast.error(minOrder.error);
+      return;
+    }
+    if (!freeDeliveryThreshold.ok) {
+      toast.error(freeDeliveryThreshold.error);
       return;
     }
 
@@ -278,10 +335,10 @@ export default function GeozonesPage() {
       status: form.status,
       color: form.color || DEFAULT_COLOR,
       polygon: validation.polygon,
-      branchIds: form.branchIds.split(',').map((item) => item.trim()).filter(Boolean),
-      deliveryFee: Number(form.deliveryFee || 0),
-      minOrder: Number(form.minOrder || 0),
-      freeDeliveryThreshold: form.freeDeliveryThreshold ? Number(form.freeDeliveryThreshold) : null,
+      branchIds: parseBranchIds(form.branchIds),
+      deliveryFee: deliveryFee.value,
+      minOrder: minOrder.value,
+      freeDeliveryThreshold: freeDeliveryThreshold.value,
       updatedAt: serverTimestamp(),
       ...(before ? {} : { createdAt: serverTimestamp() }),
     };
@@ -301,6 +358,7 @@ export default function GeozonesPage() {
       resetForm();
       await loadZones();
     } catch (error) {
+      console.error('Failed to save geozone:', error);
       toast.error('Failed to save geozone');
     } finally {
       setIsSaving(false);
@@ -327,6 +385,7 @@ export default function GeozonesPage() {
       toast.success('Geozone archived');
       await loadZones();
     } catch (error) {
+      console.error('Failed to archive geozone:', error);
       toast.error('Failed to archive geozone');
     }
   };
@@ -341,14 +400,18 @@ export default function GeozonesPage() {
             Real Firestore-backed delivery polygons. Customer pricing can consume these zones after deployment rules/env are in place.
           </p>
         </div>
-        <button type="button" onClick={resetForm} className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-bold text-white dark:bg-gray-700">
-          New zone
-        </button>
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.1fr_1.4fr]">
         <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
-          <h2 className="text-lg font-black text-gray-900 dark:text-white">{form.id ? 'Edit delivery zone' : 'Create delivery zone'}</h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-black text-gray-900 dark:text-white">{form.id ? 'Edit delivery zone' : 'Create delivery zone'}</h2>
+            {form.id ? (
+              <button type="button" onClick={resetForm} className="rounded-lg bg-gray-100 px-3 py-2 text-xs font-black text-gray-700 dark:bg-gray-900 dark:text-gray-200">
+                Cancel edit
+              </button>
+            ) : null}
+          </div>
           <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
             <label className="text-sm font-bold text-gray-700 dark:text-gray-200">
               Zone name
@@ -367,19 +430,20 @@ export default function GeozonesPage() {
             </label>
             <label className="text-sm font-bold text-gray-700 dark:text-gray-200">
               Delivery fee
-              <input type="number" value={form.deliveryFee} onChange={(event) => setForm({ ...form, deliveryFee: event.target.value })} className="mt-2 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 outline-none dark:border-gray-700 dark:bg-gray-900" />
+              <input inputMode="numeric" value={form.deliveryFee} onChange={(event) => setForm({ ...form, deliveryFee: event.target.value })} className="mt-2 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 outline-none dark:border-gray-700 dark:bg-gray-900" />
             </label>
             <label className="text-sm font-bold text-gray-700 dark:text-gray-200">
               Min order
-              <input type="number" value={form.minOrder} onChange={(event) => setForm({ ...form, minOrder: event.target.value })} className="mt-2 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 outline-none dark:border-gray-700 dark:bg-gray-900" />
+              <input inputMode="numeric" value={form.minOrder} onChange={(event) => setForm({ ...form, minOrder: event.target.value })} className="mt-2 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 outline-none dark:border-gray-700 dark:bg-gray-900" />
             </label>
             <label className="text-sm font-bold text-gray-700 dark:text-gray-200">
               Free delivery threshold
-              <input type="number" value={form.freeDeliveryThreshold} onChange={(event) => setForm({ ...form, freeDeliveryThreshold: event.target.value })} className="mt-2 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 outline-none dark:border-gray-700 dark:bg-gray-900" />
+              <input inputMode="numeric" value={form.freeDeliveryThreshold} onChange={(event) => setForm({ ...form, freeDeliveryThreshold: event.target.value })} className="mt-2 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 outline-none dark:border-gray-700 dark:bg-gray-900" />
             </label>
             <label className="text-sm font-bold text-gray-700 dark:text-gray-200 md:col-span-2">
               Branch IDs
               <input value={form.branchIds} onChange={(event) => setForm({ ...form, branchIds: event.target.value })} placeholder="bellissimo-pizza, maxway" className="mt-2 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 outline-none dark:border-gray-700 dark:bg-gray-900" />
+              <span className="mt-1 block text-xs font-semibold text-gray-500">Comma or new-line separated branch IDs.</span>
             </label>
           </div>
 
@@ -392,8 +456,8 @@ export default function GeozonesPage() {
               {form.polygon.map((point, index) => (
                 <div key={`${index}-${point.lat}-${point.lng}`} className="grid grid-cols-[auto_1fr_1fr_auto] items-center gap-2">
                   <span className="text-xs font-black text-gray-400">#{index + 1}</span>
-                  <input type="number" step="0.000001" value={point.lat} onChange={(event) => patchPoint(index, 'lat', event.target.value)} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" />
-                  <input type="number" step="0.000001" value={point.lng} onChange={(event) => patchPoint(index, 'lng', event.target.value)} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" />
+                  <input inputMode="decimal" value={point.lat} onChange={(event) => patchPoint(index, 'lat', event.target.value)} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" />
+                  <input inputMode="decimal" value={point.lng} onChange={(event) => patchPoint(index, 'lng', event.target.value)} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" />
                   <button type="button" onClick={() => removePoint(index)} className="rounded-lg bg-red-100 px-3 py-2 text-xs font-black text-red-700 dark:bg-red-900/30 dark:text-red-200">Remove</button>
                 </div>
               ))}

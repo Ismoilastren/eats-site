@@ -604,6 +604,12 @@ export default function ActiveScreen() {
                     ) : null}
                   </MapView>
                 </View>
+                <View style={styles.mapNotice}>
+                  <Ionicons name="information-circle-outline" size={15} color="#fdba74" />
+                  <Text style={styles.mapNoticeText}>
+                    Straight-line tracking path, not road navigation.
+                  </Text>
+                </View>
 
                 <View style={styles.routeSummary}>
                   <View style={styles.routePoint}>
@@ -852,6 +858,24 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.08)',
   },
   map: {
+    flex: 1,
+  },
+  mapNotice: {
+    marginTop: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(251,146,60,0.28)',
+    backgroundColor: 'rgba(249,115,22,0.1)',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  mapNoticeText: {
+    color: '#fdba74',
+    fontSize: 11,
+    fontWeight: '800',
+    marginLeft: 8,
     flex: 1,
   },
   restaurantMarker: {

@@ -241,7 +241,7 @@ export default function ActiveDeliveryScreen() {
           <View className="px-5 pt-5">
             <Text className="text-blue-800 font-black text-xl uppercase tracking-wider">Live delivery map</Text>
             <Text className="mt-1 text-blue-600 font-bold">
-              Tracking line uses the available restaurant, customer, and courier GPS points.
+              Straight-line tracking path, not road navigation.
             </Text>
           </View>
           <View className="m-5 h-72 overflow-hidden rounded-2xl border border-blue-100 bg-slate-200">

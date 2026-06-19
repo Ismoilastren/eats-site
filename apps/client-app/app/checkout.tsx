@@ -83,11 +83,11 @@ export default function CheckoutScreen() {
 
   // ── Format GPS reverse geocode — deduplicated (Robust) ──
   const formatAddress = (addr: any) => {
-    if (!addr) return 'Unknown location';
+    if (!addr) return 'Current GPS location, Tashkent';
     const parts = [addr.street, addr.district, addr.city, addr.subregion]
       .map(p => p?.trim())
       .filter(Boolean);
-    return [...new Set(parts)].join(', ');
+    return [...new Set(parts)].join(', ') || 'Current GPS location, Tashkent';
   };
 
   // ── Load GPS location ──

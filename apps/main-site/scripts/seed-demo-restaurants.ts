@@ -380,8 +380,11 @@ async function main() {
     import('../src/data/marketplace'),
   ]);
 
-  const email = process.env.SEED_ADMIN_EMAIL || process.env.NEXT_PUBLIC_DEMO_ADMIN_EMAIL || 'mainadmin@demo.com';
-  const password = process.env.SEED_ADMIN_PASSWORD || process.env.NEXT_PUBLIC_DEMO_ADMIN_PASSWORD || 'password123';
+  const email = process.env.SEED_ADMIN_EMAIL || process.env.NEXT_PUBLIC_DEMO_ADMIN_EMAIL;
+  const password = process.env.SEED_ADMIN_PASSWORD || process.env.NEXT_PUBLIC_DEMO_ADMIN_PASSWORD;
+  if (!email || !password) {
+    throw new Error('Set SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD before running seed:demo-restaurants.');
+  }
   await signInWithEmailAndPassword(auth, email, password);
 
   const approvedIds = new Set(demoRestaurants.map((restaurant) => restaurant.id));

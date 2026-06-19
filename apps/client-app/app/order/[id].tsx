@@ -40,6 +40,24 @@ import NativeOrderMap from '../../components/NativeOrderMap';
 const TASHKENT = { latitude: 41.311081, longitude: 69.240562 };
 const TIP_PRESETS = [5_000, 10_000, 15_000, 20_000];
 
+function firstText(...values: unknown[]) {
+  for (const value of values) {
+    const text = String(value || '').trim();
+    if (text) return text;
+  }
+  return '';
+}
+
+function uniqueTextParts(values: string[]) {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    const key = value.toLowerCase();
+    if (!value || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 // ─── STATUS ICON ─────────────────────────────────────────────────────────────
 const statusIcon = (status: string): any => {
   switch (normalizeOrderStatus(status)) {
@@ -513,8 +531,12 @@ export default function NativeOrderTrackingScreen() {
   const courierPhone = order.assignedCourier?.phone || (order as any).courierPhone || (order as any).courier?.phone;
   const assignedCourierDetails = order.assignedCourier as unknown as {
     vehicle?: { model?: string; color?: string; plate?: string } | string;
+    vehicleName?: string;
+    vehicleBrand?: string;
     vehicleModel?: string;
     vehicleColor?: string;
+    plateNumber?: string;
+    licensePlate?: string;
     vehiclePlate?: string;
     carModel?: string;
     carColor?: string;
@@ -524,12 +546,34 @@ export default function NativeOrderTrackingScreen() {
     assignedCourierDetails?.vehicle && typeof assignedCourierDetails.vehicle === 'object'
       ? assignedCourierDetails.vehicle
       : null;
+  const vehicleString =
+    assignedCourierDetails?.vehicle && typeof assignedCourierDetails.vehicle === 'string'
+      ? assignedCourierDetails.vehicle
+      : '';
 
   // Vehicle detail strings (with graceful fallback)
-  const vehicleName = structuredVehicle?.model || assignedCourierDetails?.vehicleModel || assignedCourierDetails?.carModel || 'Car';
-  const vehicleColor = structuredVehicle?.color || assignedCourierDetails?.vehicleColor || assignedCourierDetails?.carColor || '';
-  const vehiclePlate = structuredVehicle?.plate || assignedCourierDetails?.vehiclePlate || assignedCourierDetails?.carNumber || '';
-  const vehicleDetails = [vehicleName, vehicleColor, vehiclePlate].filter(Boolean).join(' • ');
+  const vehicleName = firstText(
+    structuredVehicle?.model,
+    vehicleString,
+    assignedCourierDetails?.vehicleName,
+    [assignedCourierDetails?.vehicleBrand, assignedCourierDetails?.vehicleModel].filter(Boolean).join(' '),
+    assignedCourierDetails?.vehicleModel,
+    assignedCourierDetails?.carModel,
+    getVehicleLabel(vehicleType),
+  );
+  const vehicleColor = firstText(structuredVehicle?.color, assignedCourierDetails?.vehicleColor, assignedCourierDetails?.carColor);
+  const vehiclePlate = firstText(
+    structuredVehicle?.plate,
+    assignedCourierDetails?.plateNumber,
+    assignedCourierDetails?.licensePlate,
+    assignedCourierDetails?.vehiclePlate,
+    assignedCourierDetails?.carNumber,
+  );
+  const vehiclePlatePart =
+    vehiclePlate && !vehicleName.toLowerCase().includes(vehiclePlate.toLowerCase())
+      ? vehiclePlate
+      : '';
+  const vehicleDetails = uniqueTextParts([vehicleName, vehicleColor, vehiclePlatePart]).join(' • ');
 
   // ── DERIVED STATE: if cancelled → show OrderCancelledView ──
   if (normalizedStatus === 'cancelled') {

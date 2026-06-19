@@ -32,6 +32,14 @@ type SavedAddress = {
   createdAt?: string;
 };
 
+function formatReverseAddress(first: Location.LocationGeocodedAddress | undefined) {
+  const parts = [first?.street, first?.district, first?.city, first?.subregion]
+    .map(p => p?.trim())
+    .filter(Boolean);
+
+  return [...new Set(parts)].join(', ');
+}
+
 export default function AddressesScreen() {
   const router = useRouter();
   const { user, profile } = useAuth();
@@ -79,17 +87,8 @@ export default function AddressesScreen() {
 
       const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       const reverse = await Location.reverseGeocodeAsync(current.coords);
-      const first = reverse[0];
-      if (first) {
-        const parts = [first.street, first.district, first.city, first.subregion]
-          .map(p => p?.trim())
-          .filter(Boolean);
-
-        const cleanAddress = [...new Set(parts)].join(', ');
-        setAddressText(cleanAddress || `${current.coords.latitude.toFixed(6)}, ${current.coords.longitude.toFixed(6)}`);
-      } else {
-        setAddressText(`${current.coords.latitude.toFixed(6)}, ${current.coords.longitude.toFixed(6)}`);
-      }
+      const cleanAddress = formatReverseAddress(reverse[0]);
+      setAddressText(cleanAddress || 'Current GPS location, Tashkent');
     } catch (error) {
       console.error('Failed to read current address:', error);
       Alert.alert('Location error', 'Could not read your current GPS location.');

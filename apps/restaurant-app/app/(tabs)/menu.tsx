@@ -30,6 +30,32 @@ function normalizeMenuItem(data: any, id: string, restaurantId: string): MenuIte
   };
 }
 
+function MenuDetailImage({ item }: { item: MenuItem }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const imageUrl = String(item.imageUrl || '').trim();
+  const canShowImage = imageUrl && !imageFailed;
+
+  if (!canShowImage) {
+    return (
+      <View className="w-full h-64 bg-gray-800 items-center justify-center">
+        <Ionicons name="image-outline" size={58} color="#64748b" />
+        <Text className="mt-3 text-gray-500 font-black uppercase tracking-widest text-xs">
+          No food image
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <Image
+      source={{ uri: imageUrl }}
+      className="w-full h-64"
+      resizeMode="cover"
+      onError={() => setImageFailed(true)}
+    />
+  );
+}
+
 export default function MenuScreen() {
   const { menuItems, setMenuItems } = useMenuStore();
   const restaurant = useAuthStore(state => state.restaurant);
@@ -191,11 +217,7 @@ export default function MenuScreen() {
             {selectedItem && (
                 <ScrollView bounces={false} className="flex-1">
                     <View className="w-full h-64 bg-gray-800">
-                        <Image 
-                            source={{ uri: selectedItem.imageUrl || 'https://via.placeholder.com/400x300?text=No+Image' }}
-                            className="w-full h-full" 
-                            resizeMode="cover" 
-                        />
+                        <MenuDetailImage item={selectedItem} />
                         <View className="absolute bottom-4 left-4 bg-black/60 px-3 py-1 rounded-lg backdrop-blur-md">
                             <Text className="text-white font-bold tracking-widest uppercase text-xs">
                                 {selectedItem.category || selectedItem.categoryId || 'Food Item'}

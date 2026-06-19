@@ -637,7 +637,7 @@ export default function OrdersPage() {
                 ) : filteredOrders.map((order, index) => {
                   const status = normalizeOrderStatus(order.status);
                   const realUser = allUsers[order.userId];
-                  const displayName = (realUser as any)?.fullName || realUser?.displayName || order.customerName || 'Unknown user';
+                  const displayName = order.customerName || (realUser as any)?.fullName || realUser?.displayName || 'Unknown user';
                   const assignedCourier = order.assignedCourier;
                   const assignedCourierId = assignedCourier?.id || order.courierId;
                   const timer = getOrderTimerState(order);

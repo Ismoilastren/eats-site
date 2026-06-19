@@ -17,6 +17,7 @@ import { readStoredCustomerProfile } from '@/services/customerProfile';
 import { TASHKENT_CENTER } from '@/lib/yandexMaps';
 import { isReadableAddress, isValidCoordinates, type AppAddress } from '@repo/shared-types';
 import type { CoordinateLike } from '@repo/shared-types';
+import { findMatchingGeozone } from '@/services/marketplace/geozones';
 
 export type CartLine = Dish & {
   quantity: number;
@@ -300,7 +301,21 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
 
   const removeDish = (dishId: string) => setCart((current) => current.filter((item) => item.id !== dishId));
   const clearCart = () => setCart([]);
-  const setAddress = (next: SavedAddress) => setAddressState(next);
+  const setAddress = (next: SavedAddress) => {
+    setAddressState(next);
+    if (!isValidCoordinates(next.lat, next.lng)) return;
+    findMatchingGeozone({ lat: next.lat!, lng: next.lng! })
+      .then((zone) => {
+        setAddressState((current) => {
+          if (current.text !== next.text || current.lat !== next.lat || current.lng !== next.lng) return current;
+          return { ...current, inZone: zone ? true : current.inZone };
+        });
+      })
+      .catch(() => {
+        // Geozones are an optional production module. If rules/env are not ready,
+        // preserve the existing address instead of blocking checkout.
+      });
+  };
   const toggleFavorite = (restaurantId: string) => setFavorites((current) => current.includes(restaurantId) ? current.filter((id) => id !== restaurantId) : [...current, restaurantId]);
   const login = (name: string, phone: string, email?: string) => setUser({ name, phone, email });
   const logout = () => setUser(null);

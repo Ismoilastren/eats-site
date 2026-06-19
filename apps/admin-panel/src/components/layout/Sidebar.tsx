@@ -83,6 +83,16 @@ function ChartIcon({ className }: { className?: string }) {
   );
 }
 
+function MapIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="1 6 8 3 16 6 23 3 23 18 16 21 8 18 1 21 1 6" />
+      <line x1="8" y1="3" x2="8" y2="18" />
+      <line x1="16" y1="6" x2="16" y2="21" />
+    </svg>
+  );
+}
+
 function ChevronDownIcon({ className }: { className?: string }) {
   return (
     <svg className={className} width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -149,7 +159,10 @@ const menuSections: MenuSection[] = [
       {
         label: 'Catalog',
         icon: ShoppingBagIcon,
-        href: '/catalog',
+        subItems: [
+          { label: 'Products', href: '/catalog' },
+          { label: 'Branch matrix', href: '/catalog/matrix' },
+        ],
       },
       {
         label: 'Couriers',
@@ -164,7 +177,16 @@ const menuSections: MenuSection[] = [
       {
         label: 'Admins',
         icon: ShieldIcon,
-        href: '/admins',
+        subItems: [
+          { label: 'Admin users', href: '/admins' },
+          { label: 'Roles matrix', href: '/roles' },
+          { label: 'Audit logs', href: '/audit-logs' },
+        ],
+      },
+      {
+        label: 'Geozones',
+        icon: MapIcon,
+        href: '/geozones',
       },
     ],
   },

@@ -18,6 +18,11 @@ type AnalyticsMetrics = {
   orderSeries: number[];
   userSeries: number[];
   statusBreakdown: Record<string, number>;
+  paymentBreakdown: Record<string, number>;
+  topRestaurants: Array<{ name: string; orders: number; revenue: number }>;
+  topProducts: Array<{ name: string; quantity: number; revenue: number }>;
+  courierPerformance: Array<{ name: string; delivered: number; revenue: number }>;
+  averageOrderValue: number;
 };
 
 function toDate(value: unknown): Date | null {
@@ -59,6 +64,11 @@ export default function AnalyticsPage() {
     orderSeries: [],
     userSeries: [],
     statusBreakdown: {},
+    paymentBreakdown: {},
+    topRestaurants: [],
+    topProducts: [],
+    courierPerformance: [],
+    averageOrderValue: 0,
   });
 
   useEffect(() => {
@@ -86,6 +96,10 @@ export default function AnalyticsPage() {
         const ordersByDay = Object.fromEntries(dayKeys.map((key) => [key, 0])) as Record<string, number>;
         const usersByDay = Object.fromEntries(dayKeys.map((key) => [key, 0])) as Record<string, number>;
         const statusBreakdown: Record<string, number> = {};
+        const paymentBreakdown: Record<string, number> = {};
+        const restaurants: Record<string, { name: string; orders: number; revenue: number }> = {};
+        const products: Record<string, { name: string; quantity: number; revenue: number }> = {};
+        const couriers: Record<string, { name: string; delivered: number; revenue: number }> = {};
         let revenue = 0;
         let delivered = 0;
         let cancelled = 0;
@@ -94,12 +108,33 @@ export default function AnalyticsPage() {
           const order = documentSnapshot.data();
           const status = normalizeOrderStatus(order.status);
           const createdAt = toDate(order.createdAt);
+          const paymentMethod = String(order.paymentMethod || order.payment?.method || 'unknown');
+          const restaurantName = String(order.brandName || order.restaurantName || order.branchName || 'Unknown branch');
+          const orderRevenue = Number(order.totalAmount || order.total || 0);
           statusBreakdown[status] = (statusBreakdown[status] || 0) + 1;
+          paymentBreakdown[paymentMethod] = (paymentBreakdown[paymentMethod] || 0) + 1;
+          restaurants[restaurantName] = restaurants[restaurantName] || { name: restaurantName, orders: 0, revenue: 0 };
+          restaurants[restaurantName].orders += 1;
           if (status === 'delivered') {
             delivered += 1;
-            revenue += Number(order.totalAmount || 0);
+            revenue += orderRevenue;
+            restaurants[restaurantName].revenue += orderRevenue;
+            const courierName = String(order.courierName || order.assignedCourier?.name || order.courier?.name || 'Unassigned courier');
+            couriers[courierName] = couriers[courierName] || { name: courierName, delivered: 0, revenue: 0 };
+            couriers[courierName].delivered += 1;
+            couriers[courierName].revenue += orderRevenue;
           }
           if (status === 'cancelled' || status === 'rejected') cancelled += 1;
+          if (Array.isArray(order.items)) {
+            order.items.forEach((item: any) => {
+              const name = String(item.name || item.title || item.id || 'Unknown product');
+              const quantity = Number(item.quantity || item.qty || 1);
+              const itemRevenue = Number(item.price || 0) * quantity;
+              products[name] = products[name] || { name, quantity: 0, revenue: 0 };
+              products[name].quantity += quantity;
+              products[name].revenue += itemRevenue;
+            });
+          }
           if (createdAt) {
             const key = dayKey(createdAt);
             if (key in ordersByDay) ordersByDay[key] += 1;
@@ -126,9 +161,14 @@ export default function AnalyticsPage() {
           orderSeries: dayKeys.map((key) => ordersByDay[key] || 0),
           userSeries: dayKeys.map((key) => usersByDay[key] || 0),
           statusBreakdown,
+          paymentBreakdown,
+          topRestaurants: Object.values(restaurants).sort((a, b) => b.orders - a.orders).slice(0, 8),
+          topProducts: Object.values(products).sort((a, b) => b.quantity - a.quantity).slice(0, 8),
+          courierPerformance: Object.values(couriers).sort((a, b) => b.delivered - a.delivered).slice(0, 8),
+          averageOrderValue: delivered ? Math.round(revenue / delivered) : 0,
         });
-      } catch (err) {
-        console.warn('Failed to load metrics', err);
+      } catch {
+        // Keep analytics as a clean empty state when Firestore rules are not deployed yet.
       }
     };
     fetchMetrics();
@@ -218,6 +258,10 @@ export default function AnalyticsPage() {
           <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Delivered Revenue</p>
           <p className="mt-2 text-xl font-bold text-gray-900 dark:text-white">{formatCurrencyUZS(metrics.revenue)}</p>
         </div>
+        <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Average Order Value</p>
+          <p className="mt-2 text-xl font-bold text-gray-900 dark:text-white">{formatCurrencyUZS(metrics.averageOrderValue)}</p>
+        </div>
       </div>
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[2fr_1fr]">
       <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
@@ -248,6 +292,58 @@ export default function AnalyticsPage() {
           )}
         </div>
       </div>
+      </div>
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+        <BreakdownCard title="Top Restaurants / Branches" empty="No restaurant order data yet." rows={metrics.topRestaurants.map((item) => ({
+          label: item.name,
+          value: `${item.orders} orders`,
+          detail: formatCurrencyUZS(item.revenue),
+        }))} />
+        <BreakdownCard title="Top Products" empty="No product data yet." rows={metrics.topProducts.map((item) => ({
+          label: item.name,
+          value: `${item.quantity} sold`,
+          detail: formatCurrencyUZS(item.revenue),
+        }))} />
+        <BreakdownCard title="Courier Performance" empty="No delivered courier data yet." rows={metrics.courierPerformance.map((item) => ({
+          label: item.name,
+          value: `${item.delivered} delivered`,
+          detail: formatCurrencyUZS(item.revenue),
+        }))} />
+      </div>
+      <BreakdownCard title="Payment Method Distribution" empty="No payment data yet." rows={Object.entries(metrics.paymentBreakdown).sort((a, b) => b[1] - a[1]).map(([label, count]) => ({
+        label,
+        value: `${count} orders`,
+      }))} />
+    </div>
+  );
+}
+
+function BreakdownCard({
+  title,
+  rows,
+  empty,
+}: {
+  title: string;
+  rows: Array<{ label: string; value: string; detail?: string }>;
+  empty: string;
+}) {
+  return (
+    <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+      <h2 className="text-lg font-medium dark:text-white mb-4">{title}</h2>
+      <div className="space-y-3">
+        {rows.length ? rows.map((row) => (
+          <div key={`${row.label}:${row.value}`} className="flex items-center justify-between gap-4 rounded-lg bg-gray-50 px-4 py-3 text-sm dark:bg-gray-900">
+            <div className="min-w-0">
+              <p className="truncate font-black text-gray-900 dark:text-white">{row.label}</p>
+              {row.detail ? <p className="text-xs font-semibold text-gray-500">{row.detail}</p> : null}
+            </div>
+            <span className="shrink-0 font-bold text-brand-600 dark:text-brand-300">{row.value}</span>
+          </div>
+        )) : (
+          <p className="rounded-lg bg-gray-50 px-4 py-6 text-center text-sm text-gray-500 dark:bg-gray-900 dark:text-gray-400">
+            {empty}
+          </p>
+        )}
       </div>
     </div>
   );

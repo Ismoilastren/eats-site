@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { db, collection, doc, getDocs, updateDoc } from '@repo/firebase-config';
 import { COLLECTIONS, MenuItem, Restaurant, formatCurrencyUZS } from '@repo/shared-types';
 import toast from 'react-hot-toast';
+import { writeAdminAuditLog } from '@/lib/auditLog';
+import { useAuth } from '@/context/AuthContext';
 
 type CatalogItem = MenuItem & {
   restaurantName: string;
@@ -34,6 +36,7 @@ function getBranchAddress(restaurant?: Partial<CatalogRestaurant> | null) {
 }
 
 export default function CatalogPage() {
+  const { user } = useAuth();
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -141,6 +144,15 @@ export default function CatalogPage() {
           isAvailable: nextValue,
         });
       }
+      await writeAdminAuditLog({
+        action: 'catalog.availability_changed',
+        entityType: 'catalog',
+        entityId: item.id,
+        entityName: item.name,
+        actorEmail: user?.email,
+        before: { isAvailable: item.isAvailable, restaurantId: item.restaurantId },
+        after: { isAvailable: nextValue, restaurantId: item.restaurantId },
+      });
       setItems((current) => current.map((currentItem) => currentItem.id === item.id && currentItem.restaurantId === item.restaurantId
         ? { ...currentItem, isAvailable: nextValue }
         : currentItem));
@@ -162,9 +174,14 @@ export default function CatalogPage() {
             Manage all products across restaurant menus from one Firestore-backed view.
           </p>
         </div>
-        <Link href="/restaurants/categories" className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-bold text-white hover:bg-brand-600">
-          Manage Categories
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/catalog/matrix" className="rounded-lg bg-gray-900 px-4 py-2 text-sm font-bold text-white hover:bg-gray-800 dark:bg-gray-700">
+            Branch Matrix
+          </Link>
+          <Link href="/restaurants/categories" className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-bold text-white hover:bg-brand-600">
+            Manage Categories
+          </Link>
+        </div>
       </div>
 
       <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">

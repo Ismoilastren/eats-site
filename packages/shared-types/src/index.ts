@@ -79,3 +79,5 @@ export const COLLECTIONS = {
 } as const;
 
 export * from './address';
+export * from './geozone';
+export * from './routing';

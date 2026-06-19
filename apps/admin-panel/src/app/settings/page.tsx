@@ -4,6 +4,8 @@ import React, { useEffect, useState } from 'react';
 import { db, doc, getDoc, serverTimestamp, setDoc } from '@repo/firebase-config';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
+import { writeAdminAuditLog } from '@/lib/auditLog';
+import { useAuth } from '@/context/AuthContext';
 
 type SettingsState = {
   companyName: string;
@@ -50,6 +52,7 @@ const SETTINGS_SECTIONS = [
 ] as const;
 
 export default function SettingsPage() {
+  const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [activeSection, setActiveSection] = useState<(typeof SETTINGS_SECTIONS)[number]>('Company');
@@ -84,6 +87,14 @@ export default function SettingsPage() {
         ...settings,
         updatedAt: serverTimestamp(),
       }, { merge: true });
+      await writeAdminAuditLog({
+        action: 'settings.changed',
+        entityType: 'settings',
+        entityId: 'global',
+        entityName: 'Global settings',
+        actorEmail: user?.email,
+        after: settings as unknown as Record<string, unknown>,
+      });
       toast.success('System settings saved to Firestore.');
     } catch (error) {
       console.error(error);
@@ -184,10 +195,10 @@ export default function SettingsPage() {
             </section>
           )}
 
-          {activeSection === 'Geozones' && <ReadOnlySection title="Geozones" body="Delivery geozones are not yet implemented as editable polygons in this admin. Current production delivery uses address coordinates and global delivery fee settings." />}
-          {activeSection === 'Catalog' && <ReadOnlySection title="Catalog" body="Product catalog is managed from Restaurants -> Edit Restaurant -> Menu Items and the new Catalog page. Category names are managed from Restaurants -> Categories." />}
-          {activeSection === 'Users & Roles' && <ReadOnlySection title="Users & Roles" body="Admin accounts and roles are managed from the Admins page. Restaurant manager linking is managed inside each restaurant edit page." />}
-          {activeSection === 'Change History' && <ReadOnlySection title="Change History" body="Advanced audit-log browsing is pending. This page stores updatedAt for the global settings document so changes can still be traced at document level." />}
+          {activeSection === 'Geozones' && <LinkedSection title="Geozones" body="Editable delivery polygons are managed in the Geozones module with Firestore-backed polygon validation and map fallback." href="/geozones" cta="Open geozone editor" />}
+          {activeSection === 'Catalog' && <LinkedSection title="Catalog" body="Catalog and branch availability are managed from the Product Catalog and Branch / Catalog Matrix pages." href="/catalog/matrix" cta="Open branch/catalog matrix" />}
+          {activeSection === 'Users & Roles' && <LinkedSection title="Users & Roles" body="Admin users and the permission matrix are managed from the Roles module. Firestore rules deployment is still required for hard server enforcement." href="/roles" cta="Open roles matrix" />}
+          {activeSection === 'Change History' && <LinkedSection title="Change History" body="Audit log browsing, filters, diffs, and CSV export are available in the Change History module when audit logging is enabled." href="/audit-logs" cta="Open audit logs" />}
 
           {['Company', 'Delivery'].includes(activeSection) ? (
             <div className="mt-8 flex justify-end">
@@ -241,6 +252,22 @@ function ReadOnlySection({ title, body }: { title: string; body: string }) {
       <h2 className="border-b border-gray-200 pb-3 text-lg font-bold text-gray-900 dark:border-gray-700 dark:text-white">{title}</h2>
       <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-6 text-sm font-medium text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
         {body}
+      </div>
+    </section>
+  );
+}
+
+function LinkedSection({ title, body, href, cta }: { title: string; body: string; href: string; cta: string }) {
+  return (
+    <section className="space-y-4">
+      <h2 className="border-b border-gray-200 pb-3 text-lg font-bold text-gray-900 dark:border-gray-700 dark:text-white">{title}</h2>
+      <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 p-6 text-sm font-medium text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
+        {body}
+        <div className="mt-4">
+          <Link href={href} className="inline-flex rounded-lg bg-brand-500 px-4 py-2 text-sm font-bold text-white hover:bg-brand-600">
+            {cta}
+          </Link>
+        </div>
       </div>
     </section>
   );

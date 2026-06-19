@@ -3,6 +3,7 @@
 import { MapPin, Navigation, Store } from 'lucide-react';
 import {
   isReadableAddress,
+  buildFallbackRoute,
   normalizeCoordinate,
   type CoordinateLike,
   type OrderStatus,
@@ -97,6 +98,11 @@ export function OrderTrackingMap({
     : null;
   const isCourierLeg = order.status === 'picked_up' || order.status === 'on_the_way';
   const isDelivered = order.status === 'delivered';
+  const routePreview = buildFallbackRoute({
+    restaurant: restaurantPoint,
+    customer: customerPoint,
+    courier: courierPoint,
+  });
 
   const points: MapPoint[] = [
     {
@@ -130,7 +136,10 @@ export function OrderTrackingMap({
         </div>
         <div className="rounded-2xl bg-white/10 px-4 py-3 text-xs font-bold text-gray-200">
           <span className="block text-sm font-black text-white">Tracking points</span>
-          <span>Exact road route unavailable</span>
+          <span>Route preview — exact road route unavailable</span>
+          {routePreview.distanceMeters ? (
+            <span className="mt-1 block text-gray-400">Approx. {(routePreview.distanceMeters / 1000).toFixed(1)} km point-to-point</span>
+          ) : null}
         </div>
       </div>
       <YandexMap

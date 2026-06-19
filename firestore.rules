@@ -19,7 +19,25 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isAuth() && getUserRole() in ['admin', 'superadmin'];
+      return isAuth() && getUserRole() in ['admin', 'superadmin', 'super_admin'];
+    }
+
+    function isOpsAdmin() {
+      return isAuth() && getUserRole() in [
+        'admin',
+        'superadmin',
+        'super_admin',
+        'operator',
+        'courier_manager',
+        'restaurant_manager',
+        'support',
+        'analyst',
+        'viewer'
+      ];
+    }
+
+    function canReadAuditLogs() {
+      return isAuth() && getUserRole() in ['admin', 'superadmin', 'super_admin', 'analyst'];
     }
 
     function isCourier() {
@@ -347,6 +365,26 @@ service cloud.firestore {
       // Delivery pricing is public marketplace configuration.
       allow read: if true;
       allow write: if isAdmin();
+    }
+
+    // =============================================
+    // ADMIN OPERATIONS: GEOZONES, ROLES, AUDIT LOGS
+    // =============================================
+    match /geozones/{zoneId} {
+      allow read: if true;
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /rolePermissions/{roleId} {
+      allow read: if isOpsAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /auditLogs/{logId} {
+      allow read: if canReadAuditLogs();
+      allow create: if isAdmin();
+      allow update, delete: if false;
     }
   }
 }

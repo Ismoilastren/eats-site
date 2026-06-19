@@ -16,6 +16,9 @@ type RestaurantLocationPickerProps = {
   value: RestaurantLocationValue;
   onChange: (value: RestaurantLocationValue) => void;
   error?: string;
+  layout?: 'split' | 'stacked';
+  mapFirst?: boolean;
+  mapHeight?: number;
   addressLabel?: string;
   addressPlaceholder?: string;
   currentLocationLabel?: string;
@@ -92,9 +95,11 @@ function MapSetupPanel({ loadError }: { loadError: string }) {
 function RestaurantAdminMap({
   value,
   onSelect,
+  height = 320,
 }: {
   value: RestaurantLocationValue;
   onSelect: (coords: { lat: number; lng: number }) => void;
+  height?: number;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<YMapInstance | null>(null);
@@ -175,8 +180,8 @@ function RestaurantAdminMap({
   }, [status, value.coordinatesConfirmed, value.lat, value.lng]);
 
   return (
-    <div className="relative min-h-[320px] overflow-hidden rounded-2xl bg-gray-950">
-      <div ref={containerRef} className="h-[320px] w-full" />
+    <div className="relative overflow-hidden rounded-2xl bg-gray-950" style={{ minHeight: height }}>
+      <div ref={containerRef} className="w-full" style={{ height }} />
       {status === 'loading' && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-950/80 text-sm font-bold text-white">
           Loading map...
@@ -195,6 +200,9 @@ export function RestaurantLocationPicker({
   value,
   onChange,
   error,
+  layout = 'split',
+  mapFirst = false,
+  mapHeight = 320,
   addressLabel = 'Branch / filial address',
   addressPlaceholder = 'Enter exact branch pickup address, e.g. Tashkent, Amir Temur Avenue 14',
   currentLocationLabel = 'Use this device location',
@@ -207,6 +215,7 @@ export function RestaurantLocationPicker({
   const [resolving, setResolving] = useState(false);
   const [geocodeMessage, setGeocodeMessage] = useState('');
   const requestRef = useRef(0);
+  const isStacked = layout === 'stacked';
   const filteredPresets = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) return presets;
@@ -251,8 +260,10 @@ export function RestaurantLocationPicker({
       return;
     }
 
-    setGeocodeMessage(
-      `${result.error || 'Address could not be resolved.'} [${result.errorCode || 'ADDRESS_NOT_RESOLVED'}] Enter the address manually.`,
+    const blocked = result.errorCode === 'YANDEX_GEOCODER_FORBIDDEN';
+    setGeocodeMessage(blocked
+      ? 'Address search is unavailable for this key. The map still works: select a point or preset, then enter the readable address manually.'
+      : `${result.error || 'Address could not be resolved.'} Enter the address manually.`,
     );
   };
 
@@ -274,8 +285,8 @@ export function RestaurantLocationPicker({
   };
 
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
-      <div className="mb-4">
+    <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
+      <div className="mb-4 rounded-2xl bg-gray-50 p-4 dark:bg-gray-950/70">
         <label className="mb-1 block text-sm font-semibold text-gray-700 dark:text-gray-300">
           {addressLabel}
         </label>
@@ -288,13 +299,25 @@ export function RestaurantLocationPicker({
         />
         {error && <p className="mt-2 text-xs font-semibold text-red-600">{error}</p>}
         {geocodeMessage && (
-          <p className={`mt-2 text-xs font-semibold ${geocodeMessage.includes('[') ? 'text-amber-700' : 'text-emerald-700'}`}>
+          <p className={`mt-2 rounded-xl px-3 py-2 text-xs font-semibold ${geocodeMessage.includes('unavailable') || geocodeMessage.includes('Enter the address') ? 'bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-200' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-200'}`}>
             {geocodeMessage}
           </p>
         )}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[320px_1fr]">
+      {isStacked && mapFirst ? (
+        <div className="mb-4">
+          <RestaurantAdminMap
+            value={value}
+            height={mapHeight}
+            onSelect={(coords) => {
+              void resolveCoordinates(coords, 'map');
+            }}
+          />
+        </div>
+      ) : null}
+
+      <div className={isStacked ? 'grid gap-4' : 'grid gap-4 lg:grid-cols-[320px_1fr]'}>
         <div className="space-y-3">
           <input
             value={query}
@@ -354,12 +377,15 @@ export function RestaurantLocationPicker({
           </div>
         </div>
 
-        <RestaurantAdminMap
-          value={value}
-          onSelect={(coords) => {
-            void resolveCoordinates(coords, 'map');
-          }}
-        />
+        {!isStacked || !mapFirst ? (
+          <RestaurantAdminMap
+            value={value}
+            height={mapHeight}
+            onSelect={(coords) => {
+              void resolveCoordinates(coords, 'map');
+            }}
+          />
+        ) : null}
       </div>
     </div>
   );

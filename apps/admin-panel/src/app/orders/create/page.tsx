@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { addDoc, collection, getDocs, query, serverTimestamp, where } from '@repo/firebase-config';
+import { addDoc, collection, getDocs, onSnapshot, query, serverTimestamp, where } from '@repo/firebase-config';
 import { db } from '@repo/firebase-config';
 import { COLLECTIONS, MenuItem, formatCurrencyUZS, isValidCoordinates } from '@repo/shared-types';
 import { useRouter } from 'next/navigation';
@@ -49,6 +49,24 @@ function normalizeBranchLocation(input: any): BranchOption['location'] {
   const lat = Number(input?.latitude ?? input?.lat);
   const lng = Number(input?.longitude ?? input?.lng);
   return isValidCoordinates(lat, lng) ? { latitude: lat, longitude: lng } : undefined;
+}
+
+function getMenuItemPrice(item: Partial<OrderMenuItem> | Record<string, any>): number {
+  const data = item as Record<string, any>;
+  const raw = data.price ?? data.priceUzs ?? data.amount ?? data.cost ?? 0;
+  const price = Number(raw);
+  return Number.isFinite(price) && price > 0 ? price : 0;
+}
+
+function menuBelongsToBranch(item: OrderMenuItem, branch: BranchOption): boolean {
+  const itemBrandName = String((item as any).brandName || (item as any).restaurantName || '').trim().toLowerCase();
+  const itemBranchName = String((item as any).branchName || '').trim().toLowerCase();
+  const branchBrandName = branch.brandName.trim().toLowerCase();
+  const branchName = branch.branchName.trim().toLowerCase();
+  const exactRestaurant = item.restaurantId === branch.id || item.branchId === branch.id;
+  const exactBrand = itemBrandName && itemBrandName === branchBrandName;
+  const sameBranchName = !itemBranchName || itemBranchName === branchName || itemBranchName === 'main branch';
+  return exactRestaurant || Boolean(exactBrand && sameBranchName);
 }
 
 export default function CreateOrderPage() {
@@ -117,24 +135,69 @@ export default function CreateOrderPage() {
     }
 
     const branch = selectedBranch;
-    let cancelled = false;
-    async function loadBranchMenu() {
-      setIsMenuLoading(true);
-      try {
-        const nestedSnap = await getDocs(collection(db, COLLECTIONS.RESTAURANTS, branch.id, 'dishes'));
-        const nested = nestedSnap.docs.map((documentSnapshot) => ({
+    setIsMenuLoading(true);
+
+    const buckets: Record<string, OrderMenuItem[]> = {
+      nested: [],
+      restaurant: [],
+      branch: [],
+      brand: [],
+    };
+
+    const publish = () => {
+      const seen = new Set<string>();
+      const merged = Object.values(buckets).flat().filter((item) => {
+        if (!menuBelongsToBranch(item, branch)) return false;
+        if (seen.has(item.id)) return false;
+        seen.add(item.id);
+        return Boolean(item.name) && item.isAvailable !== false && (item as any).available !== false;
+      }).sort((a, b) => String(a.category || '').localeCompare(String(b.category || '')) || a.name.localeCompare(b.name));
+
+      setMenuItems(merged);
+      setForm((current) => {
+        const selected = merged.find((item) => item.id === current.itemId);
+        if (selected) {
+          return {
+            ...current,
+            itemName: selected.name,
+            itemPrice: getMenuItemPrice(selected),
+            itemImageUrl: selected.imageUrl || '',
+            itemQty: Math.max(1, Number(current.itemQty || 1)),
+          };
+        }
+        const first = merged[0];
+        if (!first) return { ...current, itemId: '', itemName: '', itemPrice: 0, itemImageUrl: '', itemQty: Math.max(1, Number(current.itemQty || 1)) };
+        return {
+          ...current,
+          itemId: first.id,
+          itemName: first.name,
+          itemPrice: getMenuItemPrice(first),
+          itemImageUrl: first.imageUrl || '',
+          itemQty: Math.max(1, Number(current.itemQty || 1)),
+        };
+      });
+      setIsMenuLoading(false);
+    };
+
+    const handleSnapshotError = (error: unknown) => {
+      console.error(error);
+      setIsMenuLoading(false);
+      toast.error('Failed to load branch menu items.');
+    };
+
+    const unsubscribers = [
+      onSnapshot(collection(db, COLLECTIONS.RESTAURANTS, branch.id, 'dishes'), (snapshot) => {
+        buckets.nested = snapshot.docs.map((documentSnapshot) => ({
           ...documentSnapshot.data(),
           id: documentSnapshot.id,
           restaurantId: branch.id,
           branchId: branch.id,
           source: 'restaurant_dishes' as const,
         })) as OrderMenuItem[];
-
-        const [topLevelRestaurantSnap, topLevelBranchSnap] = await Promise.all([
-          getDocs(query(collection(db, COLLECTIONS.MENU_ITEMS), where('restaurantId', '==', branch.id))),
-          getDocs(query(collection(db, COLLECTIONS.MENU_ITEMS), where('branchId', '==', branch.id))),
-        ]);
-        const topLevel = [...topLevelRestaurantSnap.docs, ...topLevelBranchSnap.docs].map((documentSnapshot) => {
+        publish();
+      }, handleSnapshotError),
+      onSnapshot(query(collection(db, COLLECTIONS.MENU_ITEMS), where('restaurantId', '==', branch.id)), (snapshot) => {
+        buckets.restaurant = snapshot.docs.map((documentSnapshot) => {
           const data = documentSnapshot.data() as Partial<OrderMenuItem>;
           return {
             ...data,
@@ -144,41 +207,64 @@ export default function CreateOrderPage() {
             source: 'menuItems' as const,
           } as OrderMenuItem;
         });
+        publish();
+      }, handleSnapshotError),
+      onSnapshot(query(collection(db, COLLECTIONS.MENU_ITEMS), where('branchId', '==', branch.id)), (snapshot) => {
+        buckets.branch = snapshot.docs.map((documentSnapshot) => {
+          const data = documentSnapshot.data() as Partial<OrderMenuItem>;
+          return {
+            ...data,
+            id: documentSnapshot.id,
+            restaurantId: data.restaurantId || branch.id,
+            branchId: data.branchId || branch.id,
+            source: 'menuItems' as const,
+          } as OrderMenuItem;
+        });
+        publish();
+      }, handleSnapshotError),
+    ];
 
-        const seen = new Set<string>();
-        const merged = [...nested, ...topLevel].filter((item) => {
-          const key = `${item.restaurantId}:${item.id}`;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return Boolean(item.name) && item.isAvailable !== false;
-        }).sort((a, b) => String(a.category || '').localeCompare(String(b.category || '')) || a.name.localeCompare(b.name));
-
-        if (!cancelled) {
-          setMenuItems(merged);
-          setForm((current) => {
-            const stillExists = merged.some((item) => item.id === current.itemId);
-            if (stillExists) return current;
-            return { ...current, itemId: '', itemName: '', itemPrice: 0, itemImageUrl: '' };
-          });
-        }
-      } catch (error) {
-        console.error(error);
-        if (!cancelled) {
-          setMenuItems([]);
-          toast.error('Failed to load branch menu items.');
-        }
-      } finally {
-        if (!cancelled) setIsMenuLoading(false);
-      }
+    if (branch.brandName) {
+      unsubscribers.push(onSnapshot(query(collection(db, COLLECTIONS.MENU_ITEMS), where('brandName', '==', branch.brandName)), (snapshot) => {
+        buckets.brand = snapshot.docs.map((documentSnapshot) => {
+          const data = documentSnapshot.data() as Partial<OrderMenuItem>;
+          return {
+            ...data,
+            id: documentSnapshot.id,
+            restaurantId: data.restaurantId || branch.id,
+            branchId: data.branchId || branch.id,
+            source: 'menuItems' as const,
+          } as OrderMenuItem;
+        });
+        publish();
+      }, handleSnapshotError));
     }
 
-    void loadBranchMenu();
     return () => {
-      cancelled = true;
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
     };
   }, [selectedBranch]);
 
-  const subtotal = Math.max(0, Number(form.itemQty || 0) * Number(form.itemPrice || 0));
+  useEffect(() => {
+    if (form.itemId || !menuItems[0]) return;
+    const first = menuItems[0];
+    patchForm({
+      itemId: first.id,
+      itemName: first.name,
+      itemPrice: getMenuItemPrice(first),
+      itemImageUrl: first.imageUrl || '',
+      itemQty: Math.max(1, Number(form.itemQty || 1)),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.itemId, menuItems]);
+
+  useEffect(() => {
+    if (form.itemQty >= 1) return;
+    patchForm({ itemQty: 1 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.itemQty]);
+
+  const subtotal = Math.max(0, Math.max(1, Number(form.itemQty || 1)) * Number(form.itemPrice || 0));
   const total = subtotal + Number(form.deliveryFee || 0);
 
   const patchForm = (patch: Partial<typeof form>) => setForm((current) => ({ ...current, ...patch }));
@@ -319,6 +405,9 @@ export default function CreateOrderPage() {
                 presetSearchPlaceholder="Search customer address preset"
                 selectedPointTitle="Customer pin"
                 presets={DELIVERY_PRESETS}
+                layout="stacked"
+                mapFirst
+                mapHeight={260}
               />
               <div className="grid grid-cols-2 gap-3">
                 <Input label="House" value={form.house} onChange={(value) => patchForm({ house: value })} placeholder="Optional" />
@@ -376,8 +465,9 @@ export default function CreateOrderPage() {
                       patchForm({
                         itemId: item?.id || '',
                         itemName: item?.name || '',
-                        itemPrice: Number(item?.price || 0),
+                        itemPrice: item ? getMenuItemPrice(item) : 0,
                         itemImageUrl: item?.imageUrl || '',
+                        itemQty: Math.max(1, Number(form.itemQty || 1)),
                       });
                     }}
                     className="w-full rounded-lg border border-gray-300 bg-white p-2.5 text-sm font-semibold outline-none focus:border-brand-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:bg-gray-900 dark:text-white"
@@ -391,7 +481,7 @@ export default function CreateOrderPage() {
                     </option>
                     {menuItems.map((item) => (
                       <option key={`${item.source}:${item.id}`} value={item.id}>
-                        {item.name} · {formatCurrencyUZS(Number(item.price || 0))}
+                        {item.name} · {formatCurrencyUZS(getMenuItemPrice(item))}
                       </option>
                     ))}
                   </select>
@@ -401,14 +491,14 @@ export default function CreateOrderPage() {
                       : 'Select a branch first.'}
                   </span>
                 </label>
-                <NumberInput label="Qty" value={form.itemQty} onChange={(value) => patchForm({ itemQty: value })} />
+                <NumberInput label="Quantity" value={form.itemQty} onChange={(value) => patchForm({ itemQty: value })} min={1} />
                 <NumberInput label="Price" value={form.itemPrice} onChange={(value) => patchForm({ itemPrice: value })} className="col-span-2" disabled />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <Select label="Type" value={form.deliveryType} onChange={(value) => patchForm({ deliveryType: value })} options={[['delivery', 'Delivery'], ['pickup', 'Pickup'], ['hall', 'Hall'], ['aggregator', 'Aggregator']]} />
                 <Select label="Source" value={form.source} onChange={(value) => patchForm({ source: value })} options={[['operator', 'Operator'], ['website', 'Website'], ['phone', 'Phone'], ['telegram', 'Telegram'], ['aggregator', 'Aggregator']]} />
                 <Select label="Payment" value={form.paymentMethod} onChange={(value) => patchForm({ paymentMethod: value })} options={[['cash', 'Cash'], ['card', 'Card']]} />
-                <NumberInput label="Delivery fee" value={form.deliveryFee} onChange={(value) => patchForm({ deliveryFee: value })} />
+                <NumberInput label="Delivery fee" value={form.deliveryFee} onChange={(value) => patchForm({ deliveryFee: value })} min={0} />
               </div>
             </div>
           </section>
@@ -445,14 +535,18 @@ function Input({ label, value, onChange, placeholder, disabled, className = '' }
   );
 }
 
-function NumberInput({ label, value, onChange, className = '', disabled = false }: { label: string; value: number; onChange: (value: number) => void; className?: string; disabled?: boolean }) {
+function NumberInput({ label, value, onChange, className = '', disabled = false, min = 0 }: { label: string; value: number; onChange: (value: number) => void; className?: string; disabled?: boolean; min?: number }) {
   return (
     <label className={`block ${className}`}>
       <span className="mb-1 block text-sm font-bold text-gray-700 dark:text-gray-300">{label}</span>
       <input
         type="number"
+        min={min}
         value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
+        onChange={(event) => {
+          const next = Number(event.target.value);
+          onChange(Number.isFinite(next) ? Math.max(min, next) : min);
+        }}
         disabled={disabled}
         className="w-full rounded-lg border border-gray-300 bg-white p-2.5 text-sm font-semibold outline-none focus:border-brand-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-gray-600 dark:bg-gray-900 dark:text-white"
       />

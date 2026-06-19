@@ -10,7 +10,7 @@ import {
 } from '@/lib/yandexMaps';
 import type { RestaurantLocationValue } from '@/lib/restaurantAdmin';
 import { reverseGeocodeRestaurant } from '@/lib/yandexGeocoder';
-import { fromYandexCoords, toYandexCoords } from '@repo/shared-types';
+import { fromYandexCoords, isReadableAddress, toYandexCoords } from '@repo/shared-types';
 
 type RestaurantLocationPickerProps = {
   value: RestaurantLocationValue;
@@ -66,6 +66,10 @@ function markerElement() {
     "></div>
   `;
   return wrapper;
+}
+
+function formatCoordinateAddress(coords: { lat: number; lng: number }) {
+  return `Tashkent, selected map pin (${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)})`;
 }
 
 function MapSetupPanel({ loadError }: { loadError: string }) {
@@ -248,9 +252,12 @@ export function RestaurantLocationPicker({
     source: RestaurantLocationValue['source'],
   ) => {
     const requestId = ++requestRef.current;
+    const fallbackAddress = isReadableAddress(value.address)
+      ? value.address.trim()
+      : formatCoordinateAddress(coords);
     setResolving(true);
     setGeocodeMessage('Resolving readable address...');
-    onChange({ address: value.address, ...coords, source, coordinatesConfirmed: true });
+    onChange({ address: fallbackAddress, ...coords, source, coordinatesConfirmed: true });
 
     const result = await reverseGeocodeRestaurant(coords.lat, coords.lng);
     if (requestId !== requestRef.current) return;
@@ -264,7 +271,7 @@ export function RestaurantLocationPicker({
 
     const blocked = result.errorCode === 'YANDEX_GEOCODER_FORBIDDEN';
     if (hideGeocoderWarnings && blocked) {
-      setGeocodeMessage('Pin selected. Confirm the address text before saving.');
+      setGeocodeMessage('Pin selected. Address fallback was added; edit it if you need a more exact customer address.');
       return;
     }
     setGeocodeMessage(blocked

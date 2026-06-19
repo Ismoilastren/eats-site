@@ -26,6 +26,7 @@ type RestaurantLocationPickerProps = {
   presetSearchPlaceholder?: string;
   selectedPointTitle?: string;
   presets?: LocationPreset[];
+  hideGeocoderWarnings?: boolean;
 };
 
 type LocationPreset = {
@@ -210,6 +211,7 @@ export function RestaurantLocationPicker({
   presetSearchPlaceholder = 'Search branch address preset',
   selectedPointTitle = 'Selected point',
   presets = PRESET_LOCATIONS,
+  hideGeocoderWarnings = false,
 }: RestaurantLocationPickerProps) {
   const [query, setQuery] = useState('');
   const [resolving, setResolving] = useState(false);
@@ -248,7 +250,7 @@ export function RestaurantLocationPicker({
     const requestId = ++requestRef.current;
     setResolving(true);
     setGeocodeMessage('Resolving readable address...');
-    onChange({ address: '', ...coords, source, coordinatesConfirmed: true });
+    onChange({ address: value.address, ...coords, source, coordinatesConfirmed: true });
 
     const result = await reverseGeocodeRestaurant(coords.lat, coords.lng);
     if (requestId !== requestRef.current) return;
@@ -261,6 +263,10 @@ export function RestaurantLocationPicker({
     }
 
     const blocked = result.errorCode === 'YANDEX_GEOCODER_FORBIDDEN';
+    if (hideGeocoderWarnings && blocked) {
+      setGeocodeMessage('Pin selected. Confirm the address text before saving.');
+      return;
+    }
     setGeocodeMessage(blocked
       ? 'Address search is unavailable for this key. The map still works: select a point or preset, then enter the readable address manually.'
       : `${result.error || 'Address could not be resolved.'} Enter the address manually.`,

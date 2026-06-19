@@ -43,3 +43,4 @@ ui-debug.log
 
 # Testing
 coverage/
+.vercel

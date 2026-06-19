@@ -36,7 +36,7 @@ type DeleverOrderTab = {
 };
 
 const ORDER_TABS: DeleverOrderTab[] = [
-  { id: 'handoff', label: 'Predzakaz / Pending', statuses: ['pending'] },
+  { id: 'handoff', label: 'Preorder / Pending', statuses: ['pending'] },
   { id: 'new', label: 'New', statuses: ['accepted'] },
   { id: 'operator_accepted', label: 'Operator accepted', statuses: ['preparing'] },
   { id: 'preparing', label: 'Preparing', statuses: ['ready_for_pickup'] },
@@ -81,6 +81,18 @@ function toDate(value: unknown): Date | null {
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
   return null;
+}
+
+function parseDateFilter(value: string, endOfDay = false): Date | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
+  const parsed = new Date(`${trimmed}T${endOfDay ? '23:59:59.999' : '00:00:00.000'}`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function isInvalidDateFilterValue(value: string): boolean {
+  return Boolean(value.trim()) && !parseDateFilter(value);
 }
 
 function getOrderSource(order: Order): string {
@@ -265,8 +277,8 @@ export default function OrdersPage() {
   }, [orders]);
 
   const filteredOrders = useMemo(() => {
-    const from = dateFrom ? new Date(`${dateFrom}T00:00:00`) : null;
-    const to = dateTo ? new Date(`${dateTo}T23:59:59`) : null;
+    const from = parseDateFilter(dateFrom);
+    const to = parseDateFilter(dateTo, true);
     const tab = ORDER_TABS.find((item) => item.id === activeTab) || ORDER_TABS[ORDER_TABS.length - 1];
     const q = searchQuery.trim().toLowerCase();
 
@@ -290,6 +302,7 @@ export default function OrdersPage() {
       if (paymentFilter !== 'all' && payment !== paymentFilter) return false;
       if (paymentStatusFilter !== 'all' && paymentStatus !== paymentStatusFilter) return false;
       if (deliveryTypeFilter !== 'all' && deliveryType !== deliveryTypeFilter) return false;
+      if ((from || to) && !createdAt) return false;
       if (from && createdAt && createdAt < from) return false;
       if (to && createdAt && createdAt > to) return false;
       if (q) {
@@ -329,6 +342,16 @@ export default function OrdersPage() {
     dateTo,
     searchQuery,
   ]);
+
+  const isDateRangeInvalid = useMemo(() => {
+    const from = parseDateFilter(dateFrom);
+    const to = parseDateFilter(dateTo, true);
+    return Boolean(from && to && from > to);
+  }, [dateFrom, dateTo]);
+
+  const hasDateFilter = Boolean(dateFrom.trim() || dateTo.trim());
+  const hasInvalidDateFormat = isInvalidDateFilterValue(dateFrom) || isInvalidDateFilterValue(dateTo);
+  const visibleOrders = isDateRangeInvalid || hasInvalidDateFormat ? [] : filteredOrders;
 
   const handleUpdateStatus = async (orderId: string, newStatus: OrderStatus, currentCourierId: string | null | undefined) => {
     const order = orders.find((item) => item.id === orderId);
@@ -578,25 +601,56 @@ export default function OrdersPage() {
             <option value="pickup">Pickup</option>
           </select>
           <input
-            type="date"
+            type="text"
+            inputMode="numeric"
             value={dateFrom}
             onChange={(event) => setDateFrom(event.target.value)}
+            placeholder="From date (YYYY-MM-DD)"
             className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
             aria-label="Orders from date"
           />
-          <input
-            type="date"
-            value={dateTo}
-            onChange={(event) => setDateTo(event.target.value)}
-            className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
-            aria-label="Orders to date"
-          />
+          <div className="flex gap-2">
+            <input
+              type="text"
+              inputMode="numeric"
+              value={dateTo}
+              onChange={(event) => setDateTo(event.target.value)}
+              placeholder="To date (YYYY-MM-DD)"
+              className="min-w-0 flex-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 outline-none focus:border-brand-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
+              aria-label="Orders to date"
+            />
+            {hasDateFilter ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setDateFrom('');
+                  setDateTo('');
+                }}
+                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-black text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+              >
+                Clear
+              </button>
+            ) : null}
+          </div>
         </div>
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-          <span>Showing {filteredOrders.length} of {orders.length} orders</span>
-          <span>Sources: {Array.from(new Set(filteredOrders.map(getOrderSource))).join(', ') || 'None'}</span>
+          <span>
+            Showing {visibleOrders.length} of {orders.length} orders
+            {hasDateFilter ? ' · Date format: YYYY-MM-DD' : ''}
+          </span>
+          <span>Sources: {Array.from(new Set(visibleOrders.map(getOrderSource))).join(', ') || 'None'}</span>
         </div>
+        {hasInvalidDateFormat ? (
+          <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+            Use YYYY-MM-DD format, for example 2026-06-19.
+          </div>
+        ) : null}
+        {isDateRangeInvalid ? (
+          <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+            From date cannot be later than To date.
+          </div>
+        ) : null}
       </div>
 
       <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
@@ -628,13 +682,13 @@ export default function OrdersPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                {filteredOrders.length === 0 ? (
+                {visibleOrders.length === 0 ? (
                   <tr>
                     <td colSpan={11} className="px-4 py-12 text-center text-sm font-semibold text-gray-500">
                       No orders match these filters.
                     </td>
                   </tr>
-                ) : filteredOrders.map((order, index) => {
+                ) : visibleOrders.map((order, index) => {
                   const status = normalizeOrderStatus(order.status);
                   const realUser = allUsers[order.userId];
                   const displayName = order.customerName || (realUser as any)?.fullName || realUser?.displayName || 'Unknown user';

@@ -1,7 +1,7 @@
 import { addDoc, collection, serverTimestamp } from '@repo/firebase-config';
 import { db } from '@repo/firebase-config';
 
-const ADMIN_AUDIT_LOG_ENABLED = process.env.NEXT_PUBLIC_ADMIN_AUDIT_LOG_ENABLED === 'true';
+const ADMIN_AUDIT_LOG_ENABLED = process.env.NEXT_PUBLIC_ADMIN_AUDIT_LOG_ENABLED !== 'false';
 
 export type AdminAuditAction =
   | 'auth.login'
@@ -54,8 +54,6 @@ export async function writeAdminAuditLog(input: AuditLogInput) {
     });
   } catch (error) {
     // Do not block the production workflow if logging rules are not deployed yet.
-    if (process.env.NODE_ENV !== 'production') {
-      console.warn('Admin audit log write failed:', error);
-    }
+    console.warn('Admin audit log write failed:', error);
   }
 }

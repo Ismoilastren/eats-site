@@ -147,8 +147,8 @@ export default function AuditLogsPage() {
             <p className="font-black text-gray-900 dark:text-white">{loadError ? 'Audit logs are not available yet.' : 'No audit logs found.'}</p>
             <p className="mt-2 text-sm text-gray-500">
               {loadError
-                ? 'Deploy auditLogs Firestore rules and enable NEXT_PUBLIC_ADMIN_AUDIT_LOG_ENABLED=true to read and capture admin events.'
-                : 'Enable NEXT_PUBLIC_ADMIN_AUDIT_LOG_ENABLED=true and deploy auditLogs rules to start capturing events.'}
+                ? 'Deploy auditLogs Firestore rules to read and capture admin events.'
+                : 'No admin changes have been captured yet. Create or update an order, catalog item, role, setting, or geozone to generate the first audit event.'}
             </p>
           </div>
         ) : (

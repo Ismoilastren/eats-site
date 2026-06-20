@@ -68,8 +68,12 @@ function markerElement() {
   return wrapper;
 }
 
-function formatCoordinateAddress(coords: { lat: number; lng: number }) {
-  return `Tashkent, selected map pin (${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)})`;
+function isMapPinFallbackAddress(address?: string) {
+  return /selected map pin|map-selected customer location|customer map pin/i.test(String(address || ''));
+}
+
+function formatFallbackAddress() {
+  return 'Tashkent, map-selected customer location';
 }
 
 function MapSetupPanel({ loadError }: { loadError: string }) {
@@ -252,9 +256,9 @@ export function RestaurantLocationPicker({
     source: RestaurantLocationValue['source'],
   ) => {
     const requestId = ++requestRef.current;
-    const fallbackAddress = isReadableAddress(value.address)
+    const fallbackAddress = isReadableAddress(value.address) && !isMapPinFallbackAddress(value.address)
       ? value.address.trim()
-      : formatCoordinateAddress(coords);
+      : formatFallbackAddress();
     setResolving(true);
     setGeocodeMessage('Resolving readable address...');
     onChange({ address: fallbackAddress, ...coords, source, coordinatesConfirmed: true });
@@ -271,7 +275,7 @@ export function RestaurantLocationPicker({
 
     const blocked = result.errorCode === 'YANDEX_GEOCODER_FORBIDDEN';
     if (hideGeocoderWarnings && blocked) {
-      setGeocodeMessage('Pin selected. Address fallback was added; edit it if you need a more exact customer address.');
+      setGeocodeMessage('Pin selected. Add or confirm the readable customer address before saving.');
       return;
     }
     setGeocodeMessage(blocked

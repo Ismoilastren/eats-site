@@ -4,6 +4,8 @@ import { isReadableAddress, isValidCoordinates } from '@repo/shared-types';
 
 type ApiResponse = {
   ok?: boolean;
+  address?: string;
+  provider?: string;
   results?: {
     response?: {
       GeoObjectCollection?: {
@@ -60,7 +62,8 @@ export async function reverseGeocodeRestaurant(lat: number, lng: number): Promis
     }
 
     const geoObject = data.results?.response?.GeoObjectCollection?.featureMember?.[0]?.GeoObject;
-    const address = geoObject?.metaDataProperty?.GeocoderMetaData?.text?.trim()
+    const address = data.address?.trim()
+      || geoObject?.metaDataProperty?.GeocoderMetaData?.text?.trim()
       || [geoObject?.name, geoObject?.description].filter(Boolean).join(', ');
 
     return isReadableAddress(address)

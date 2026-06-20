@@ -17,8 +17,58 @@ type NominatimResponse = {
   address?: Record<string, string | undefined>;
 };
 
+type YandexReverseResponse = {
+  response?: {
+    GeoObjectCollection?: {
+      featureMember?: Array<{
+        GeoObject?: {
+          name?: string;
+          description?: string;
+          metaDataProperty?: {
+            GeocoderMetaData?: {
+              text?: string;
+              Address?: {
+                formatted?: string;
+                Components?: Array<{ kind?: string; name?: string }>;
+              };
+            };
+          };
+        };
+      }>;
+    };
+  };
+};
+
 function cleanPart(value?: string | null) {
   return String(value || '').trim();
+}
+
+function isReadableLookupAddress(value?: string | null) {
+  const address = cleanPart(value);
+  if (address.length < 5) return false;
+  const lower = address.toLowerCase();
+  const compact = lower.replace(/\s+/g, ' ').replace(/\s*,\s*/g, ', ').trim();
+  if (
+    lower.includes('selected map pin') ||
+    lower.includes('map-selected') ||
+    lower.includes('enter a readable address') ||
+    lower.includes('selected delivery point') ||
+    lower.includes('customer selected location')
+  ) {
+    return false;
+  }
+  if (
+    compact === 'tashkent' ||
+    compact === 'toshkent' ||
+    compact === 'uzbekistan' ||
+    compact === 'tashkent, uzbekistan' ||
+    compact === 'uzbekistan, tashkent' ||
+    compact === 'toshkent, uzbekistan' ||
+    compact === 'uzbekistan, toshkent'
+  ) {
+    return false;
+  }
+  return /[a-zа-яё]/i.test(address);
 }
 
 function uniqueParts(parts: Array<string | undefined | null>) {
@@ -52,6 +102,20 @@ function buildNominatimAddress(data: NominatimResponse) {
   return parts.length >= 2 ? parts.join(', ') : displayFallback.join(', ');
 }
 
+function buildYandexAddress(data: YandexReverseResponse) {
+  const geoObject = data.response?.GeoObjectCollection?.featureMember?.[0]?.GeoObject;
+  const meta = geoObject?.metaDataProperty?.GeocoderMetaData;
+  const formatted = cleanPart(meta?.Address?.formatted);
+  const text = cleanPart(meta?.text);
+  const componentAddress = uniqueParts(
+    (meta?.Address?.Components || [])
+      .filter((component) => ['street', 'house', 'district', 'locality', 'province', 'country'].includes(String(component.kind || '')))
+      .map((component) => component.name),
+  ).join(', ');
+  const joined = uniqueParts([geoObject?.name, geoObject?.description]).join(', ');
+  return [formatted, text, componentAddress, joined].find(isReadableLookupAddress) || '';
+}
+
 async function reverseWithNominatim(lat: number, lng: number): Promise<ReverseLookupResult | ReverseLookupError> {
   try {
     const params = new URLSearchParams({
@@ -82,7 +146,7 @@ async function reverseWithNominatim(lat: number, lng: number): Promise<ReverseLo
 
     const data = await response.json() as NominatimResponse;
     const address = buildNominatimAddress(data);
-    if (!address) {
+    if (!isReadableLookupAddress(address)) {
       return {
         error: 'ADDRESS_NOT_RESOLVED',
         errorCode: 'ADDRESS_NOT_RESOLVED',
@@ -128,7 +192,17 @@ async function reverseWithYandex(apiKey: string, lat: number, lng: number): Prom
       };
     }
 
-    return { address: '', provider: 'yandex', raw: await response.json() };
+    const data = await response.json() as YandexReverseResponse;
+    const address = buildYandexAddress(data);
+    if (!isReadableLookupAddress(address)) {
+      return {
+        error: 'ADDRESS_NOT_RESOLVED',
+        errorCode: 'ADDRESS_NOT_RESOLVED',
+        status: 502,
+      };
+    }
+
+    return { address, provider: 'yandex', raw: data };
   } catch (error) {
     return {
       error: error instanceof DOMException && error.name === 'TimeoutError'
@@ -160,7 +234,13 @@ export async function GET(request: NextRequest) {
 
   const yandexResult = apiKey ? await reverseWithYandex(apiKey, lat, lng) : null;
   if (yandexResult && 'raw' in yandexResult) {
-    return NextResponse.json({ ok: true, provider: yandexResult.provider, results: yandexResult.raw });
+    return NextResponse.json({
+      ok: true,
+      provider: yandexResult.provider,
+      address: yandexResult.address,
+      coordinates: { lat, lng },
+      results: yandexResult.raw,
+    });
   }
 
   const fallbackResult = await reverseWithNominatim(lat, lng);

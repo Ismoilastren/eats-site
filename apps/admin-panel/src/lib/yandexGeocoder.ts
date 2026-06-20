@@ -25,6 +25,7 @@ type ApiResponse = {
 
 export type AdminGeocodeResult = {
   address: string;
+  provider?: string;
   error?: string;
   errorCode?: string;
 };
@@ -67,7 +68,7 @@ export async function reverseGeocodeRestaurant(lat: number, lng: number): Promis
       || [geoObject?.name, geoObject?.description].filter(Boolean).join(', ');
 
     return isReadableAddress(address)
-      ? { address }
+      ? { address, provider: data.provider }
       : { address: '', error: 'Yandex Geocoder did not return a readable address.', errorCode: 'ADDRESS_NOT_RESOLVED' };
   } catch {
     return {

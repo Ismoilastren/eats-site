@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { addDoc, collection, getDocs, onSnapshot, query, serverTimestamp, where } from '@repo/firebase-config';
 import { db } from '@repo/firebase-config';
-import { COLLECTIONS, MenuItem, formatCurrencyUZS, isValidCoordinates } from '@repo/shared-types';
+import { COLLECTIONS, MenuItem, formatCurrencyUZS, isReadableAddress, isValidCoordinates } from '@repo/shared-types';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/context/AuthContext';
@@ -71,6 +71,10 @@ function menuBelongsToBranch(item: OrderMenuItem, branch: BranchOption): boolean
   const exactBrand = itemBrandName && itemBrandName === branchBrandName;
   const sameBranchName = !itemBranchName || itemBranchName === branchName || itemBranchName === 'main branch';
   return exactRestaurant || Boolean(exactBrand && sameBranchName);
+}
+
+function isGenericDeliveryAddress(address: string) {
+  return /selected delivery point|selected map pin|map-selected|customer selected location|near .+, tashkent$/i.test(address.trim());
 }
 
 export default function CreateOrderPage() {
@@ -188,8 +192,7 @@ export default function CreateOrderPage() {
       setIsMenuLoading(false);
     };
 
-    const handleSnapshotError = (error: unknown) => {
-      console.error(error);
+    const handleSnapshotError = () => {
       setIsMenuLoading(false);
       toast.error('Failed to load branch menu items.');
     };
@@ -285,6 +288,12 @@ export default function CreateOrderPage() {
     if (!form.customerPhone.trim() || form.customerPhone.length < 9) return toast.error('Valid customer phone is required.');
     if (!selectedBranch) return toast.error('Select a branch.');
     if (!form.deliveryAddress.trim() && form.deliveryType === 'delivery') return toast.error('Delivery address is required.');
+    if (
+      form.deliveryType === 'delivery'
+      && (!isReadableAddress(form.deliveryAddress) || isGenericDeliveryAddress(form.deliveryAddress))
+    ) {
+      return toast.error('Confirm a readable customer street/address before saving.');
+    }
     if (!form.itemKey || !form.itemId || !form.itemName.trim()) return toast.error('Select a menu item from the selected branch.');
     if (subtotal <= 0) return toast.error('Item quantity and price must be greater than zero.');
 
@@ -363,8 +372,7 @@ export default function CreateOrderPage() {
       });
       toast.success('Manual order created.');
       router.push(`/orders/${created.id}`);
-    } catch (error) {
-      console.error(error);
+    } catch {
       toast.error('Failed to create order.');
     } finally {
       setIsSubmitting(false);

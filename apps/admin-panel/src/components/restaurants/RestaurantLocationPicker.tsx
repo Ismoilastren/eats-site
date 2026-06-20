@@ -69,11 +69,29 @@ function markerElement() {
 }
 
 function isMapPinFallbackAddress(address?: string) {
-  return /selected map pin|map-selected customer location|customer map pin/i.test(String(address || ''));
+  return /selected map pin|map-selected|customer map pin|selected delivery point|customer selected location|confirm exact street|confirm street/i.test(String(address || ''));
 }
 
-function formatFallbackAddress() {
-  return 'Tashkent, map-selected customer location';
+function distanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  const toRadians = (value: number) => (value * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const latDelta = toRadians(b.lat - a.lat);
+  const lngDelta = toRadians(b.lng - a.lng);
+  const lat1 = toRadians(a.lat);
+  const lat2 = toRadians(b.lat);
+  const h = Math.sin(latDelta / 2) ** 2
+    + Math.cos(lat1) * Math.cos(lat2) * Math.sin(lngDelta / 2) ** 2;
+  return 2 * earthRadiusKm * Math.asin(Math.sqrt(h));
+}
+
+function formatFallbackAddress(coords: { lat: number; lng: number }, presets: LocationPreset[]) {
+  const nearest = presets
+    .map((preset) => ({ preset, distance: distanceKm(coords, preset) }))
+    .sort((a, b) => a.distance - b.distance)[0];
+  if (nearest && nearest.distance <= 2.5) {
+    return `Near ${nearest.preset.label}, Tashkent`;
+  }
+  return 'Tashkent, selected delivery point';
 }
 
 function MapSetupPanel({ loadError }: { loadError: string }) {
@@ -258,7 +276,7 @@ export function RestaurantLocationPicker({
     const requestId = ++requestRef.current;
     const fallbackAddress = isReadableAddress(value.address) && !isMapPinFallbackAddress(value.address)
       ? value.address.trim()
-      : formatFallbackAddress();
+      : formatFallbackAddress(coords, presets);
     setResolving(true);
     setGeocodeMessage('Resolving readable address...');
     onChange({ address: fallbackAddress, ...coords, source, coordinatesConfirmed: true });
@@ -269,7 +287,7 @@ export function RestaurantLocationPicker({
 
     if (result.address) {
       onChange({ address: result.address, ...coords, source: 'geocode', coordinatesConfirmed: true });
-      setGeocodeMessage('Readable address resolved by Yandex Geocoder.');
+      setGeocodeMessage(`Readable address resolved by ${result.provider === 'nominatim' ? 'backup geocoder' : 'Yandex Geocoder'}.`);
       return;
     }
 
@@ -384,7 +402,7 @@ export function RestaurantLocationPicker({
           <div className="rounded-2xl bg-gray-950 p-4 text-white">
             <p className="text-xs font-black uppercase tracking-[0.16em] text-orange-300">{selectedPointTitle}</p>
             <p className="mt-2 line-clamp-2 text-sm font-bold">
-              {resolving ? 'Resolving readable address...' : value.address || 'Enter a readable address'}
+              {resolving ? 'Resolving readable address...' : value.address || 'Select a map point or preset'}
             </p>
             <p className="mt-1 text-xs text-gray-400">
               {value.coordinatesConfirmed

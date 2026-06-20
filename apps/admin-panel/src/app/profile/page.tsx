@@ -2,32 +2,31 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { updateProfile, db, doc, setDoc } from '@repo/firebase-config';
+import { updateProfile, db, doc, getDoc, setDoc } from '@repo/firebase-config';
 import toast from 'react-hot-toast';
+import { displayAdminRole, normalizeAdminRole, normalizeEmail } from '@/lib/adminAuth';
 
 export default function ProfilePage() {
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, adminRole } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [nickname, setNickname] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-  const [userRole, setUserRole] = useState<string>('Loading...');
+  const [userRole, setUserRole] = useState<string>('');
 
   useEffect(() => {
     if (user) {
-      setNickname(user.displayName || 'Administrator');
-      
-      // Fetch role from Firestore
-      import('@repo/firebase-config').then(({ db, doc, getDoc }) => {
-        getDoc(doc(db, 'users', user.uid)).then(snapshot => {
-          if (snapshot.exists()) {
-            setUserRole(snapshot.data().role || 'admin');
-          } else {
-            setUserRole('admin');
-          }
-        }).catch(err => console.warn('Failed to fetch role:', err));
+      const emailName = normalizeEmail(user.email).split('@')[0] || 'Admin user';
+      setNickname(user.displayName || emailName);
+
+      getDoc(doc(db, 'users', user.uid)).then(snapshot => {
+        const storedRole = snapshot.exists() ? normalizeAdminRole(snapshot.data().role) : '';
+        setUserRole(storedRole || normalizeAdminRole(adminRole));
+      }).catch(err => {
+        console.warn('Failed to fetch role:', err);
+        setUserRole(normalizeAdminRole(adminRole));
       });
     }
-  }, [user]);
+  }, [adminRole, user]);
 
   const handleSave = async () => {
     if (!user) return;
@@ -53,9 +52,10 @@ export default function ProfilePage() {
       refreshUser();
       toast.success('Nickname updated successfully!', { id: toastId });
       setIsEditing(false);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to save profile:', error);
-      toast.error(`Error: ${error.message || 'Failed to update'}`, { id: toastId });
+      const message = error instanceof Error ? error.message : 'Failed to update';
+      toast.error(`Error: ${message}`, { id: toastId });
     } finally {
       setIsSaving(false);
     }
@@ -67,8 +67,9 @@ export default function ProfilePage() {
     toast.success(`${label} copied to clipboard!`);
   };
 
-  const displayName = user?.displayName || 'Administrator';
+  const displayName = user?.displayName || normalizeEmail(user?.email).split('@')[0] || 'Admin user';
   const avatarLetter = displayName.charAt(0).toUpperCase();
+  const effectiveRole = normalizeAdminRole(userRole || adminRole);
 
   return (
     <div className="space-y-6">
@@ -131,11 +132,13 @@ export default function ProfilePage() {
             )}
             
             <span className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${
-              userRole === 'superadmin' 
+              effectiveRole === 'superadmin'
                 ? 'bg-purple-50 text-purple-700 ring-purple-600/20 dark:bg-purple-500/10 dark:text-purple-400 dark:ring-purple-500/20'
-                : 'bg-green-50 text-green-700 ring-green-600/20 dark:bg-green-500/10 dark:text-green-400 dark:ring-green-500/20'
+                : effectiveRole
+                  ? 'bg-green-50 text-green-700 ring-green-600/20 dark:bg-green-500/10 dark:text-green-400 dark:ring-green-500/20'
+                  : 'bg-gray-50 text-gray-600 ring-gray-600/20 dark:bg-gray-500/10 dark:text-gray-300 dark:ring-gray-500/20'
             }`}>
-              {userRole === 'superadmin' ? 'Main Admin' : (userRole === 'admin' ? 'Admin' : 'Loading...')}
+              {displayAdminRole(effectiveRole)}
             </span>
           </div>
         </div>

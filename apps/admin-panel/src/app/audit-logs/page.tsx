@@ -38,6 +38,22 @@ function downloadCsv(filename: string, rows: string[][]) {
   URL.revokeObjectURL(url);
 }
 
+function getFirestoreErrorCode(error: unknown) {
+  if (typeof error === 'object' && error && 'code' in error) {
+    return String((error as { code?: unknown }).code || '');
+  }
+  return '';
+}
+
+function getAuditLoadMessage(error: unknown) {
+  const code = getFirestoreErrorCode(error);
+  if (code === 'permission-denied') {
+    return 'Audit logs are not readable for this account yet. Deploy Firestore rules and use an admin, superadmin, or analyst account.';
+  }
+  if (error instanceof Error && error.message) return error.message;
+  return 'Unable to read audit logs right now.';
+}
+
 export default function AuditLogsPage() {
   const [logs, setLogs] = useState<AuditLogRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -57,8 +73,10 @@ export default function AuditLogsPage() {
       const snapshot = await getDocs(query(collection(db, 'auditLogs'), orderBy('createdAt', 'desc'), limit(500)));
       setLogs(snapshot.docs.map((documentSnapshot) => ({ id: documentSnapshot.id, ...documentSnapshot.data() })) as AuditLogRow[]);
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : 'Unable to read audit logs.');
-      toast.error('Audit logs are not readable yet. Deploy auditLogs Firestore rules if this is a permission error.');
+      const message = getAuditLoadMessage(error);
+      setLoadError(message);
+      setLogs([]);
+      console.warn('Audit logs load failed:', error);
     } finally {
       setIsLoading(false);
     }
@@ -90,6 +108,11 @@ export default function AuditLogsPage() {
   }, [actionFilter, actorFilter, dateFrom, dateTo, entityFilter, entityIdFilter, logs]);
 
   const exportCsv = () => {
+    if (filteredLogs.length === 0) {
+      toast('No audit rows to export yet.');
+      return;
+    }
+
     downloadCsv(`audit_logs_${new Date().toISOString().slice(0, 10)}.csv`, [
       ['id', 'created_at', 'actor_email', 'actor_role', 'action', 'entity_type', 'entity_id', 'entity_name', 'source'],
       ...filteredLogs.map((log) => [
@@ -115,7 +138,14 @@ export default function AuditLogsPage() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Change History</h1>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Audit logs from live Firestore data. No synthetic rows are shown.</p>
         </div>
-        <button type="button" onClick={exportCsv} className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-black text-white">Export CSV</button>
+        <button
+          type="button"
+          onClick={exportCsv}
+          disabled={isLoading || filteredLogs.length === 0}
+          className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Export CSV
+        </button>
       </div>
 
       <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
@@ -144,12 +174,17 @@ export default function AuditLogsPage() {
           <div className="p-10 text-center text-gray-500">Loading audit logs...</div>
         ) : filteredLogs.length === 0 ? (
           <div className="p-10 text-center">
-            <p className="font-black text-gray-900 dark:text-white">{loadError ? 'Audit logs are not available yet.' : 'No audit logs found.'}</p>
+            <p className="font-black text-gray-900 dark:text-white">{loadError ? 'Audit logs are not readable yet.' : 'No audit logs found.'}</p>
             <p className="mt-2 text-sm text-gray-500">
               {loadError
-                ? 'Deploy auditLogs Firestore rules to read and capture admin events.'
+                ? loadError
                 : 'No admin changes have been captured yet. Create or update an order, catalog item, role, setting, or geozone to generate the first audit event.'}
             </p>
+            {loadError && (
+              <button type="button" onClick={loadLogs} className="mt-4 rounded-lg bg-gray-900 px-4 py-2 text-sm font-black text-white dark:bg-white dark:text-gray-900">
+                Reload audit logs
+              </button>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">

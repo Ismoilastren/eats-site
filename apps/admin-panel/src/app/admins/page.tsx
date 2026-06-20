@@ -3,41 +3,59 @@
 import React, { useState, useEffect } from 'react';
 import { DataTable, type ColumnDef } from '@/components/tables/DataTable';
 import { Badge } from '@/components/ui/Badge';
-import { db, collection, query, limit, getDocs, doc, updateDoc, where, onSnapshot } from '@repo/firebase-config';
-import { COLLECTIONS, PAGE_SIZE, User } from '@repo/shared-types';
+import { db, collection, query, limit, doc, updateDoc, onSnapshot } from '@repo/firebase-config';
+import { COLLECTIONS, PAGE_SIZE, User, type UserRole } from '@repo/shared-types';
 import toast from 'react-hot-toast';
 
 import { useAuth } from '@/context/AuthContext';
+import { displayAdminRole, isAdminPanelRole, isMainAdminEmail, normalizeAdminRole } from '@/lib/adminAuth';
+
+type UserWithOptionalName = User & { name?: string };
+
+function getUserDisplayName(user: UserWithOptionalName) {
+  return user.displayName || user.name || user.email?.split('@')[0] || 'Unknown Admin';
+}
+
+function isProtectedMainAdmin(user?: Pick<User, 'email'> | null) {
+  return isMainAdminEmail(user?.email);
+}
+
+function toStoredUserRole(role: string): UserRole {
+  return normalizeAdminRole(role) === 'superadmin' ? 'superadmin' : 'admin';
+}
 
 export default function AdminsPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, adminRole } = useAuth();
   
   // Get the current user's role from the fetched users list
   const currentUserData = users.find(u => u.uid === currentUser?.uid);
-  const isSuperadmin = currentUserData?.role === 'superadmin';
+  const effectiveCurrentRole = normalizeAdminRole(currentUserData?.role || adminRole);
+  const isSuperadmin = effectiveCurrentRole === 'superadmin' || isMainAdminEmail(currentUser?.email);
 
   useEffect(() => {
     const q = query(
       collection(db, COLLECTIONS.USERS),
-      where('role', 'in', ['admin', 'superadmin']),
       limit(PAGE_SIZE)
     );
 
     const unsubscribe = onSnapshot(q, { includeMetadataChanges: true }, (snapshot) => {
       const data: User[] = [];
       snapshot.forEach((doc) => {
-        data.push({ uid: doc.id, ...doc.data() } as User);
+        const row = { uid: doc.id, ...doc.data() } as User;
+        if (isAdminPanelRole(row.role) || isProtectedMainAdmin(row)) {
+          data.push(row);
+        }
       });
       
       // Safety net: Always show the actual owner in the list, even if DB sync is slow or failed
-      if (currentUser && currentUser.email === 'admin@2321eats.com') {
+      if (currentUser && isMainAdminEmail(currentUser.email)) {
         const exists = data.find(u => u.uid === currentUser.uid);
         if (!exists) {
           data.unshift({
             uid: currentUser.uid,
-            email: currentUser.email,
+            email: currentUser.email || '',
             displayName: currentUser.displayName || '2321',
             phone: '',
             photoURL: currentUser.photoURL || '',
@@ -53,8 +71,8 @@ export default function AdminsPage() {
       }
 
       data.sort((a, b) => {
-        if (a.email === 'admin@2321eats.com') return -1;
-        if (b.email === 'admin@2321eats.com') return 1;
+        if (isProtectedMainAdmin(a) && !isProtectedMainAdmin(b)) return -1;
+        if (!isProtectedMainAdmin(a) && isProtectedMainAdmin(b)) return 1;
         return 0;
       });
 
@@ -66,7 +84,7 @@ export default function AdminsPage() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [currentUser]);
 
   const [confirmDemoteUserId, setConfirmDemoteUserId] = useState<string | null>(null);
 
@@ -93,7 +111,7 @@ export default function AdminsPage() {
       header: 'Admin',
       accessor: 'displayName',
       cell: (row) => {
-        const name = row.displayName || (row as any).name || 'Unknown Admin';
+        const name = getUserDisplayName(row as UserWithOptionalName);
         return (
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-100 text-brand-600 dark:bg-brand-500/20 dark:text-brand-400">
@@ -117,18 +135,23 @@ export default function AdminsPage() {
     {
       header: 'Role',
       accessor: 'role',
-      cell: (row) => (
-        <Badge variant={row.role === 'superadmin' ? 'warning' : 'info'}>
-          {row.role === 'superadmin' ? 'Main Admin' : 'Admin'}
+      cell: (row) => {
+        const normalizedRole = normalizeAdminRole(row.role);
+        return (
+        <Badge variant={normalizedRole === 'superadmin' ? 'warning' : 'info'}>
+          {displayAdminRole(normalizedRole)}
         </Badge>
-      ),
+      )},
     },
     {
       header: 'Actions',
       accessor: 'uid',
-      cell: (row: User) => (
+      cell: (row: User) => {
+        const normalizedRole = normalizeAdminRole(row.role);
+        const protectedMainAdmin = isProtectedMainAdmin(row);
+        return (
         <div className="flex items-center justify-end gap-2">
-          {isSuperadmin && row.uid !== currentUser?.uid && row.role !== 'superadmin' && (
+          {isSuperadmin && row.uid !== currentUser?.uid && normalizedRole !== 'superadmin' && !protectedMainAdmin && (
             <button 
               onClick={() => handleDemoteAdmin(row.uid)}
               className="text-xs px-3 py-1.5 rounded font-medium bg-red-100 text-red-700 hover:bg-red-200"
@@ -136,11 +159,11 @@ export default function AdminsPage() {
               Remove Admin
             </button>
           )}
-          {isSuperadmin && row.uid !== currentUser?.uid && (
+          {isSuperadmin && row.uid !== currentUser?.uid && !protectedMainAdmin && (
             <button
               onClick={() => { 
                 setSelectedUser(row);
-                setEditName(row.displayName || (row as any).name || '');
+                setEditName(getUserDisplayName(row as UserWithOptionalName));
                 setEditEmail(row.email || '');
                 setEditPhone(row.phone || '');
                 setModalMode('edit'); 
@@ -165,7 +188,7 @@ export default function AdminsPage() {
             </svg>
           </button>
         </div>
-      )
+      )}
     }
   ];
 
@@ -181,10 +204,10 @@ export default function AdminsPage() {
       const userRef = doc(db, COLLECTIONS.USERS, selectedUser.uid);
       updateDoc(userRef, { role: newRole }).catch(err => console.warn(err));
       
-      if (newRole !== 'admin' && newRole !== 'superadmin') {
+      if (!isAdminPanelRole(newRole)) {
         setUsers(prev => prev.filter(u => u.uid !== selectedUser.uid));
       } else {
-        setUsers(prev => prev.map(u => u.uid === selectedUser.uid ? { ...u, role: newRole } : u));
+        setUsers(prev => prev.map(u => u.uid === selectedUser.uid ? { ...u, role: toStoredUserRole(newRole) } : u));
       }
       toast.success(`Role updated to ${newRole}`);
       setModalMode(null);
@@ -214,11 +237,15 @@ export default function AdminsPage() {
     }
   };
 
-  const formatDate = (timestamp: any) => {
+  const formatDate = (timestamp: unknown) => {
     if (!timestamp) return 'Unknown';
-    if (timestamp.toDate) return timestamp.toDate().toLocaleDateString();
-    if (timestamp.seconds) return new Date(timestamp.seconds * 1000).toLocaleDateString();
-    return new Date(timestamp).toLocaleDateString();
+    if (typeof timestamp === 'object' && timestamp && 'toDate' in timestamp && typeof timestamp.toDate === 'function') {
+      return timestamp.toDate().toLocaleDateString();
+    }
+    if (typeof timestamp === 'object' && timestamp && 'seconds' in timestamp && typeof timestamp.seconds === 'number') {
+      return new Date(timestamp.seconds * 1000).toLocaleDateString();
+    }
+    return new Date(String(timestamp)).toLocaleDateString();
   };
 
   return (
@@ -254,7 +281,7 @@ export default function AdminsPage() {
             <div className="space-y-4">
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Name</p>
-                <p className="font-medium text-gray-900 dark:text-white">{selectedUser.displayName || (selectedUser as any).name || 'Unknown'}</p>
+                <p className="font-medium text-gray-900 dark:text-white">{getUserDisplayName(selectedUser as UserWithOptionalName)}</p>
               </div>
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Email</p>
@@ -278,8 +305,8 @@ export default function AdminsPage() {
                   <div>
                     <p className="text-sm text-gray-500 dark:text-gray-400">Current Role</p>
                     <div className="mt-1">
-                      <Badge variant={selectedUser.role === 'superadmin' ? 'warning' : 'info'}>
-                        {selectedUser.role === 'superadmin' ? 'Main Admin' : 'Admin'}
+                      <Badge variant={normalizeAdminRole(selectedUser.role) === 'superadmin' ? 'warning' : 'info'}>
+                        {displayAdminRole(selectedUser.role)}
                       </Badge>
                     </div>
                   </div>

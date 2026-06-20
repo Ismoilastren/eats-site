@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useState } from 'react';
-import { auth, signInWithEmailAndPassword } from '@repo/firebase-config';
+import { auth, db, doc, getDoc, setDoc, signInWithEmailAndPassword, signOut } from '@repo/firebase-config';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
+import { isAdminPanelRole, isMainAdminEmail, normalizeAdminRole, normalizeEmail } from '@/lib/adminAuth';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -16,10 +17,42 @@ export default function LoginPage() {
     setLoading(true);
     
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
+      const signedInUser = credential.user;
+      const signedInEmail = normalizeEmail(signedInUser.email);
+      const isMainAdmin = isMainAdminEmail(signedInEmail);
+      let storedRole = '';
+
+      try {
+        const userSnapshot = await getDoc(doc(db, 'users', signedInUser.uid));
+        storedRole = normalizeAdminRole(userSnapshot.exists() ? userSnapshot.data().role : '');
+      } catch (verifyError) {
+        if (!isMainAdmin) {
+          console.warn('Admin login verification failed:', verifyError);
+          await signOut(auth);
+          toast.error('Admin access could not be verified.');
+          return;
+        }
+      }
+
+      if (!isMainAdmin && !isAdminPanelRole(storedRole)) {
+        await signOut(auth);
+        toast.error('This email is not allowed to access the admin panel.');
+        return;
+      }
+
+      if (isMainAdmin) {
+        await setDoc(doc(db, 'users', signedInUser.uid), {
+          email: signedInEmail,
+          displayName: signedInUser.displayName || 'Main Administrator',
+          role: 'superadmin',
+          updatedAt: new Date().toISOString(),
+        }, { merge: true });
+      }
+
       toast.success('Signed in successfully');
-      router.push('/');
-    } catch (error: any) {
+      router.replace('/');
+    } catch (error: unknown) {
       console.error('Login error:', error);
       toast.error('Invalid credentials. Please try again.');
     } finally {

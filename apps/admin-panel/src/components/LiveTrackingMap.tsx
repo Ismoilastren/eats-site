@@ -26,17 +26,23 @@ type Point = {
 
 function markerElement(point: Point) {
   const wrapper = document.createElement('div');
-  wrapper.style.cssText = 'transform: translate(-50%, -50%); display:flex; flex-direction:column; align-items:center;';
+  wrapper.style.cssText = 'transform: translate(-50%, -50%); display:flex; flex-direction:column; align-items:center; z-index: 50;';
 
   const marker = document.createElement('div');
   marker.style.cssText = `
-    width: 30px;
-    height: 30px;
+    width: 34px;
+    height: 34px;
     border-radius: 999px;
     background: ${point.color};
     border: 4px solid white;
-    box-shadow: 0 12px 26px rgba(15,23,42,.3);
+    box-shadow: 0 14px 30px rgba(15,23,42,.35);
+    color: white;
+    font: 900 14px system-ui;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   `;
+  marker.textContent = point.label[0] || '';
 
   const label = document.createElement('div');
   label.textContent = point.label;
@@ -66,10 +72,17 @@ function buildMapLocation(points: Point[]) {
 
   const lngs = points.map((point) => point.lng);
   const lats = points.map((point) => point.lat);
+  const minLng = Math.min(...lngs);
+  const maxLng = Math.max(...lngs);
+  const minLat = Math.min(...lats);
+  const maxLat = Math.max(...lats);
+  const sameLng = minLng === maxLng;
+  const sameLat = minLat === maxLat;
+
   return {
     bounds: [
-      [Math.min(...lngs), Math.min(...lats)],
-      [Math.max(...lngs), Math.max(...lats)],
+      [sameLng ? minLng - 0.01 : minLng, sameLat ? minLat - 0.01 : minLat],
+      [sameLng ? maxLng + 0.01 : maxLng, sameLat ? maxLat + 0.01 : maxLat],
     ],
     margin: [55, 55, 55, 55],
   };
@@ -111,6 +124,7 @@ export default function LiveTrackingMap({
   const mapRef = useRef<YMapInstance | null>(null);
   const apiRef = useRef<YandexMaps3 | null>(null);
   const childrenRef = useRef<unknown[]>([]);
+  const pointsRef = useRef<Point[]>([]);
   const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
   const [loadError, setLoadError] = useState('');
 
@@ -146,10 +160,24 @@ export default function LiveTrackingMap({
       color: '#16a34a',
     }] : []),
   ], [courierLat, courierLng, customerLat, customerLng, restaurantLat, restaurantLng]);
-  const pointsSignature = JSON.stringify(points);
+  const hasPoints = points.length > 0;
 
   useEffect(() => {
-    if (!points.length) return;
+    pointsRef.current = points;
+  }, [points]);
+
+  useEffect(() => {
+    if (!hasPoints) {
+      childrenRef.current.forEach((child) => mapRef.current?.removeChild?.(child));
+      childrenRef.current = [];
+      mapRef.current?.destroy();
+      mapRef.current = null;
+      apiRef.current = null;
+      return;
+    }
+
+    if (mapRef.current && apiRef.current) return;
+
     let cancelled = false;
 
     async function init() {
@@ -160,7 +188,7 @@ export default function LiveTrackingMap({
         const ymaps3 = await loadAdminYandexMaps();
         if (cancelled || !containerRef.current) return;
         const map = new ymaps3.YMap(containerRef.current, {
-          location: buildMapLocation(points),
+          location: buildMapLocation(pointsRef.current),
           theme: 'light',
           behaviors: ['drag', 'scrollZoom', 'pinchZoom', 'dblClick'],
         });
@@ -185,7 +213,7 @@ export default function LiveTrackingMap({
       apiRef.current = null;
       childrenRef.current = [];
     };
-  }, [pointsSignature]);
+  }, [hasPoints]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -213,17 +241,7 @@ export default function LiveTrackingMap({
         duration: 250,
       },
     });
-  }, [
-    courierLat,
-    courierLng,
-    customerLat,
-    customerLng,
-    points,
-    pointsSignature,
-    restaurantLat,
-    restaurantLng,
-    status,
-  ]);
+  }, [points, status]);
 
   if (!points.length) {
     return (
@@ -240,6 +258,17 @@ export default function LiveTrackingMap({
   return (
     <div className="relative h-full min-h-72 overflow-hidden bg-gray-950">
       <div ref={containerRef} className="h-full min-h-72 w-full" />
+      <div className="pointer-events-none absolute left-4 top-4 z-10 flex flex-wrap gap-2">
+        {points.map((point) => (
+          <span
+            key={`${point.id}-${point.lat}-${point.lng}`}
+            className="rounded-full bg-white/95 px-3 py-1 text-[11px] font-black uppercase tracking-wide text-gray-800 shadow-lg"
+          >
+            <span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: point.color }} />
+            {point.label}: shown
+          </span>
+        ))}
+      </div>
       {status === 'loading' && (
         <div className="absolute inset-0 flex items-center justify-center bg-gray-950/80 font-bold text-white">
           Loading Yandex map...

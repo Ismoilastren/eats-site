@@ -61,13 +61,21 @@ function getFirstCoordinate(...values: Array<CoordinateLike | null | undefined>)
 function getRestaurantPoint(order: Order) {
   const looseOrder = order as unknown as {
     restaurantLocation?: CoordinateLike | null;
+    restaurantCoordinates?: CoordinateLike | null;
     branchLocation?: CoordinateLike | null;
+    branchCoordinates?: CoordinateLike | null;
+    pickupLocation?: CoordinateLike | null;
+    pickupCoordinates?: CoordinateLike | null;
     restaurant?: { location?: CoordinateLike | null; coordinates?: CoordinateLike | null };
     branch?: { location?: CoordinateLike | null; coordinates?: CoordinateLike | null };
   };
   return getFirstCoordinate(
     looseOrder.restaurantLocation,
+    looseOrder.restaurantCoordinates,
     looseOrder.branchLocation,
+    looseOrder.branchCoordinates,
+    looseOrder.pickupLocation,
+    looseOrder.pickupCoordinates,
     looseOrder.branch?.location,
     looseOrder.branch?.coordinates,
     looseOrder.restaurant?.location,
@@ -78,9 +86,20 @@ function getRestaurantPoint(order: Order) {
 function getCustomerPoint(order: Order) {
   const looseOrder = order as unknown as {
     deliveryLocation?: CoordinateLike | null;
+    deliveryCoordinates?: CoordinateLike | null;
     customerLocation?: CoordinateLike | null;
+    customerCoordinates?: CoordinateLike | null;
+    destinationLocation?: CoordinateLike | null;
+    destinationCoordinates?: CoordinateLike | null;
   };
-  return getFirstCoordinate(looseOrder.deliveryLocation, looseOrder.customerLocation);
+  return getFirstCoordinate(
+    looseOrder.deliveryLocation,
+    looseOrder.deliveryCoordinates,
+    looseOrder.customerLocation,
+    looseOrder.customerCoordinates,
+    looseOrder.destinationLocation,
+    looseOrder.destinationCoordinates,
+  );
 }
 
 export default function DispatchMapPage() {
@@ -236,17 +255,31 @@ export default function DispatchMapPage() {
         </div>
       </section>
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_420px]">
-        <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
-          <div className="flex items-center justify-between border-b border-gray-200 p-4 dark:border-gray-700">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.2em] text-gray-500">Map canvas</p>
-              <h2 className="text-lg font-black text-gray-900 dark:text-white">
-                {selectedOrder ? `#${selectedOrder.id.slice(-6).toUpperCase()}` : 'No active order selected'}
-              </h2>
-            </div>
-            <div className="rounded-full bg-gray-100 px-3 py-1 text-xs font-black uppercase text-gray-600 dark:bg-gray-900 dark:text-gray-300">
-              Dispatcher
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <section className="overflow-hidden rounded-[28px] border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
+          <div className="border-b border-gray-200 p-5 dark:border-gray-700">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-gray-500">Selected delivery</p>
+                <h2 className="mt-1 text-2xl font-black text-gray-900 dark:text-white">
+                  {selectedOrder ? `#${selectedOrder.id.slice(-6).toUpperCase()}` : 'No active order selected'}
+                </h2>
+                {selectedOrder ? (
+                  <p className="mt-1 text-sm font-bold text-gray-500">
+                    {getBranchLabel(selectedOrder)} · {selectedOrder.deliveryAddress || 'Delivery address missing'}
+                  </p>
+                ) : null}
+              </div>
+              {selectedOrder ? (
+                <div className="flex flex-wrap gap-2">
+                  <span className="rounded-full bg-gray-100 px-3 py-2 text-xs font-black uppercase text-gray-700 dark:bg-gray-900 dark:text-gray-200">
+                    {ORDER_STATUS_LABELS[normalizeOrderStatus(selectedOrder.status)]}
+                  </span>
+                  <span className="rounded-full bg-brand-50 px-3 py-2 text-xs font-black uppercase text-brand-700">
+                    {formatCurrencyUZS(selectedOrder.totalAmount)}
+                  </span>
+                </div>
+              ) : null}
             </div>
           </div>
           {selectedOrder ? (
@@ -262,7 +295,7 @@ export default function DispatchMapPage() {
               </div>
             </div>
           ) : null}
-          <div className="h-[520px]">
+          <div className="h-[620px]">
             {isLoading ? (
               <div className="flex h-full items-center justify-center text-sm font-bold text-gray-500">Loading live orders...</div>
             ) : selectedOrder ? (

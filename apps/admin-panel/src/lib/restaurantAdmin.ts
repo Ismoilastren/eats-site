@@ -16,12 +16,28 @@ export type RestaurantTypeOption = {
   source: 'settings' | 'system' | 'restaurants' | 'fallback';
 };
 
+export type CatalogCategoryOption = {
+  id: string;
+  name: string;
+  source: 'settings' | 'system' | 'menuItems' | 'restaurants' | 'fallback';
+};
+
 export const DEFAULT_RESTAURANT_TYPES = [
   'Fast Food',
   'Pizza',
   'Burger',
   'Uzbek',
   'Sushi',
+  'Desserts',
+  'Drinks',
+];
+
+export const DEFAULT_MENU_CATEGORIES = [
+  'Pizza',
+  'Burgers',
+  'Lavash',
+  'Sets',
+  'Sides',
   'Desserts',
   'Drinks',
 ];
@@ -94,6 +110,56 @@ export async function loadRestaurantTypeOptions(): Promise<RestaurantTypeOption[
   }
 
   DEFAULT_RESTAURANT_TYPES.forEach((name) => addName(name, 'fallback'));
+
+  return Array.from(names.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function loadCatalogCategoryOptions(): Promise<CatalogCategoryOption[]> {
+  const names = new Map<string, CatalogCategoryOption>();
+
+  const addName = (name: unknown, source: CatalogCategoryOption['source'], id?: string) => {
+    const value = String(name || '').trim();
+    if (!value) return;
+    const key = value.toLowerCase();
+    if (!names.has(key)) names.set(key, { id: id || key, name: value, source });
+  };
+
+  try {
+    const settingsSnap = await getDocs(collection(db, 'settings/restaurant_categories/items'));
+    settingsSnap.forEach((item) => addName(item.data().name, 'settings', item.id));
+  } catch {
+    // Optional source; Firestore rules may block it in some deployments.
+  }
+
+  try {
+    const systemSnap = await getDocs(collection(db, 'system_categories'));
+    systemSnap.forEach((item) => addName(item.data().name, 'system', item.id));
+  } catch {
+    // Optional source; category management writes here by default.
+  }
+
+  try {
+    const menuSnap = await getDocs(collection(db, COLLECTIONS.MENU_ITEMS));
+    menuSnap.forEach((item) => addName(item.data().category, 'menuItems', item.id));
+  } catch {
+    // Existing menu data is a supplemental source.
+  }
+
+  try {
+    const restaurantSnap = await getDocs(collection(db, COLLECTIONS.RESTAURANTS));
+    restaurantSnap.forEach((item) => {
+      const data = item.data();
+      const categories = Array.isArray(data.categories) ? data.categories : [];
+      const cuisines = Array.isArray(data.cuisines) ? data.cuisines : [];
+      [...categories, ...cuisines, data.category, data.cuisine].forEach((value) => {
+        addName(value, 'restaurants');
+      });
+    });
+  } catch {
+    // Restaurant metadata is only a supplemental source.
+  }
+
+  DEFAULT_MENU_CATEGORIES.forEach((name) => addName(name, 'fallback'));
 
   return Array.from(names.values()).sort((a, b) => a.name.localeCompare(b.name));
 }

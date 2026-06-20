@@ -1,7 +1,7 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { db, doc, getDoc, updateDoc, collection, query, where, getDocs, deleteDoc, setDoc } from '@repo/firebase-config';
+import { db, doc, getDoc, updateDoc, collection, query, where, getDocs, deleteDoc, setDoc, addDoc } from '@repo/firebase-config';
 import { COLLECTIONS, Restaurant, MenuItem, isReadableAddress } from '@repo/shared-types';
 import toast from 'react-hot-toast';
 import { initializeApp, deleteApp } from 'firebase/app';
@@ -10,8 +10,10 @@ import { buildDishPayload, buildRestaurantPayload, deriveRestaurantBrandBranch }
 import {
   compressImageFile,
   extractRestaurantLocation,
+  loadCatalogCategoryOptions,
   loadRestaurantTypeOptions,
   validateRestaurantImage,
+  type CatalogCategoryOption,
   type RestaurantLocationValue,
   type RestaurantTypeOption,
 } from '@/lib/restaurantAdmin';
@@ -29,6 +31,8 @@ export default function EditRestaurantPage() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imageError, setImageError] = useState('');
   const [restaurantTypes, setRestaurantTypes] = useState<RestaurantTypeOption[]>([]);
+  const [menuCategories, setMenuCategories] = useState<CatalogCategoryOption[]>([]);
+  const [isLoadingMenuCategories, setIsLoadingMenuCategories] = useState(false);
   const [isLoadingTypes, setIsLoadingTypes] = useState(true);
   const [location, setLocation] = useState<RestaurantLocationValue>({
     address: '',
@@ -73,15 +77,16 @@ export default function EditRestaurantPage() {
     imageUrl: '',
     isAvailable: true,
   });
+  const [newMenuCategoryName, setNewMenuCategoryName] = useState('');
 
   const menuCategoryOptions = React.useMemo(() => {
     const names = new Set<string>();
-    restaurantTypes.forEach((type) => names.add(type.name));
+    menuCategories.forEach((category) => names.add(category.name));
     menuItems.forEach((item) => {
       if (item.category) names.add(item.category);
     });
     return Array.from(names).sort((a, b) => a.localeCompare(b));
-  }, [menuItems, restaurantTypes]);
+  }, [menuCategories, menuItems]);
 
   const menuImagePreviewUrl = React.useMemo(
     () => (newMenuImageFile ? URL.createObjectURL(newMenuImageFile) : newMenuItem.imageUrl),
@@ -111,6 +116,25 @@ export default function EditRestaurantPage() {
       cancelled = true;
     };
   }, []);
+
+  const refreshMenuCategories = React.useCallback(async () => {
+    setIsLoadingMenuCategories(true);
+    try {
+      setMenuCategories(await loadCatalogCategoryOptions());
+    } catch {
+      toast.error('Failed to load menu categories');
+    } finally {
+      setIsLoadingMenuCategories(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshMenuCategories();
+  }, [refreshMenuCategories]);
+
+  useEffect(() => {
+    if (isMenuModalOpen) void refreshMenuCategories();
+  }, [isMenuModalOpen, refreshMenuCategories]);
 
   useEffect(() => {
     if (!id) return;
@@ -338,6 +362,32 @@ export default function EditRestaurantPage() {
     }
   };
 
+  const handleAddMenuCategory = async () => {
+    const normalizedName = newMenuCategoryName.trim();
+    if (!normalizedName) return;
+    const alreadyExists = menuCategoryOptions.some((category) => category.toLowerCase() === normalizedName.toLowerCase());
+    if (alreadyExists) {
+      setNewMenuItem((current) => ({ ...current, category: normalizedName }));
+      setNewMenuCategoryName('');
+      toast.success('Category selected.');
+      return;
+    }
+
+    try {
+      await addDoc(collection(db, 'system_categories'), { name: normalizedName });
+      setMenuCategories((current) => [
+        ...current,
+        { id: normalizedName.toLowerCase(), name: normalizedName, source: 'system' },
+      ]);
+      setNewMenuItem((current) => ({ ...current, category: normalizedName }));
+      setNewMenuCategoryName('');
+      toast.success('Category added and selected.');
+    } catch (error) {
+      console.error(error);
+      toast.error('Failed to add category');
+    }
+  };
+
   const handleSaveMenuItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMenuItem.name || !newMenuItem.price || !newMenuItem.category) {
@@ -426,6 +476,7 @@ export default function EditRestaurantPage() {
       }
 
       setNewMenuItem({ name: '', description: '', price: '', category: '', imageUrl: '', isAvailable: true });
+      setNewMenuCategoryName('');
       setNewMenuImageFile(null);
       setNewMenuImageError('');
       setEditingMenuId(null);
@@ -716,6 +767,7 @@ export default function EditRestaurantPage() {
             onClick={() => {
               setEditingMenuId(null);
               setNewMenuItem({ name: '', description: '', price: '', category: '', imageUrl: '', isAvailable: true });
+              setNewMenuCategoryName('');
               setNewMenuImageFile(null);
               setNewMenuImageError('');
               setIsMenuModalOpen(true);
@@ -760,6 +812,7 @@ export default function EditRestaurantPage() {
                           imageUrl: item.imageUrl || '',
                           isAvailable: item.isAvailable !== false,
                         });
+                        setNewMenuCategoryName('');
                         setNewMenuImageFile(null);
                         setNewMenuImageError('');
                         setIsMenuModalOpen(true);
@@ -863,11 +916,36 @@ export default function EditRestaurantPage() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Category</label>
                   <select required value={newMenuItem.category} onChange={e => setNewMenuItem({...newMenuItem, category: e.target.value})} className="w-full rounded-lg border border-gray-300 p-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white">
-                    <option value="">Select category</option>
+                    <option value="">{isLoadingMenuCategories ? 'Loading categories...' : 'Select category'}</option>
                     {menuCategoryOptions.map((category) => (
                       <option key={category} value={category}>{category}</option>
                     ))}
                   </select>
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      value={newMenuCategoryName}
+                      onChange={(event) => setNewMenuCategoryName(event.target.value)}
+                      type="text"
+                      className="min-w-0 flex-1 rounded-lg border border-gray-300 p-2 text-xs dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                      placeholder="New category"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddMenuCategory}
+                      disabled={!newMenuCategoryName.trim()}
+                      className="rounded-lg bg-gray-900 px-3 py-2 text-xs font-bold text-white hover:bg-gray-800 disabled:opacity-50 dark:bg-gray-100 dark:text-gray-900"
+                    >
+                      Add
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void refreshMenuCategories()}
+                      disabled={isLoadingMenuCategories}
+                      className="rounded-lg bg-gray-100 px-3 py-2 text-xs font-bold text-gray-700 hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-700 dark:text-gray-100"
+                    >
+                      Refresh
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Price (UZS)</label>
@@ -889,7 +967,7 @@ export default function EditRestaurantPage() {
               </label>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-gray-700 mt-6">
-                <button type="button" onClick={() => { setIsMenuModalOpen(false); setEditingMenuId(null); setNewMenuImageFile(null); setNewMenuImageError(''); }} className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">Cancel</button>
+                <button type="button" onClick={() => { setIsMenuModalOpen(false); setEditingMenuId(null); setNewMenuCategoryName(''); setNewMenuImageFile(null); setNewMenuImageError(''); }} className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">Cancel</button>
                 <button type="submit" disabled={isSaving} className="rounded-lg bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50">
                   {editingMenuId ? 'Save Changes' : 'Add Item'}
                 </button>

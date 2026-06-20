@@ -1,44 +1,22 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { db, collection, addDoc, getDocs, deleteDoc, doc, query, orderBy } from '@repo/firebase-config';
+import { db, collection, addDoc, deleteDoc, doc } from '@repo/firebase-config';
 import toast from 'react-hot-toast';
-
-interface Category {
-  id: string;
-  name: string;
-  source: 'system' | 'settings';
-}
+import { loadCatalogCategoryOptions, type CatalogCategoryOption } from '@/lib/restaurantAdmin';
 
 const SYSTEM_CATEGORIES_COLLECTION = 'system_categories';
 const SETTINGS_CATEGORIES_COLLECTION = 'settings/restaurant_categories/items';
 
 export default function CategoriesPage() {
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [categories, setCategories] = useState<CatalogCategoryOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [newCatName, setNewCatName] = useState('');
   const [isAdding, setIsAdding] = useState(false);
-  const [categorySource, setCategorySource] = useState<'system' | 'settings'>('system');
-
-  const readCategories = async (path: string, source: Category['source']) => {
-    const q = query(collection(db, path), orderBy('name', 'asc'));
-    const snap = await getDocs(q);
-    const data: Category[] = [];
-    snap.forEach(d => data.push({ id: d.id, name: String(d.data().name || ''), source }));
-    return data.filter(category => category.name.trim().length > 0);
-  };
 
   const fetchCategories = async () => {
     try {
       setIsLoading(true);
-      try {
-        const data = await readCategories(SYSTEM_CATEGORIES_COLLECTION, 'system');
-        setCategories(data);
-        setCategorySource('system');
-      } catch {
-        const fallbackData = await readCategories(SETTINGS_CATEGORIES_COLLECTION, 'settings');
-        setCategories(fallbackData);
-        setCategorySource('settings');
-      }
+      setCategories(await loadCatalogCategoryOptions());
     } catch (error) {
       console.error(error);
       toast.error('Failed to load categories');
@@ -56,13 +34,14 @@ export default function CategoriesPage() {
     if (!newCatName.trim()) return;
     setIsAdding(true);
     try {
-      await addDoc(
-        collection(
-          db,
-          categorySource === 'settings' ? SETTINGS_CATEGORIES_COLLECTION : SYSTEM_CATEGORIES_COLLECTION
-        ),
-        { name: newCatName.trim() }
-      );
+      const normalizedName = newCatName.trim();
+      const alreadyExists = categories.some((category) => category.name.toLowerCase() === normalizedName.toLowerCase());
+      if (alreadyExists) {
+        toast.error('This category already exists.');
+        return;
+      }
+
+      await addDoc(collection(db, SYSTEM_CATEGORIES_COLLECTION), { name: normalizedName });
       toast.success('Category added to Firestore!');
       setNewCatName('');
       fetchCategories();
@@ -76,6 +55,10 @@ export default function CategoriesPage() {
 
   const handleDelete = async (id: string) => {
     const category = categories.find(c => c.id === id);
+    if (!category || !['settings', 'system'].includes(category.source)) {
+      toast.error('Only manually created categories can be deleted here.');
+      return;
+    }
     try {
       await deleteDoc(doc(
         db,
@@ -95,7 +78,7 @@ export default function CategoriesPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Categories</h1>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Manage restaurant cuisine categories in Firestore.</p>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Manage catalog categories used by restaurant menu item forms.</p>
         </div>
       </div>
       
@@ -125,8 +108,15 @@ export default function CategoriesPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {categories.map((cat) => (
             <div key={cat.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800 flex items-center justify-between">
-              <span className="font-medium dark:text-white">{cat.name}</span>
-              <button onClick={() => handleDelete(cat.id)} className="text-red-400 hover:text-red-500 text-sm">Delete</button>
+              <div>
+                <span className="font-medium dark:text-white">{cat.name}</span>
+                <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-gray-400">{cat.source}</p>
+              </div>
+              {['settings', 'system'].includes(cat.source) ? (
+                <button onClick={() => handleDelete(cat.id)} className="text-red-400 hover:text-red-500 text-sm">Delete</button>
+              ) : (
+                <span className="rounded-full bg-gray-100 px-2 py-1 text-xs font-bold text-gray-500 dark:bg-gray-700 dark:text-gray-300">Auto</span>
+              )}
             </div>
           ))}
         </div>

@@ -2,12 +2,11 @@
 
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
-import { useSidebar } from '@/context/SidebarContext';
+import { Breadcrumbs } from './Breadcrumbs';
 import { useAuth } from '@/context/AuthContext';
 import { usePathname } from 'next/navigation';
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { isExpanded } = useSidebar();
   const { loading } = useAuth();
   const pathname = usePathname();
 
@@ -28,6 +27,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <Sidebar />
       <div className="relative flex flex-1 flex-col overflow-y-auto overflow-x-hidden">
         <Header />
+        <Breadcrumbs />
         <main className="mx-auto w-full max-w-[1440px] p-4 md:p-6">
           {children}
         </main>

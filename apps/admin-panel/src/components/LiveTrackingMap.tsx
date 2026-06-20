@@ -24,9 +24,34 @@ type Point = {
   color: string;
 };
 
+const OVERLAP_KEY_PRECISION = 4;
+const OVERLAP_DISPLAY_OFFSET = 0.00028;
+
+function spreadOverlappingPoints(points: Point[]) {
+  const groups = new Map<string, Point[]>();
+  points.forEach((point) => {
+    const key = `${point.lat.toFixed(OVERLAP_KEY_PRECISION)}:${point.lng.toFixed(OVERLAP_KEY_PRECISION)}`;
+    groups.set(key, [...(groups.get(key) || []), point]);
+  });
+
+  return points.map((point) => {
+    const key = `${point.lat.toFixed(OVERLAP_KEY_PRECISION)}:${point.lng.toFixed(OVERLAP_KEY_PRECISION)}`;
+    const group = groups.get(key) || [];
+    if (group.length <= 1) return point;
+
+    const index = group.findIndex((groupPoint) => groupPoint.id === point.id);
+    const angle = ((Math.PI * 2) / group.length) * index - Math.PI / 2;
+    return {
+      ...point,
+      lat: point.lat + Math.sin(angle) * OVERLAP_DISPLAY_OFFSET,
+      lng: point.lng + Math.cos(angle) * OVERLAP_DISPLAY_OFFSET,
+    };
+  });
+}
+
 function markerElement(point: Point) {
   const wrapper = document.createElement('div');
-  wrapper.style.cssText = 'transform: translate(-50%, -50%); display:flex; flex-direction:column; align-items:center; z-index: 50;';
+  wrapper.style.cssText = 'transform: translate(-50%, -50%); display:flex; flex-direction:column; align-items:center; z-index: 50; pointer-events:none;';
 
   const marker = document.createElement('div');
   marker.style.cssText = `
@@ -161,10 +186,11 @@ export default function LiveTrackingMap({
     }] : []),
   ], [courierLat, courierLng, customerLat, customerLng, restaurantLat, restaurantLng]);
   const hasPoints = points.length > 0;
+  const displayPoints = useMemo(() => spreadOverlappingPoints(points), [points]);
 
   useEffect(() => {
-    pointsRef.current = points;
-  }, [points]);
+    pointsRef.current = displayPoints;
+  }, [displayPoints]);
 
   useEffect(() => {
     if (!hasPoints) {
@@ -228,7 +254,7 @@ export default function LiveTrackingMap({
     childrenRef.current.forEach((child) => map.removeChild?.(child));
     const children: unknown[] = [];
 
-    points.forEach((point) => {
+    displayPoints.forEach((point) => {
       const marker = new ymaps3.YMapMarker({ coordinates: toYandexCoords(point) }, markerElement(point));
       map.addChild(marker);
       children.push(marker);
@@ -237,11 +263,11 @@ export default function LiveTrackingMap({
 
     map.update({
       location: {
-        ...buildMapLocation(points),
+        ...buildMapLocation(displayPoints),
         duration: 250,
       },
     });
-  }, [points, status]);
+  }, [displayPoints, points.length, status]);
 
   if (!points.length) {
     return (

@@ -102,6 +102,10 @@ function getCustomerPoint(order: Order) {
   );
 }
 
+function coordinateSignature(point: NormalizedCoordinate | null) {
+  return point ? `${point.latitude.toFixed(6)},${point.longitude.toFixed(6)}` : 'none';
+}
+
 export default function DispatchMapPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [couriers, setCouriers] = useState<AdminCourierRecord[]>([]);
@@ -173,6 +177,13 @@ export default function DispatchMapPage() {
   const mapRestaurantLocation = selectedOrder ? getRestaurantPoint(selectedOrder) : null;
   const mapCustomerLocation = selectedOrder ? getCustomerPoint(selectedOrder) : null;
   const selectedHasCourier = selectedOrder ? hasAssignedCourier(selectedOrder) : false;
+  const mapKey = selectedOrder ? [
+    selectedOrder.id,
+    coordinateSignature(mapRestaurantLocation),
+    coordinateSignature(mapCustomerLocation),
+    coordinateSignature(mapCourierLocation),
+    selectedHasCourier ? 'assigned' : 'unassigned',
+  ].join('|') : 'no-active-order';
 
   return (
     <div className="space-y-6">
@@ -200,8 +211,19 @@ export default function DispatchMapPage() {
         </div>
       </div>
 
-      <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+      <section className="rounded-[28px] border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+        <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-gray-400">Map filters</p>
+            <p className="mt-1 text-sm font-semibold text-gray-500 dark:text-gray-400">
+              Select an order on the right. The map always redraws pickup, customer and courier points from the selected order.
+            </p>
+          </div>
+          <span className="w-fit rounded-full bg-gray-100 px-3 py-1 text-xs font-black uppercase text-gray-600 dark:bg-gray-900 dark:text-gray-300">
+            Tracking points only
+          </span>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_auto_1fr]">
           <label className="block">
             <span className="mb-1 block text-xs font-black uppercase tracking-wide text-gray-500">Branch / region</span>
             <select
@@ -228,30 +250,19 @@ export default function DispatchMapPage() {
               ))}
             </select>
           </label>
-          <label className="flex items-end gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-900">
+          <label className="flex min-h-[58px] items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 dark:border-gray-700 dark:bg-gray-900">
             <input
               type="checkbox"
               checked={onlyOnlineCouriers}
               onChange={(event) => setOnlyOnlineCouriers(event.target.checked)}
-              className="mb-1 h-4 w-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500"
+              className="h-5 w-5 rounded border-gray-300 text-brand-500 focus:ring-brand-500"
             />
-            <span className="text-sm font-bold text-gray-700 dark:text-gray-200">Only online/busy couriers</span>
+            <span className="text-sm font-black text-gray-700 dark:text-gray-200">Only online/busy couriers</span>
           </label>
-          <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-900">
-            <span className="mb-1 block text-xs font-black uppercase tracking-wide text-gray-500">Dispatcher mode</span>
-            <p className="text-sm font-bold text-gray-700 dark:text-gray-200">Selected order controls the map.</p>
+          <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 dark:border-blue-900/40 dark:bg-blue-950/30">
+            <p className="text-xs font-black uppercase tracking-wide text-blue-600 dark:text-blue-200">Dispatcher mode</p>
+            <p className="mt-1 text-sm font-bold text-blue-950 dark:text-blue-100">Selected order controls the map.</p>
           </div>
-          <label className="block">
-            <span className="mb-1 block text-xs font-black uppercase tracking-wide text-gray-500">Route mode</span>
-            <select
-              value="points"
-              disabled
-              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-bold text-gray-700 outline-none dark:border-gray-700 dark:bg-gray-950 dark:text-gray-200"
-            >
-              <option value="points">Tracking points only</option>
-            </select>
-            <p className="mt-1 text-[11px] font-semibold text-gray-500">Road routing is not connected, so no fake route is shown.</p>
-          </label>
         </div>
       </section>
 
@@ -300,6 +311,7 @@ export default function DispatchMapPage() {
               <div className="flex h-full items-center justify-center text-sm font-bold text-gray-500">Loading live orders...</div>
             ) : selectedOrder ? (
               <LiveTrackingMap
+                key={mapKey}
                 restaurantLocation={mapRestaurantLocation}
                 customerLocation={mapCustomerLocation}
                 courierLocation={mapCourierLocation || undefined}

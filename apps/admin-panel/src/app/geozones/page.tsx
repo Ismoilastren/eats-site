@@ -65,6 +65,10 @@ function parseLocalizedNumber(value: string | number | null | undefined) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function pointDraftKey(index: number, key: keyof GeoPoint) {
+  return `${index}:${key}`;
+}
+
 function parseMoney(value: string, label: string, options: { required?: boolean } = {}) {
   const parsed = parseLocalizedNumber(value);
   if (parsed === null) {
@@ -262,6 +266,7 @@ export default function GeozonesPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [branchesLoadError, setBranchesLoadError] = useState('');
+  const [pointDrafts, setPointDrafts] = useState<Record<string, string>>({});
   const activeZones = useMemo(() => zones.filter((zone) => zone.status !== 'archived'), [zones]);
   const branchLabelById = useMemo(() => new Map(branches.map((branch) => [branch.id, branch.label])), [branches]);
   const filteredBranches = useMemo(() => {
@@ -314,6 +319,8 @@ export default function GeozonesPage() {
   }, []);
 
   const patchPoint = (index: number, key: keyof GeoPoint, value: string) => {
+    const draftKey = pointDraftKey(index, key);
+    setPointDrafts((current) => ({ ...current, [draftKey]: value }));
     const parsed = parseLocalizedNumber(value);
     if (parsed === null) return;
     setForm((current) => ({
@@ -322,11 +329,25 @@ export default function GeozonesPage() {
     }));
   };
 
+  const getPointInputValue = (index: number, key: keyof GeoPoint, value: number) => {
+    return pointDrafts[pointDraftKey(index, key)] ?? String(value);
+  };
+
+  const commitPointDraft = (index: number, key: keyof GeoPoint) => {
+    setPointDrafts((current) => {
+      const next = { ...current };
+      delete next[pointDraftKey(index, key)];
+      return next;
+    });
+  };
+
   const addPoint = (point: GeoPoint = TASHKENT_CENTER) => {
+    setPointDrafts({});
     setForm((current) => ({ ...current, polygon: [...current.polygon, point] }));
   };
 
   const removePoint = (index: number) => {
+    setPointDrafts({});
     setForm((current) => ({ ...current, polygon: current.polygon.filter((_, pointIndex) => pointIndex !== index) }));
   };
 
@@ -351,6 +372,7 @@ export default function GeozonesPage() {
   };
 
   const editZone = (zone: DeliveryGeozone) => {
+    setPointDrafts({});
     setForm({
       id: zone.id,
       name: zone.name,
@@ -364,7 +386,10 @@ export default function GeozonesPage() {
     });
   };
 
-  const resetForm = () => setForm(createInitialForm());
+  const resetForm = () => {
+    setPointDrafts({});
+    setForm(createInitialForm());
+  };
 
   const saveZone = async () => {
     const validation = validatePolygon(form.polygon);
@@ -597,8 +622,22 @@ export default function GeozonesPage() {
               {form.polygon.map((point, index) => (
                 <div key={`point-${index}`} className="grid grid-cols-[auto_1fr_1fr_auto] items-center gap-2">
                   <span className="text-xs font-black text-gray-400">#{index + 1}</span>
-                  <input inputMode="decimal" value={String(point.lat)} onChange={(event) => patchPoint(index, 'lat', event.target.value)} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" />
-                  <input inputMode="decimal" value={String(point.lng)} onChange={(event) => patchPoint(index, 'lng', event.target.value)} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900" />
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={getPointInputValue(index, 'lat', point.lat)}
+                    onChange={(event) => patchPoint(index, 'lat', event.target.value)}
+                    onBlur={() => commitPointDraft(index, 'lat')}
+                    className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+                  />
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={getPointInputValue(index, 'lng', point.lng)}
+                    onChange={(event) => patchPoint(index, 'lng', event.target.value)}
+                    onBlur={() => commitPointDraft(index, 'lng')}
+                    className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+                  />
                   <button type="button" onClick={() => removePoint(index)} className="rounded-lg bg-red-100 px-3 py-2 text-xs font-black text-red-700 dark:bg-red-900/30 dark:text-red-200">Remove</button>
                 </div>
               ))}

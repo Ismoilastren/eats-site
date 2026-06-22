@@ -63,6 +63,7 @@ export default function OrdersScreen() {
   const [queryError, setQueryError] = useState<string | null>(null);
   const [tab, setTab] = useState<OrderTab>('active');
   const customerEmail = user?.email || profile?.email || '';
+  const customerPhone = profile?.phone || user?.phoneNumber || '';
   const uid = user?.uid || profile?.uid || '';
 
   useEffect(() => {
@@ -76,7 +77,7 @@ export default function OrdersScreen() {
       return;
     }
 
-    if (!uid && !customerEmail) {
+    if (!uid && !customerEmail && !customerPhone) {
       setOrders([]);
       setLoading(false);
       return;
@@ -87,7 +88,9 @@ export default function OrdersScreen() {
 
     const queries: Query[] = [];
     if (uid) queries.push(query(collection(db, COLLECTIONS.ORDERS), where('userId', '==', uid)));
+    if (uid) queries.push(query(collection(db, COLLECTIONS.ORDERS), where('customerId', '==', uid)));
     if (customerEmail) queries.push(query(collection(db, COLLECTIONS.ORDERS), where('customerEmail', '==', customerEmail)));
+    if (customerPhone) queries.push(query(collection(db, COLLECTIONS.ORDERS), where('customerPhone', '==', customerPhone)));
 
     const orderBuckets = new Map<number, Map<string, Order>>();
     let completedListeners = 0;
@@ -125,7 +128,7 @@ export default function OrdersScreen() {
     );
 
     return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
-  }, [customerEmail, initializing, uid]);
+  }, [customerEmail, customerPhone, initializing, uid]);
 
   const activeOrders = useMemo(() => orders.filter((order) => !isTerminalOrderStatus(order.status)), [orders]);
   const historyOrders = useMemo(() => orders.filter((order) => isTerminalOrderStatus(order.status)), [orders]);

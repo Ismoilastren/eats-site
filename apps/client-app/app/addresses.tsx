@@ -19,6 +19,7 @@ import {
   doc,
   db,
   onSnapshot,
+  setDoc,
 } from '@repo/firebase-config';
 import { COLLECTIONS } from '@repo/shared-types';
 import { useAuth } from '../context/AuthContext';
@@ -30,6 +31,8 @@ type SavedAddress = {
   latitude?: number;
   longitude?: number;
   createdAt?: string;
+  isDefault?: boolean;
+  source?: 'manual' | 'current_location';
 };
 
 function formatReverseAddress(first: Location.LocationGeocodedAddress | undefined) {
@@ -38,6 +41,12 @@ function formatReverseAddress(first: Location.LocationGeocodedAddress | undefine
     .filter(Boolean);
 
   return [...new Set(parts)].join(', ');
+}
+
+function isReadableAddress(value: string) {
+  const address = value.trim();
+  if (address.length < 6) return false;
+  return !/^(selected point|address could not be resolved|map is unavailable|enter readable address|current gps location)/i.test(address);
 }
 
 export default function AddressesScreen() {
@@ -88,7 +97,11 @@ export default function AddressesScreen() {
       const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       const reverse = await Location.reverseGeocodeAsync(current.coords);
       const cleanAddress = formatReverseAddress(reverse[0]);
-      setAddressText(cleanAddress || 'Current GPS location, Tashkent');
+      if (!isReadableAddress(cleanAddress)) {
+        Alert.alert('Address unavailable', 'GPS was found, but a readable street address was not returned. Enter it manually.');
+        return;
+      }
+      setAddressText(cleanAddress);
     } catch (error) {
       console.error('Failed to read current address:', error);
       Alert.alert('Location error', 'Could not read your current GPS location.');
@@ -108,6 +121,10 @@ export default function AddressesScreen() {
       Alert.alert('Address required', 'Enter an address or use current location.');
       return;
     }
+    if (!isReadableAddress(cleanAddress)) {
+      Alert.alert('Readable address required', 'Please enter a real delivery address, not a coordinate or placeholder.');
+      return;
+    }
 
     setSaving(true);
     try {
@@ -120,12 +137,28 @@ export default function AddressesScreen() {
         longitude = current.coords.longitude;
       }
 
-      await addDoc(collection(db, COLLECTIONS.USERS, uid, 'addresses'), {
+      const isDefault = addresses.length === 0;
+      const payload = {
+        userId: uid,
+        customerId: uid,
         label: label.trim() || 'Address',
         address: cleanAddress,
+        source: latitude && longitude ? 'current_location' : 'manual',
+        isDefault,
         ...(latitude && longitude ? { latitude, longitude } : {}),
         createdAt: new Date().toISOString(),
-      });
+        updatedAt: new Date().toISOString(),
+      };
+
+      const addressRef = await addDoc(collection(db, COLLECTIONS.USERS, uid, 'addresses'), payload);
+      await setDoc(doc(db, COLLECTIONS.USERS, uid), {
+        savedAddresses: [
+          ...addresses.map(({ id, ...address }) => ({ id, ...address })),
+          { id: addressRef.id, ...payload },
+        ],
+        ...(isDefault ? { defaultAddress: cleanAddress, address: cleanAddress } : {}),
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
 
       setLabel('Home');
       setAddressText('');
@@ -148,6 +181,15 @@ export default function AddressesScreen() {
         onPress: async () => {
           try {
             await deleteDoc(doc(db, COLLECTIONS.USERS, uid, 'addresses', addressId));
+            const nextAddresses = addresses
+              .filter((address) => address.id !== addressId)
+              .map(({ id, ...address }) => ({ id, ...address }));
+            await setDoc(doc(db, COLLECTIONS.USERS, uid), {
+              savedAddresses: nextAddresses,
+              defaultAddress: nextAddresses.find((address) => address.isDefault)?.address || nextAddresses[0]?.address || '',
+              address: nextAddresses.find((address) => address.isDefault)?.address || nextAddresses[0]?.address || '',
+              updatedAt: new Date().toISOString(),
+            }, { merge: true });
           } catch (error: any) {
             console.error('Failed to delete address:', error);
             Alert.alert('Delete failed', error?.message || 'Could not delete address.');

@@ -18,6 +18,50 @@ const getBrandColor = (brand: string) => {
   }
 };
 
+const cleanText = (value: unknown) => String(value || '').trim();
+const normalizeEmail = (value: unknown) => cleanText(value).toLowerCase();
+const normalizePhone = (value: unknown) => cleanText(value).replace(/[^\d+]/g, '');
+
+const isRealAddress = (value: unknown) => {
+  const address = cleanText(value);
+  if (!address) return false;
+  return !/^(selected point|address could not be resolved|map is unavailable|enter readable address|current gps location)$/i.test(address);
+};
+
+const getAddressText = (address: any) =>
+  cleanText(address.addressDetails || address.address || address.fullAddress || address.street);
+
+const getAddressCoordinates = (address: any) => {
+  const lat = Number(address.lat ?? address.latitude);
+  const lng = Number(address.lng ?? address.longitude);
+  return Number.isFinite(lat) && Number.isFinite(lng) ? `${lat.toFixed(5)}, ${lng.toFixed(5)}` : '';
+};
+
+const normalizePaymentMethod = (method: any) => {
+  const last4 = cleanText(method.last4).replace(/\D/g, '').slice(-4);
+  if (last4.length !== 4) return null;
+  const expiry = cleanText(method.expiry) || [
+    cleanText(method.expiryMonth).padStart(2, '0'),
+    cleanText(method.expiryYear).slice(-2),
+  ].filter(Boolean).join('/');
+  return {
+    ...method,
+    brand: cleanText(method.brand || method.cardBrand) || 'Card',
+    holderName: cleanText(method.holderName || method.cardholderName),
+    last4,
+    expiry,
+  };
+};
+
+const formatSource = (relatedUsers: User[]) => {
+  const sources = new Set(relatedUsers.map((user) => cleanText((user as any).source)).filter(Boolean));
+  const hasApp = sources.has('app') || sources.has('client-app');
+  const hasWeb = sources.has('website') || sources.has('main-site') || sources.size === 0;
+  if (hasApp && hasWeb) return 'Both';
+  if (hasApp) return 'App User';
+  return 'Website User';
+};
+
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -120,6 +164,7 @@ export default function UsersPage() {
   const [userPaymentMethods, setUserPaymentMethods] = useState<any[]>([]);
   const [addresses, setAddresses] = useState<any[]>([]);
   const [userOrders, setUserOrders] = useState<any[]>([]);
+  const [relatedUsers, setRelatedUsers] = useState<User[]>([]);
   const [isLoadingPayments, setIsLoadingPayments] = useState(false);
 
   useEffect(() => {
@@ -127,30 +172,115 @@ export default function UsersPage() {
       const fetchUserData = async () => {
         setIsLoadingPayments(true);
         try {
-          // Fetch Payments
-          const pmQuery = query(collection(db, COLLECTIONS.USERS, selectedUser.uid, 'paymentMethods'));
-          const pmSnapshot = await getDocs(pmQuery);
-          setUserPaymentMethods(pmSnapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-          
-          // Fetch Addresses
-          const addrSnap = await getDocs(collection(db, COLLECTIONS.USERS, selectedUser.uid, 'addresses'));
-          setAddresses(addrSnap.docs.map(doc => doc.data()));
+          const email = normalizeEmail(selectedUser.email);
+          const phone = normalizePhone(selectedUser.phone);
 
-          // Fetch Orders. Customer order payloads use flat fields, not customer.email.
-          const orderQueries = [
-            query(collection(db, COLLECTIONS.ORDERS), where('userId', '==', selectedUser.uid)),
-            ...(selectedUser.email ? [query(collection(db, COLLECTIONS.ORDERS), where('customerEmail', '==', selectedUser.email))] : []),
-            ...(selectedUser.phone ? [query(collection(db, COLLECTIONS.ORDERS), where('customerPhone', '==', selectedUser.phone))] : []),
+          const usersById = new Map<string, User>();
+          usersById.set(selectedUser.uid, selectedUser);
+
+          const relatedUserQueries = [
+            ...(email ? [
+              query(collection(db, COLLECTIONS.USERS), where('email', '==', email)),
+              query(collection(db, COLLECTIONS.USERS), where('email', '==', selectedUser.email)),
+            ] : []),
+            ...(phone ? [
+              query(collection(db, COLLECTIONS.USERS), where('phone', '==', selectedUser.phone)),
+              query(collection(db, COLLECTIONS.USERS), where('phone', '==', phone)),
+            ] : []),
           ];
-          const orderSnapshots = await Promise.all(orderQueries.map((orderQuery) => getDocs(orderQuery)));
+
+          const relatedUserSnapshots = await Promise.all(
+            relatedUserQueries.map((userQuery) => getDocs(userQuery).catch(() => null))
+          );
+          relatedUserSnapshots.forEach((snapshot) => {
+            snapshot?.docs.forEach((userDoc) => {
+              usersById.set(userDoc.id, { uid: userDoc.id, ...userDoc.data() } as User);
+            });
+          });
+
+          const related = Array.from(usersById.values());
+          const relatedUids = related.map((user) => user.uid).filter(Boolean);
+
+          const addressDocs = await Promise.all(
+            relatedUids.map(async (uid) => {
+              const snapshot = await getDocs(collection(db, COLLECTIONS.USERS, uid, 'addresses')).catch(() => null);
+              const subcollectionAddresses = snapshot?.docs.map((addressDoc) => ({
+                id: addressDoc.id,
+                userId: uid,
+                ...addressDoc.data(),
+              })) || [];
+              const parentAddresses = Array.isArray((usersById.get(uid) as any)?.savedAddresses)
+                ? (usersById.get(uid) as any).savedAddresses.map((address: any, index: number) => ({
+                    id: address.id || `${uid}-parent-${index}`,
+                    userId: uid,
+                    ...address,
+                  }))
+                : [];
+              return [...subcollectionAddresses, ...parentAddresses];
+            })
+          );
+
+          const addressesByKey = new Map<string, any>();
+          addressDocs.flat().forEach((address) => {
+            const addressText = getAddressText(address);
+            if (!isRealAddress(addressText)) return;
+            addressesByKey.set(address.id || `${address.userId}-${addressText}`, address);
+          });
+          
+          const paymentDocs = await Promise.all(
+            relatedUids.map(async (uid) => {
+              const snapshot = await getDocs(collection(db, COLLECTIONS.USERS, uid, 'paymentMethods')).catch(() => null);
+              const subcollectionPayments = snapshot?.docs.map((paymentDoc) => ({
+                id: paymentDoc.id,
+                userId: uid,
+                ...paymentDoc.data(),
+              })) || [];
+              const parentPayments = Array.isArray((usersById.get(uid) as any)?.paymentMethods)
+                ? (usersById.get(uid) as any).paymentMethods.map((method: any, index: number) => ({
+                    id: method.id || `${uid}-payment-${index}`,
+                    userId: uid,
+                    ...method,
+                  }))
+                : [];
+              return [...subcollectionPayments, ...parentPayments];
+            })
+          );
+          const paymentByKey = new Map<string, any>();
+          paymentDocs.flat().forEach((method) => {
+            const normalized = normalizePaymentMethod(method);
+            if (!normalized) return;
+            paymentByKey.set(normalized.id || `${normalized.userId}-${normalized.last4}`, normalized);
+          });
+
+          // Fetch Orders. Customer order payloads use flat fields and legacy nested fields.
+          const orderQueries = [
+            ...relatedUids.flatMap((uid) => [
+              query(collection(db, COLLECTIONS.ORDERS), where('userId', '==', uid)),
+              query(collection(db, COLLECTIONS.ORDERS), where('customerId', '==', uid)),
+            ]),
+            ...(email ? [
+              query(collection(db, COLLECTIONS.ORDERS), where('customerEmail', '==', email)),
+              query(collection(db, COLLECTIONS.ORDERS), where('customer.email', '==', email)),
+            ] : []),
+            ...(phone ? [
+              query(collection(db, COLLECTIONS.ORDERS), where('customerPhone', '==', selectedUser.phone)),
+              query(collection(db, COLLECTIONS.ORDERS), where('customerPhone', '==', phone)),
+              query(collection(db, COLLECTIONS.ORDERS), where('customer.phone', '==', selectedUser.phone)),
+            ] : []),
+          ];
+          const orderSnapshots = await Promise.all(orderQueries.map((orderQuery) => getDocs(orderQuery).catch(() => null)));
           const ordersById = new Map<string, any>();
           orderSnapshots.forEach((orderSnap) => {
-            orderSnap.docs.forEach((orderDoc) => {
+            orderSnap?.docs.forEach((orderDoc) => {
               ordersById.set(orderDoc.id, { id: orderDoc.id, ...orderDoc.data() });
             });
           });
           const ordersData: any[] = Array.from(ordersById.values());
           ordersData.sort((a, b) => ((b.createdAt as any)?.toMillis?.() || 0) - ((a.createdAt as any)?.toMillis?.() || 0));
+
+          setRelatedUsers(related);
+          setUserPaymentMethods(Array.from(paymentByKey.values()));
+          setAddresses(Array.from(addressesByKey.values()));
           setUserOrders(ordersData);
         } catch (err) {
           console.error("Failed to fetch user subcollections", err);
@@ -163,6 +293,7 @@ export default function UsersPage() {
       setUserPaymentMethods([]);
       setAddresses([]);
       setUserOrders([]);
+      setRelatedUsers([]);
     }
   }, [modalMode, selectedUser]);
 
@@ -258,6 +389,13 @@ export default function UsersPage() {
               
               {modalMode === 'view' ? (
                 <>
+                  <div>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Source</p>
+                    <p className="font-medium text-gray-900 dark:text-white">{formatSource(relatedUsers.length ? relatedUsers : [selectedUser])}</p>
+                    {relatedUsers.length > 1 && (
+                      <p className="mt-1 text-xs text-gray-400">Linked records: {relatedUsers.length}</p>
+                    )}
+                  </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="mt-1">
                       <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Saved Addresses</p>
@@ -268,12 +406,16 @@ export default function UsersPage() {
                               {addresses.map((addr, idx) => {
                                   // Brute-force extraction matching Client schema
                                   const labelName = addr.label || addr.title || addr.type || 'Saved Location';
-                                  const addressText = addr.addressDetails || addr.address || addr.fullAddress || addr.street || 'Details unavailable';
+                                  const addressText = getAddressText(addr) || 'Details unavailable';
+                                  const coords = getAddressCoordinates(addr);
                                   
                                   return (
                                       <li key={idx} className="bg-gray-50 dark:bg-gray-900/50 p-2.5 rounded border border-gray-100 dark:border-gray-700 flex flex-col gap-1">
-                                          <span className="text-[10px] text-brand-500 dark:text-orange-500 font-bold uppercase tracking-wider">{labelName}</span>
+                                          <span className="text-[10px] text-brand-500 dark:text-orange-500 font-bold uppercase tracking-wider">
+                                            {labelName}{addr.isDefault ? ' • Default' : ''}
+                                          </span>
                                           <span className="text-sm text-gray-900 dark:text-gray-200">{addressText}</span>
+                                          {coords && <span className="text-[10px] text-gray-400">{coords}</span>}
                                       </li>
                                   );
                               })}
@@ -312,6 +454,7 @@ export default function UsersPage() {
                             <div className="flex flex-col leading-tight">
                               <span className="text-sm font-medium text-gray-900 dark:text-white">•••• {pm.last4}</span>
                               {pm.holderName && <span className="text-xs text-gray-500">{pm.holderName}</span>}
+                              {pm.expiry && <span className="text-xs text-gray-400">Exp {pm.expiry}</span>}
                             </div>
                           </div>
                         ))}
@@ -329,7 +472,8 @@ export default function UsersPage() {
                           <div key={order.id} className="flex justify-between items-center bg-gray-50 dark:bg-gray-700/50 p-2.5 rounded-lg border border-gray-100 dark:border-gray-600">
                             <div className="flex flex-col">
                               <span className="text-xs font-bold text-gray-900 dark:text-white">#{order.id.slice(0, 6).toUpperCase()}</span>
-                              <span className="text-[10px] text-gray-500">{formatDate(order.createdAt)}</span>
+                              <span className="text-[10px] text-gray-500">{order.restaurantName || order.branchName || 'Restaurant'} • {formatDate(order.createdAt)}</span>
+                              {order.source && <span className="text-[10px] text-gray-400">{order.source}</span>}
                             </div>
                             <div className="flex flex-col items-end">
                               <Badge variant={order.status === 'delivered' || order.status === 'Delivered' ? 'success' : 'info'} className="text-[10px] px-1.5 py-0 mb-1">

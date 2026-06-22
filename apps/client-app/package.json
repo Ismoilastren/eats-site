@@ -4,7 +4,7 @@
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
-    "dev": "expo start --port 8082",
+    "dev": "EXPO_NO_DOCTOR=1 EXPO_NO_DEPENDENCY_VALIDATION=1 expo start --port 8082",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "type-check": "tsc --noEmit",
@@ -34,7 +34,8 @@
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
-    "@types/react": "~19.2.3",
+    "@types/react": "~19.1.10",
+    "@types/react-dom": "~19.1.10",
     "tailwindcss": "^3.4.0",
     "typescript": "^5.7.0"
   }

@@ -91,7 +91,7 @@ export default function RegisterScreen() {
         phone: phone.trim(),
         photoURL: '',
         role: 'client',
-        source: 'app',
+        source: 'client-app',
         savedAddresses: [],
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),

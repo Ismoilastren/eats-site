@@ -19,6 +19,7 @@ type ClientProfile = {
   email: string;
   phone: string;
   photoURL: string;
+  address: string;
 };
 
 type AuthContextValue = {
@@ -34,6 +35,7 @@ const toClientProfile = async (firebaseUser: FirebaseUser): Promise<ClientProfil
   let phone = firebaseUser.phoneNumber || '';
   let displayName = firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Customer';
   let photoURL = firebaseUser.photoURL || '';
+  let address = '';
 
   try {
     const userSnap = await getDoc(doc(db, COLLECTIONS.USERS, firebaseUser.uid));
@@ -42,6 +44,7 @@ const toClientProfile = async (firebaseUser: FirebaseUser): Promise<ClientProfil
       phone = String(data.phone || data.phoneNumber || phone || '');
       displayName = String(data.displayName || data.fullName || data.name || displayName);
       photoURL = String(data.photoURL || photoURL || '');
+      address = String(data.address || data.defaultAddress || data.savedAddresses?.[0]?.address || address || '');
     }
   } catch (error) {
     console.warn('Failed to hydrate client profile:', error);
@@ -53,6 +56,7 @@ const toClientProfile = async (firebaseUser: FirebaseUser): Promise<ClientProfil
     email: firebaseUser.email || '',
     phone,
     photoURL,
+    address,
   };
 };
 
@@ -83,6 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         email: firebaseUser.email || '',
         phone: firebaseUser.phoneNumber || '',
         photoURL: firebaseUser.photoURL || '',
+        address: '',
       };
 
       setProfile(fallbackProfile);

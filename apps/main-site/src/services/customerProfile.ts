@@ -274,14 +274,39 @@ export async function savePaymentMethod(uid: string, method: PaymentMethod) {
   notify(uid, 'paymentMethods');
 
   if (isFirestoreDataSource()) {
+    const [expiryMonth, expiryYearShort] = safeMethod.expiry.split('/');
     void setDoc(doc(db, COLLECTIONS.USERS, uid, 'paymentMethods', safeMethod.id), {
+      userId: uid,
+      customerId: uid,
       brand: safeMethod.brand,
+      cardBrand: safeMethod.brand,
       last4: safeMethod.last4,
       maskedNumber: safeMethod.maskedNumber,
       expiry: safeMethod.expiry,
+      expiryMonth,
+      expiryYear: expiryYearShort ? `20${expiryYearShort}` : '',
       cardholderName: safeMethod.cardholderName,
+      holderName: safeMethod.cardholderName,
+      isDefault: next.length === 1,
       createdAt: safeMethod.createdAt,
     }).catch(() => undefined);
+    void setDoc(doc(db, COLLECTIONS.USERS, uid), {
+      paymentMethods: next.map((method, index) => ({
+        userId: uid,
+        customerId: uid,
+        id: method.id,
+        brand: method.brand,
+        cardBrand: method.brand,
+        last4: method.last4,
+        maskedNumber: method.maskedNumber,
+        expiry: method.expiry,
+        cardholderName: method.cardholderName,
+        holderName: method.cardholderName,
+        isDefault: index === 0,
+        createdAt: method.createdAt,
+      })),
+      updatedAt: new Date().toISOString(),
+    }, { merge: true }).catch(() => undefined);
   }
   return { value: safeMethod };
 }
@@ -334,8 +359,29 @@ export async function saveSavedLocation(uid: string, location: SavedLocation) {
   notify(uid, 'savedLocations');
 
   if (isFirestoreDataSource()) {
-    void setDoc(doc(db, COLLECTIONS.USERS, uid, 'addresses', safeLocation.id), safeLocation)
-      .catch(() => undefined);
+    const addressPayload = {
+      ...safeLocation,
+      userId: uid,
+      customerId: uid,
+      latitude: safeLocation.lat,
+      longitude: safeLocation.lng,
+      isDefault: next.length === 1,
+      updatedAt: new Date().toISOString(),
+    };
+    void setDoc(doc(db, COLLECTIONS.USERS, uid, 'addresses', safeLocation.id), addressPayload).catch(() => undefined);
+    void setDoc(doc(db, COLLECTIONS.USERS, uid), {
+      savedAddresses: next.map((location, index) => ({
+        ...location,
+        userId: uid,
+        customerId: uid,
+        latitude: location.lat,
+        longitude: location.lng,
+        isDefault: index === 0,
+      })),
+      defaultAddress: next[0]?.address || '',
+      address: next[0]?.address || '',
+      updatedAt: new Date().toISOString(),
+    }, { merge: true }).catch(() => undefined);
   }
   return { value: safeLocation };
 }

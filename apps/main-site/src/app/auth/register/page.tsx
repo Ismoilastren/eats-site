@@ -73,7 +73,7 @@ export default function RegisterPage() {
         email: formData.email,
         phone: formData.phone,
         role: "client",
-        source: "website",
+        source: "main-site",
         createdAt: serverTimestamp()
       });
 

@@ -1,5 +1,6 @@
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import type { NormalizedCoordinate, OrderItem } from '@repo/shared-types';
 
 export interface CartItem extends OrderItem {
@@ -38,6 +39,7 @@ const money = (value: unknown) => {
 };
 
 const CART_STORAGE_KEY = 'client-app-cart';
+const canUseStorage = () => Platform.OS !== 'web' || 'window' in globalThis;
 
 type CartStore = UseBoundStore<StoreApi<CartState>> & {
   persist: {
@@ -144,7 +146,7 @@ useCartStore.persist = {
 };
 
 useCartStore.subscribe((state) => {
-  if (!hydrated) return;
+  if (!hydrated || !canUseStorage()) return;
   void AsyncStorage.setItem(
     CART_STORAGE_KEY,
     JSON.stringify({ state: partialize(state), version: 0 })
@@ -152,6 +154,12 @@ useCartStore.subscribe((state) => {
 });
 
 void (async () => {
+  if (!canUseStorage()) {
+    hydrated = true;
+    hydrationListeners.forEach((listener) => listener());
+    return;
+  }
+
   try {
     const raw = await AsyncStorage.getItem(CART_STORAGE_KEY);
     if (raw) {

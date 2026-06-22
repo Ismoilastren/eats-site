@@ -218,12 +218,21 @@ export default function CheckoutScreen() {
 
       const orderRef = await addDoc(collection(db, COLLECTIONS.ORDERS), {
         userId: firebaseUser.uid,
+        customerId: firebaseUser.uid,
         customerName,
         customerEmail: firebaseUser.email || user?.email || '',
         customerPhone,
         customerAddress: addressText.trim(),
         customerLocation: { lat: deliveryPoint.latitude, lng: deliveryPoint.longitude },
+        customer: {
+          uid: firebaseUser.uid,
+          id: firebaseUser.uid,
+          name: customerName,
+          phone: customerPhone,
+          email: firebaseUser.email || user?.email || '',
+        },
         deliveryAddress: addressText.trim(),
+        deliveryAddressId: selectedAddressId,
         deliveryLocation: deliveryPoint,
         restaurantId: restaurant.id,
         restaurantName: restaurant.name,
@@ -244,12 +253,16 @@ export default function CheckoutScreen() {
         courierId: null,
         assignedCourier: null,
         courierLocation: null,
-        customer: { name: customerName, phone: customerPhone, email: firebaseUser.email || '' },
         paymentMethod: paymentType === 'card'
-          ? { type: 'CARD', brand: selectedCard?.brand || 'Card', last4: selectedCard?.last4 || '0000' }
+          ? {
+              type: 'CARD',
+              paymentMethodId: selectedCard?.id || null,
+              brand: selectedCard?.brand || 'Card',
+              last4: selectedCard?.last4 || '0000',
+            }
           : { type: 'CASH' },
         deliveryInstructions,
-        source: 'app',
+        source: 'client-app',
         platform: 'expo',
         estimatedDelivery: null,
         deliveredAt: null,

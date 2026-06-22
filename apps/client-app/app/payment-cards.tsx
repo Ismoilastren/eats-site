@@ -18,6 +18,7 @@ import {
   deleteDoc,
   doc,
   onSnapshot,
+  setDoc,
 } from '@repo/firebase-config';
 import { COLLECTIONS } from '@repo/shared-types';
 import { useAuth } from '../context/AuthContext';
@@ -28,11 +29,15 @@ type PaymentCard = {
   holderName: string;
   last4: string;
   expiry?: string;
-  token?: string;
+  expiryMonth?: string;
+  expiryYear?: string;
+  cardBrand?: string;
+  isDefault?: boolean;
+  userId?: string;
+  customerId?: string;
   createdAt: string;
 };
 
-const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const digitsOnly = (value: string) => value.replace(/\D/g, '');
 
 const cardBrand = (cardNumber: string) => {
@@ -136,16 +141,31 @@ export default function PaymentCardsScreen() {
 
     setSaving(true);
     try {
+      const [expiryMonth, expiryYearShort] = cleanExpiry.split('/');
+      const isDefault = cards.length === 0;
       const nextCard = {
+        userId: uid,
+        customerId: uid,
         brand: cardBrand(cardNumber),
+        cardBrand: cardBrand(cardNumber),
         holderName: cleanHolder,
         last4: digits.slice(-4),
         expiry: cleanExpiry,
-        token: `tok_${makeId()}`,
+        expiryMonth,
+        expiryYear: `20${expiryYearShort}`,
+        isDefault,
         createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
 
-      await addDoc(collection(db, COLLECTIONS.USERS, uid, 'paymentMethods'), nextCard);
+      const cardRef = await addDoc(collection(db, COLLECTIONS.USERS, uid, 'paymentMethods'), nextCard);
+      await setDoc(doc(db, COLLECTIONS.USERS, uid), {
+        paymentMethods: [
+          ...cards.map(({ id, ...card }) => ({ id, ...card })),
+          { id: cardRef.id, ...nextCard },
+        ],
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
 
       setCardNumber('');
       setExpiry('');
@@ -169,6 +189,12 @@ export default function PaymentCardsScreen() {
         onPress: async () => {
           try {
             await deleteDoc(doc(db, COLLECTIONS.USERS, uid, 'paymentMethods', cardId));
+            await setDoc(doc(db, COLLECTIONS.USERS, uid), {
+              paymentMethods: cards
+                .filter((card) => card.id !== cardId)
+                .map(({ id, ...card }) => ({ id, ...card })),
+              updatedAt: new Date().toISOString(),
+            }, { merge: true });
           } catch (error: any) {
             console.error('Failed to remove payment card:', error);
             Alert.alert('Remove failed', error?.message || 'Could not remove card.');

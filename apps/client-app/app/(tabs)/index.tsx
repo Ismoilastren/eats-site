@@ -653,93 +653,72 @@ export default function HomeScreen() {
         transparent
         onRequestClose={() => setShowAddressModal(false)}
       >
-        <View className="flex-1 justify-end bg-black/40">
-          <View className="rounded-t-[32px] bg-white p-5 pb-8">
-            <View className="mb-4 flex-row items-center justify-between">
-              <View>
-                <Text className="text-xs font-black uppercase text-gray-400">Delivery address</Text>
-                <Text className="mt-1 text-2xl font-black text-gray-950">Choose location</Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => setShowAddressModal(false)}
-                className="h-10 w-10 items-center justify-center rounded-full bg-gray-100"
-              >
-                <Ionicons name="close" size={20} color="#111827" />
-              </TouchableOpacity>
-            </View>
+        <View className="flex-1 justify-end bg-black/60">
+          <View className="rounded-t-[32px] bg-[#1c1c1e] p-5 pb-8">
+            <Text className="mb-5 text-2xl font-black text-white">My addresses</Text>
 
-            {savedAddresses.length === 0 ? (
-              <View className="rounded-3xl bg-gray-50 p-5">
-                <Text className="font-black text-gray-950">No saved addresses</Text>
-                <Text className="mt-1 text-sm font-semibold text-gray-500">
-                  Add a delivery address or use your current location.
-                </Text>
-              </View>
-            ) : (
-              <View className="max-h-72">
-                {savedAddresses.map((address) => (
+            <ScrollView className="max-h-72 mb-2" showsVerticalScrollIndicator={false}>
+              {savedAddresses.map((address) => (
+                <View key={address.id} className="mb-4 flex-row items-center">
                   <TouchableOpacity
-                    key={address.id}
                     onPress={() => chooseAddress(address)}
                     activeOpacity={0.85}
-                    className={`mb-3 flex-row items-start rounded-3xl border p-4 ${
-                      selectedAddress?.id === address.id ? 'border-gray-950 bg-gray-950' : 'border-gray-100 bg-gray-50'
-                    }`}
+                    className="flex-1 flex-row items-center"
                   >
                     <Ionicons
-                      name={selectedAddress?.id === address.id ? 'radio-button-on' : 'location-outline'}
-                      size={22}
-                      color={selectedAddress?.id === address.id ? '#f9d923' : '#374151'}
+                      name="bookmark-outline"
+                      size={24}
+                      color={selectedAddress?.id === address.id ? '#f9d923' : '#fff'}
                     />
-                    <View className="ml-3 flex-1">
+                    <View className="ml-4 flex-1 pr-2 border-b border-white/10 pb-4">
                       <Text
-                        className={`font-black ${selectedAddress?.id === address.id ? 'text-white' : 'text-gray-950'}`}
+                        className={`text-base font-black ${selectedAddress?.id === address.id ? 'text-[#f9d923]' : 'text-white'}`}
                         numberOfLines={1}
                       >
-                        {address.label || 'Saved address'}{address.isDefault ? ' • Default' : ''}
+                        {address.label || address.address.split(',')[0]}
                       </Text>
-                      <Text
-                        className={`mt-1 text-sm font-semibold ${
-                          selectedAddress?.id === address.id ? 'text-white/65' : 'text-gray-500'
-                        }`}
-                        numberOfLines={2}
-                      >
+                      <Text className="mt-0.5 text-sm font-medium text-gray-400" numberOfLines={1}>
                         {address.address}
                       </Text>
                     </View>
                   </TouchableOpacity>
-                ))}
-              </View>
-            )}
+                  <TouchableOpacity
+                    onPress={() => {
+                      setShowAddressModal(false);
+                      router.push('/addresses' as any);
+                    }}
+                    className="p-2 border-b border-white/10 pb-4"
+                  >
+                    <Ionicons name="pencil-outline" size={20} color="#6b7280" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </ScrollView>
 
-            <View className="mt-4 flex-row gap-3">
-              <TouchableOpacity
-                onPress={saveCurrentLocation}
-                disabled={savingLocation}
-                activeOpacity={0.85}
-                className="flex-1 flex-row items-center justify-center rounded-2xl bg-[#f9d923] py-4"
-              >
-                {savingLocation ? (
-                  <ActivityIndicator color="#111827" />
-                ) : (
-                  <>
-                    <Ionicons name="navigate" size={18} color="#111827" />
-                    <Text className="ml-2 font-black text-gray-950">Use GPS</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => {
-                  setShowAddressModal(false);
-                  router.push('/addresses' as any);
-                }}
-                activeOpacity={0.85}
-                className="flex-1 flex-row items-center justify-center rounded-2xl bg-gray-950 py-4"
-              >
-                <Ionicons name="add" size={18} color="#fff" />
-                <Text className="ml-2 font-black text-white">Add address</Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              className="mt-2 mb-4 flex-row items-center justify-between rounded-2xl bg-white/5 p-4"
+            >
+              <View className="flex-row items-center">
+                <Ionicons name="time-outline" size={22} color="#fff" />
+                <Text className="ml-3 text-base font-bold text-white">Delivery time</Text>
+              </View>
+              <View className="flex-row items-center">
+                <Text className="mr-1 text-sm font-bold text-gray-400">ASAP</Text>
+                <Ionicons name="chevron-forward" size={18} color="#6b7280" />
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => {
+                setShowAddressModal(false);
+                router.push('/addresses' as any);
+              }}
+              activeOpacity={0.85}
+              className="w-full items-center justify-center rounded-2xl bg-white/10 py-4"
+            >
+              <Text className="text-base font-black text-white">Select a different address</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>

@@ -3,12 +3,14 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Modal,
   SafeAreaView,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import MapView, { Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -57,8 +59,14 @@ export default function AddressesScreen() {
   const [addresses, setAddresses] = useState<SavedAddress[]>([]);
   const [label, setLabel] = useState('Home');
   const [addressText, setAddressText] = useState('');
+  const [addressSource, setAddressSource] = useState<'manual' | 'current_location' | 'map'>('manual');
+  const [lat, setLat] = useState<number | undefined>();
+  const [lng, setLng] = useState<number | undefined>();
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [showMap, setShowMap] = useState(false);
+  const [mapRegion, setMapRegion] = useState({ latitude: 41.2995, longitude: 69.2401, latitudeDelta: 0.05, longitudeDelta: 0.05 });
+  const [mapLoading, setMapLoading] = useState(false);
 
   useEffect(() => {
     if (!uid) {
@@ -103,11 +111,38 @@ export default function AddressesScreen() {
         return;
       }
       setAddressText(cleanAddress);
+      setLat(current.coords.latitude);
+      setLng(current.coords.longitude);
+      setAddressSource('current_location');
     } catch (error) {
-      console.error('Failed to read current address:', error);
+      console.error('Failed to read current address:', error instanceof Error ? error.message : String(error));
       Alert.alert('Location error', 'Could not read your current GPS location.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const reverseGeocodeYandex = async (latitude: number, longitude: number) => {
+    setMapLoading(true);
+    try {
+      const baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://eats-site-main-site.vercel.app';
+      const response = await fetch(`${baseUrl}/api/geocode?lat=${latitude}&lng=${longitude}`);
+      const data: any = await response.json();
+      if (data.ok && data.results?.response?.GeoObjectCollection?.featureMember?.length > 0) {
+        const addressDetails = data.results.response.GeoObjectCollection.featureMember[0].GeoObject;
+        setAddressText(addressDetails.name || addressDetails.description || 'Map location');
+      } else {
+        setAddressText('Map location');
+      }
+      setLat(latitude);
+      setLng(longitude);
+      setAddressSource('map');
+      setShowMap(false);
+    } catch (error) {
+      console.error('Yandex reverse geocode failed:', error instanceof Error ? error.message : String(error));
+      Alert.alert('Geocoding error', 'Could not resolve the address from map.');
+    } finally {
+      setMapLoading(false);
     }
   };
 
@@ -129,13 +164,16 @@ export default function AddressesScreen() {
 
     setSaving(true);
     try {
-      let latitude: number | undefined;
-      let longitude: number | undefined;
-      const permission = await Location.requestForegroundPermissionsAsync();
-      if (permission.status === 'granted') {
-        const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        latitude = current.coords.latitude;
-        longitude = current.coords.longitude;
+      let finalLat = lat;
+      let finalLng = lng;
+
+      if (!finalLat || !finalLng) {
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (permission.status === 'granted') {
+          const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          finalLat = current.coords.latitude;
+          finalLng = current.coords.longitude;
+        }
       }
 
       const isDefault = addresses.length === 0;
@@ -144,9 +182,9 @@ export default function AddressesScreen() {
         customerId: uid,
         label: label.trim() || 'Address',
         address: cleanAddress,
-        source: latitude && longitude ? 'current_location' : 'manual',
+        source: addressSource,
         isDefault,
-        ...(latitude && longitude ? { latitude, longitude } : {}),
+        ...(finalLat && finalLng ? { latitude: finalLat, longitude: finalLng } : {}),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -164,10 +202,14 @@ export default function AddressesScreen() {
 
       setLabel('Home');
       setAddressText('');
+      setLat(undefined);
+      setLng(undefined);
+      setAddressSource('manual');
       Alert.alert('Saved', 'Address saved successfully.');
-    } catch (error: any) {
-      console.error('Failed to save address:', error);
-      Alert.alert('Save failed', error?.message || 'Could not save address.');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('Failed to save address:', errorMessage);
+      Alert.alert('Save failed', errorMessage || 'Could not save address.');
     } finally {
       setSaving(false);
     }
@@ -193,9 +235,10 @@ export default function AddressesScreen() {
               address: nextAddresses.find((address) => address.isDefault)?.address || nextAddresses[0]?.address || '',
               updatedAt: new Date().toISOString(),
             }, { merge: true });
-          } catch (error: any) {
-            console.error('Failed to delete address:', error);
-            Alert.alert('Delete failed', error?.message || 'Could not delete address.');
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error('Failed to delete address:', errorMessage);
+            Alert.alert('Delete failed', errorMessage || 'Could not delete address.');
           }
         },
       },
@@ -230,24 +273,60 @@ export default function AddressesScreen() {
           multiline
           className="min-h-24 rounded-2xl bg-gray-100 px-4 py-3 text-base font-semibold text-gray-950"
         />
-        <View className="mt-4 flex-row gap-3">
+        <View className="mt-4 flex-row flex-wrap gap-3">
           <TouchableOpacity
             onPress={useCurrentLocation}
             disabled={saving}
-            className="flex-1 flex-row items-center justify-center rounded-2xl bg-gray-950 py-3"
+            className="flex-1 min-w-[100px] flex-row items-center justify-center rounded-2xl bg-gray-950 py-3"
           >
             <Ionicons name="navigate" size={18} color="#fff" />
             <Text className="ml-2 font-black text-white">Use GPS</Text>
           </TouchableOpacity>
           <TouchableOpacity
+            onPress={() => setShowMap(true)}
+            disabled={saving}
+            className="flex-1 min-w-[100px] flex-row items-center justify-center rounded-2xl bg-blue-600 py-3"
+          >
+            <Ionicons name="map" size={18} color="#fff" />
+            <Text className="ml-2 font-black text-white">Map</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             onPress={saveAddress}
             disabled={saving}
-            className="flex-1 items-center justify-center rounded-2xl bg-orange-500 py-3"
+            className="w-full mt-2 items-center justify-center rounded-2xl bg-orange-500 py-3"
           >
-            {saving ? <ActivityIndicator color="#fff" /> : <Text className="font-black text-white">Save</Text>}
+            {saving ? <ActivityIndicator color="#fff" /> : <Text className="font-black text-white">Save Address</Text>}
           </TouchableOpacity>
         </View>
       </View>
+
+      <Modal visible={showMap} animationType="slide">
+        <View className="flex-1 relative">
+          <MapView
+            style={{ flex: 1 }}
+            region={mapRegion}
+            onRegionChangeComplete={setMapRegion}
+          />
+          <View className="absolute top-1/2 left-1/2 -mt-6 -ml-6" pointerEvents="none">
+            <Ionicons name="location" size={48} color="#ef4444" />
+          </View>
+          <SafeAreaView className="absolute top-0 w-full px-4 pt-4">
+            <TouchableOpacity onPress={() => setShowMap(false)} className="h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm">
+              <Ionicons name="close" size={24} color="#111827" />
+            </TouchableOpacity>
+          </SafeAreaView>
+          <SafeAreaView className="absolute bottom-0 w-full bg-white rounded-t-[32px] p-6 shadow-lg">
+            <Text className="text-lg font-black text-gray-900 mb-4">Move map to exact location</Text>
+            <TouchableOpacity
+              onPress={() => reverseGeocodeYandex(mapRegion.latitude, mapRegion.longitude)}
+              disabled={mapLoading}
+              className="w-full items-center justify-center rounded-2xl bg-gray-950 py-4"
+            >
+              {mapLoading ? <ActivityIndicator color="#fff" /> : <Text className="font-black text-white text-base">Confirm Location</Text>}
+            </TouchableOpacity>
+          </SafeAreaView>
+        </View>
+      </Modal>
 
       {loading ? (
         <View className="flex-1 items-center justify-center">

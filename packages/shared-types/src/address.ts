@@ -53,7 +53,8 @@ export function isPlaceholderAddress(text?: string): boolean {
     lower.startsWith('address could not be resolved') ||
     lower.startsWith('map point') ||
     lower === 'current location' ||
-    lower === 'unnamed road'
+    lower === 'unnamed road' ||
+    lower.includes('order delivery')
   );
 }
 

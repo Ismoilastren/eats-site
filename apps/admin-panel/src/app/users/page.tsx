@@ -332,12 +332,6 @@ export default function UsersPage() {
           const ordersData: any[] = Array.from(ordersById.values());
           ordersData.sort((a, b) => ((b.createdAt as any)?.toMillis?.() || 0) - ((a.createdAt as any)?.toMillis?.() || 0));
           ordersData.forEach((order) => {
-            const orderAddress = getOrderAddress(order);
-            if (orderAddress) {
-              const addressText = getAddressText(orderAddress);
-              const coords = getAddressCoordinates(orderAddress);
-              addressesByKey.set(`${addressText.toLowerCase()}-${coords}`, orderAddress);
-            }
             const orderPayment = getOrderPaymentMethod(order);
             if (orderPayment) {
               paymentByKey.set(`${orderPayment.brand}-${orderPayment.last4}-${orderPayment.expiry}`, orderPayment);
@@ -434,7 +428,7 @@ export default function UsersPage() {
       {/* View/Edit Modal */}
       {modalMode && selectedUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-gray-800">
+          <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-gray-800">
             <div className="border-b border-gray-200 px-6 py-5 dark:border-gray-700">
               <p className="text-xs font-black uppercase tracking-[0.24em] text-brand-500">{modalMode === 'view' ? 'Customer profile' : 'Role management'}</p>
               <h2 className="mt-1 text-2xl font-black text-gray-900 dark:text-white">
@@ -473,7 +467,7 @@ export default function UsersPage() {
                       {addresses.length === 0 ? (
                           <p className="font-medium text-gray-900 dark:text-white">0 locations</p>
                       ) : (
-                          <ul className="flex flex-col gap-2 max-h-32 overflow-y-auto">
+                          <ul className="flex flex-col gap-2">
                               {addresses.map((addr, idx) => {
                                   // Brute-force extraction matching Client schema
                                   const labelName = addr.label || addr.title || addr.type || 'Saved Location';
@@ -516,7 +510,7 @@ export default function UsersPage() {
                     ) : userPaymentMethods.length === 0 ? (
                       <div className="text-sm text-gray-400 italic">No payment methods registered.</div>
                     ) : (
-                      <div className="space-y-2 max-h-32 overflow-y-auto pr-2">
+                      <div className="space-y-2">
                         {userPaymentMethods.map(pm => (
                           <div key={pm.id} className="flex items-center gap-3 bg-gray-50 dark:bg-gray-700/50 p-3 rounded-xl border border-gray-100 dark:border-gray-600">
                             <div className={`w-14 h-8 rounded-md flex items-center justify-center text-[10px] font-extrabold uppercase tracking-wider border shadow-sm ${getBrandColor(pm.brand)}`}>
@@ -538,7 +532,7 @@ export default function UsersPage() {
                     {userOrders.length === 0 ? (
                       <div className="text-sm text-gray-400 italic">No orders found for this user.</div>
                     ) : (
-                      <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
+                      <div className="space-y-2">
                         {userOrders.map(order => (
                           <Link key={order.id} href={`/orders/${order.id}`} onClick={() => setModalMode(null)} className="flex justify-between items-center bg-gray-50 dark:bg-gray-700/50 p-3 rounded-xl border border-gray-100 transition hover:border-brand-200 hover:bg-brand-50/60 dark:border-gray-600 dark:hover:border-brand-500/40 dark:hover:bg-brand-500/10">
                             <div className="flex flex-col">

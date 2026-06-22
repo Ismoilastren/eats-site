@@ -100,7 +100,7 @@ const formatReverseAddress = (first: Location.LocationGeocodedAddress | undefine
 const isReadableAddress = (value: string) => {
   const address = value.trim();
   if (address.length < 6) return false;
-  return !/^(selected point|address could not be resolved|map is unavailable|enter readable address|current gps location)/i.test(address);
+  return !/^(selected point|address could not be resolved|map is unavailable|enter readable address|current gps location|order delivery)/i.test(address);
 };
 
 export default function HomeScreen() {

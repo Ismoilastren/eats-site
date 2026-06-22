@@ -26,7 +26,9 @@ const normalizePhone = (value: unknown) => cleanText(value).replace(/\D/g, '');
 const isRealAddress = (value: unknown) => {
   const address = cleanText(value);
   if (!address) return false;
-  return !/^(selected point|address could not be resolved|map is unavailable|enter readable address|current gps location)$/i.test(address);
+  if (/^(unknown location|map location|selected point|address could not be resolved|map is unavailable|enter readable address|current gps location|order delivery)$/i.test(address)) return false;
+  if (/^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/.test(address)) return false;
+  return true;
 };
 
 const getAddressText = (address: any) =>

@@ -258,28 +258,37 @@ export default function HomeScreen() {
         return;
       }
 
-      const isDefault = savedAddresses.length === 0;
       const now = new Date().toISOString();
       const payload = {
         userId: uid,
-        label: isDefault ? 'Home' : 'Current location',
+        label: savedAddresses.length === 0 ? 'Home' : 'Current location',
         address: result.address,
         lat: result.lat,
         lng: result.lng,
         source: 'current_location' as const,
-        isDefault,
+        isDefault: true,
         createdAt: now,
         updatedAt: now,
       };
       const addressRef = await addDoc(collection(db, COLLECTIONS.USERS, uid, 'addresses'), payload);
       const nextAddress = { id: addressRef.id, ...payload };
       const existingSavedAddresses = savedAddresses
-        .map((address) => canonicalAddressForStorage(address, uid, now))
+        .map((address) => canonicalAddressForStorage({ ...address, isDefault: false }, uid, now))
         .filter((address): address is NonNullable<typeof address> => Boolean(address));
+      await Promise.all(
+        savedAddresses.map((address) =>
+          setDoc(
+            doc(db, COLLECTIONS.USERS, uid, 'addresses', address.id),
+            { isDefault: false, updatedAt: now },
+            { merge: true },
+          )
+        )
+      );
       await setDoc(doc(db, COLLECTIONS.USERS, uid), {
         ...clientUserDocumentPatch(user, profile),
         savedAddresses: [...existingSavedAddresses, nextAddress],
-        ...(isDefault ? { defaultAddress: result.address, address: result.address } : {}),
+        defaultAddress: result.address,
+        address: result.address,
         updatedAt: now,
       }, { merge: true });
       setSelectedAddress(nextAddress);

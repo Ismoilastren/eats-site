@@ -30,6 +30,7 @@ import {
   AddressSource,
   CanonicalSavedAddress,
   DEFAULT_MAP_CENTER,
+  GeocodeAddressResult,
   canonicalAddressForStorage,
   geocodeQueryViaProxy,
   isReadableAddress,
@@ -39,6 +40,10 @@ import {
 } from '../services/addressing';
 
 type SavedAddress = CanonicalSavedAddress & { latitude?: number; longitude?: number };
+type MapResolveState = 'idle' | 'moving' | 'resolving' | 'resolved' | 'failed';
+
+const GPS_TIMEOUT_MS = 12000;
+const MAP_RESOLVE_DEBOUNCE_MS = 850;
 
 export default function AddressesScreen() {
   const router = useRouter();
@@ -57,13 +62,37 @@ export default function AddressesScreen() {
   // Map Picker State
   const [showMap, setShowMap] = useState(params.openMap === 'true');
   const [mapRegion, setMapRegion] = useState(DEFAULT_MAP_CENTER);
-  const [mapLoading, setMapLoading] = useState(false);
+  const [mapResolveState, setMapResolveState] = useState<MapResolveState>('idle');
   const [mapResolvedAddress, setMapResolvedAddress] = useState('');
   const [mapError, setMapError] = useState<string | null>(null);
   const [mapSearch, setMapSearch] = useState('');
   const [mapSearching, setMapSearching] = useState(false);
+  const [mapSearchResults, setMapSearchResults] = useState<GeocodeAddressResult[]>([]);
+  const [manualMapAddress, setManualMapAddress] = useState('');
+  const [usingGps, setUsingGps] = useState(false);
   const webViewRef = useRef<WebView>(null);
   const resolveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resolveRequestRef = useRef(0);
+
+  const selectedMapAddress = isReadableAddress(mapResolvedAddress)
+    ? mapResolvedAddress
+    : isReadableAddress(manualMapAddress)
+      ? manualMapAddress.trim()
+      : '';
+  const canConfirmMap =
+    Boolean(selectedMapAddress) &&
+    (mapResolveState === 'resolved' || (mapResolveState === 'failed' && isReadableAddress(manualMapAddress)));
+  const mapBusy = mapResolveState === 'moving' || mapResolveState === 'resolving' || usingGps;
+  const mapStatusText =
+    mapResolveState === 'moving'
+      ? 'Move map to choose address'
+      : mapResolveState === 'resolving'
+        ? 'Resolving address...'
+        : mapResolveState === 'resolved'
+          ? mapResolvedAddress
+          : mapResolveState === 'failed'
+            ? 'Address lookup failed. Try again or enter manually.'
+            : 'Move the map or search for your address';
 
   const yandexMapHTML = (initialLat: number, initialLng: number) => {
     const apiKey = encodeURIComponent(publicYandexMapsApiKey());
@@ -82,6 +111,7 @@ export default function AddressesScreen() {
     <div id="map"></div>
     <script>
         var myMap;
+        var suppressMoveUntil = 0;
         if (!window.ymaps) {
             window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'error', message: 'Yandex Maps script failed to load.' }));
         } else {
@@ -95,14 +125,16 @@ export default function AddressesScreen() {
             });
 
             myMap.events.add('boundschange', function (e) {
+                if (Date.now() < suppressMoveUntil) return;
                 var center = e.get('newCenter');
                 window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'move', lat: center[0], lng: center[1] }));
             });
             window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'ready', lat: ${initialLat}, lng: ${initialLng} }));
         }
 
-        window.updateCenter = function(lat, lng) {
+        window.updateCenter = function(lat, lng, skipMoveEvent) {
             if (myMap) {
+                if (skipMoveEvent) suppressMoveUntil = Date.now() + 1200;
                 myMap.setCenter([lat, lng], 16, { duration: 300 });
             }
         };
@@ -114,6 +146,7 @@ export default function AddressesScreen() {
 
   useEffect(() => {
     if (params.openMap === 'true') {
+      resetMapSelection();
       setShowMap(true);
     }
   }, [params.openMap]);
@@ -147,26 +180,63 @@ export default function AddressesScreen() {
     return () => unsubscribe();
   }, [uid]);
 
-  const fetchYandexAddress = async (latitude: number, longitude: number): Promise<string> => {
-    const { result, error } = await reverseGeocodeViaProxy(latitude, longitude);
-    setMapError(error);
-    return result?.address || '';
+  const getCurrentPositionWithTimeout = async (accuracy: Location.Accuracy) =>
+    Promise.race([
+      Location.getCurrentPositionAsync({ accuracy }),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('GPS timed out. Try again in an open area.')), GPS_TIMEOUT_MS);
+      }),
+    ]);
+
+  const resetMapSelection = () => {
+    setMapResolveState('idle');
+    setMapResolvedAddress('');
+    setMapError(null);
+    setManualMapAddress('');
+    setMapSearch('');
+    setMapSearchResults([]);
   };
 
-  const resolveMapRegion = async (latitude: number, longitude: number) => {
+  const resolveMapRegion = (latitude: number, longitude: number) => {
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      setMapResolveState('failed');
+      setMapError('Selected coordinates are invalid.');
+      setMapResolvedAddress('');
+      return;
+    }
+
     setMapRegion({ latitude, longitude });
-    setMapLoading(true);
+    setMapResolveState('moving');
+    setMapError(null);
+    setMapResolvedAddress('');
 
     if (resolveTimeoutRef.current) clearTimeout(resolveTimeoutRef.current);
 
     resolveTimeoutRef.current = setTimeout(async () => {
+      const requestId = ++resolveRequestRef.current;
+      setMapResolveState('resolving');
       try {
-        const resolved = await fetchYandexAddress(latitude, longitude);
-        setMapResolvedAddress(resolved);
-      } finally {
-        setMapLoading(false);
+        const { result, error } = await reverseGeocodeViaProxy(latitude, longitude);
+        if (requestId !== resolveRequestRef.current) return;
+
+        if (result && isReadableAddress(result.address)) {
+          setMapResolvedAddress(result.address);
+          setManualMapAddress('');
+          setMapError(null);
+          setMapResolveState('resolved');
+          return;
+        }
+
+        setMapResolvedAddress('');
+        setMapError(error || 'Address lookup failed. Try again or enter manually.');
+        setMapResolveState('failed');
+      } catch {
+        if (requestId !== resolveRequestRef.current) return;
+        setMapResolvedAddress('');
+        setMapError('Address lookup failed. Try again or enter manually.');
+        setMapResolveState('failed');
       }
-    }, 800);
+    }, MAP_RESOLVE_DEBOUNCE_MS);
   };
 
   const onWebViewMessage = (event: WebViewMessageEvent) => {
@@ -176,7 +246,7 @@ export default function AddressesScreen() {
         resolveMapRegion(data.lat, data.lng);
       } else if (data.event === 'error') {
         setMapError(data.message || 'Yandex map could not be loaded.');
-        setMapLoading(false);
+        setMapResolveState('failed');
       }
     } catch (e) {
       console.warn('WebView message error:', e);
@@ -184,30 +254,34 @@ export default function AddressesScreen() {
   };
 
   const jumpToCurrentLocation = async () => {
-    setMapLoading(true);
+    setUsingGps(true);
+    setMapError(null);
     try {
       if (!publicYandexMapsApiKey()) {
         setMapError(missingYandexMapsKeyMessage());
+        setMapResolveState('failed');
         return;
       }
       const permission = await Location.requestForegroundPermissionsAsync();
       if (permission.status !== 'granted') {
         setMapError('Location permission was denied.');
+        setMapResolveState('failed');
         Alert.alert('Location required', 'Allow location access to find your current spot.');
         return;
       }
-      const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const current = await getCurrentPositionWithTimeout(Location.Accuracy.High);
       setMapRegion({ latitude: current.coords.latitude, longitude: current.coords.longitude });
       // Tell webview to move map
-      webViewRef.current?.injectJavaScript(`window.updateCenter(${current.coords.latitude}, ${current.coords.longitude}); true;`);
-      const resolved = await fetchYandexAddress(current.coords.latitude, current.coords.longitude);
-      setMapResolvedAddress(resolved);
+      webViewRef.current?.injectJavaScript(`window.updateCenter(${current.coords.latitude}, ${current.coords.longitude}, true); true;`);
+      resolveMapRegion(current.coords.latitude, current.coords.longitude);
     } catch (error) {
       console.error('GPS Jump failed:', error instanceof Error ? error.message : String(error));
-      setMapError('Could not fetch your current GPS coordinates.');
-      Alert.alert('Location error', 'Could not fetch your current GPS coordinates.');
+      const message = error instanceof Error ? error.message : 'Could not fetch your current GPS coordinates.';
+      setMapError(message);
+      setMapResolveState('failed');
+      Alert.alert('Location error', message);
     } finally {
-      setMapLoading(false);
+      setUsingGps(false);
     }
   };
 
@@ -220,20 +294,50 @@ export default function AddressesScreen() {
 
     setMapSearching(true);
     setMapError(null);
+    setMapSearchResults([]);
     try {
       const { results, error } = await geocodeQueryViaProxy(query);
-      const result = results[0];
-      if (!result) {
+      if (results.length === 0) {
         setMapError(error || 'No readable address found.');
+        setMapResolveState('failed');
         return;
       }
 
+      setMapSearchResults(results);
+      const result = results[0];
       setMapRegion({ latitude: result.lat, longitude: result.lng });
       setMapResolvedAddress(result.address);
-      webViewRef.current?.injectJavaScript(`window.updateCenter(${result.lat}, ${result.lng}); true;`);
+      setManualMapAddress('');
+      setMapResolveState('resolved');
+      webViewRef.current?.injectJavaScript(`window.updateCenter(${result.lat}, ${result.lng}, true); true;`);
     } finally {
       setMapSearching(false);
     }
+  };
+
+  const chooseSearchResult = (result: GeocodeAddressResult) => {
+    setMapRegion({ latitude: result.lat, longitude: result.lng });
+    setMapResolvedAddress(result.address);
+    setManualMapAddress('');
+    setMapError(null);
+    setMapResolveState('resolved');
+    setMapSearchResults([]);
+    setMapSearch(result.address);
+    webViewRef.current?.injectJavaScript(`window.updateCenter(${result.lat}, ${result.lng}, true); true;`);
+  };
+
+  const retryMapResolve = () => {
+    resolveMapRegion(mapRegion.latitude, mapRegion.longitude);
+  };
+
+  const openMapPicker = () => {
+    resetMapSelection();
+    setShowMap(true);
+  };
+
+  const closeMapPicker = () => {
+    if (resolveTimeoutRef.current) clearTimeout(resolveTimeoutRef.current);
+    setShowMap(false);
   };
 
   const useCurrentLocation = async () => {
@@ -245,7 +349,7 @@ export default function AddressesScreen() {
         return;
       }
 
-      const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const current = await getCurrentPositionWithTimeout(Location.Accuracy.High);
       const { result, error } = await reverseGeocodeViaProxy(current.coords.latitude, current.coords.longitude);
 
       if (!result || !isReadableAddress(result.address)) {
@@ -268,13 +372,19 @@ export default function AddressesScreen() {
 
   const confirmMapLocation = () => {
     if (!isReadableAddress(mapResolvedAddress)) {
-      Alert.alert('Invalid location', 'Please select a readable street address.');
+      if (!isReadableAddress(manualMapAddress)) {
+        Alert.alert('Invalid location', 'Please select a readable street address or enter it manually.');
+        return;
+      }
+    }
+    if (!canConfirmMap) {
+      Alert.alert('Address not ready', 'Wait for address lookup to finish, retry, or enter the address manually.');
       return;
     }
-    setAddressText(mapResolvedAddress);
+    setAddressText(selectedMapAddress);
     setLat(mapRegion.latitude);
     setLng(mapRegion.longitude);
-    setAddressSource('map');
+    setAddressSource(isReadableAddress(mapResolvedAddress) ? 'map' : 'manual');
     setShowMap(false);
   };
 
@@ -296,7 +406,7 @@ export default function AddressesScreen() {
 
     setSaving(true);
     try {
-      const isDefault = addresses.length === 0;
+      const isDefault = true;
       const addressLat = Number(lat);
       const addressLng = Number(lng);
       if (!Number.isFinite(addressLat) || !Number.isFinite(addressLng)) {
@@ -319,15 +429,25 @@ export default function AddressesScreen() {
 
       const addressRef = await addDoc(collection(db, COLLECTIONS.USERS, uid, 'addresses'), payload);
       const existingSavedAddresses = addresses
-        .map((address) => canonicalAddressForStorage(address, uid, now))
+        .map((address) => canonicalAddressForStorage({ ...address, isDefault: false }, uid, now))
         .filter((address): address is NonNullable<typeof address> => Boolean(address));
+      await Promise.all(
+        addresses.map((address) =>
+          setDoc(
+            doc(db, COLLECTIONS.USERS, uid, 'addresses', address.id),
+            { isDefault: false, updatedAt: now },
+            { merge: true },
+          )
+        )
+      );
       await setDoc(doc(db, COLLECTIONS.USERS, uid), {
         ...clientUserDocumentPatch(user, profile),
         savedAddresses: [
           ...existingSavedAddresses,
           { id: addressRef.id, ...payload },
         ],
-        ...(isDefault ? { defaultAddress: cleanAddress, address: cleanAddress } : {}),
+        defaultAddress: cleanAddress,
+        address: cleanAddress,
         updatedAt: now,
       }, { merge: true });
 
@@ -410,7 +530,12 @@ export default function AddressesScreen() {
               <Text className="ml-1 mb-1.5 text-xs font-black uppercase text-gray-400">Address text</Text>
               <TextInput
                 value={addressText}
-                onChangeText={setAddressText}
+                onChangeText={(value) => {
+                  setAddressText(value);
+                  setLat(undefined);
+                  setLng(undefined);
+                  setAddressSource('manual');
+                }}
                 placeholder="Select on map or type manually"
                 placeholderTextColor="#9ca3af"
                 multiline
@@ -428,7 +553,7 @@ export default function AddressesScreen() {
                 <Text className="ml-2 font-black text-gray-950">Use GPS</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={() => setShowMap(true)}
+                onPress={openMapPicker}
                 disabled={saving}
                 activeOpacity={0.85}
                 className="flex-1 min-w-[120px] flex-row items-center justify-center rounded-2xl bg-gray-950 py-3.5"
@@ -507,7 +632,7 @@ export default function AddressesScreen() {
           <View className="absolute top-0 w-full h-40 bg-black/40" pointerEvents="none" />
 
           <SafeAreaView className="absolute top-0 w-full flex-row justify-between px-5 pt-4">
-            <TouchableOpacity onPress={() => setShowMap(false)} className="h-12 w-12 items-center justify-center rounded-full bg-[#202022] shadow-xl border border-white/10">
+            <TouchableOpacity onPress={closeMapPicker} className="h-12 w-12 items-center justify-center rounded-full bg-[#202022] shadow-xl border border-white/10">
               <Ionicons name="close" size={24} color="#fff" />
             </TouchableOpacity>
             <View className="ml-3 flex-1 flex-row items-center rounded-full bg-[#202022] px-4 border border-white/10">
@@ -527,15 +652,52 @@ export default function AddressesScreen() {
             </View>
           </SafeAreaView>
 
-          <SafeAreaView className="absolute top-28 w-full px-8 pointer-events-none items-center">
-            <View className="rounded-2xl bg-black/80 px-6 py-4 shadow-xl border border-white/10 w-full">
-              <Text className="text-xl font-black text-white text-center" numberOfLines={2}>
-                {mapLoading ? 'Resolving address...' : mapResolvedAddress || 'Move the map or search for your address'}
+          <SafeAreaView className="absolute top-28 w-full px-5 items-center">
+            <View className="rounded-2xl bg-black/85 px-4 py-3 shadow-xl border border-white/10 w-full">
+              <Text className="text-base font-black text-white text-center" numberOfLines={3}>
+                {mapStatusText}
               </Text>
               {!!mapError && (
-                <Text className="mt-2 text-center text-sm font-bold text-[#f9d923]" numberOfLines={2}>
+                <Text className="mt-2 text-center text-xs font-bold text-[#f9d923]" numberOfLines={3}>
                   {mapError}
                 </Text>
+              )}
+              {mapResolveState === 'failed' && (
+                <View className="mt-3">
+                  <TextInput
+                    value={manualMapAddress}
+                    onChangeText={setManualMapAddress}
+                    placeholder="Enter readable address manually"
+                    placeholderTextColor="#9ca3af"
+                    className="rounded-xl bg-white px-3 py-2.5 text-sm font-bold text-gray-950"
+                    multiline
+                  />
+                  <TouchableOpacity
+                    onPress={retryMapResolve}
+                    className="mt-2 flex-row items-center justify-center rounded-xl bg-white/10 py-2.5"
+                  >
+                    <Ionicons name="refresh" size={16} color="#f9d923" />
+                    <Text className="ml-2 text-sm font-black text-[#f9d923]">Try again</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              {mapSearchResults.length > 1 && (
+                <View className="mt-3 overflow-hidden rounded-xl bg-white">
+                  {mapSearchResults.slice(0, 4).map((result) => (
+                    <TouchableOpacity
+                      key={`${result.lat}-${result.lng}-${result.address}`}
+                      onPress={() => chooseSearchResult(result)}
+                      className="border-b border-gray-100 px-3 py-2.5 last:border-b-0"
+                    >
+                      <Text className="text-sm font-black text-gray-950" numberOfLines={1}>
+                        {result.title || result.address}
+                      </Text>
+                      <Text className="mt-0.5 text-xs font-semibold text-gray-500" numberOfLines={1}>
+                        {result.address}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
               )}
             </View>
           </SafeAreaView>
@@ -560,14 +722,16 @@ export default function AddressesScreen() {
           <SafeAreaView className="absolute bottom-0 w-full bg-[#1a1a1c] p-5 pb-8 rounded-t-3xl border-t border-white/10">
             <TouchableOpacity
               onPress={confirmMapLocation}
-              disabled={mapLoading || !isReadableAddress(mapResolvedAddress)}
+              disabled={mapBusy || !canConfirmMap}
               activeOpacity={0.85}
-              className={`w-full items-center justify-center rounded-2xl py-4 ${mapLoading || !isReadableAddress(mapResolvedAddress) ? 'bg-[#f9d923]/40' : 'bg-[#f9d923]'}`}
+              className={`w-full items-center justify-center rounded-2xl py-4 ${mapBusy || !canConfirmMap ? 'bg-[#f9d923]/40' : 'bg-[#f9d923]'}`}
             >
-              {saving ? (
+              {mapBusy ? (
                 <ActivityIndicator color="#111827" />
               ) : (
-                <Text className={`font-black text-lg ${mapLoading || !isReadableAddress(mapResolvedAddress) ? 'text-gray-600' : 'text-gray-950'}`}>Done</Text>
+                <Text className={`font-black text-lg ${mapBusy || !canConfirmMap ? 'text-gray-600' : 'text-gray-950'}`}>
+                  {mapResolveState === 'failed' && !isReadableAddress(manualMapAddress) ? 'Enter address to continue' : 'Done'}
+                </Text>
               )}
             </TouchableOpacity>
           </SafeAreaView>

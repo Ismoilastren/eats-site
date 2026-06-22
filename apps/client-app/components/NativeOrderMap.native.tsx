@@ -72,11 +72,18 @@ function yandexOrderMapHTML({
       font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-weight: 900;
       box-shadow: 0 8px 20px rgba(0,0,0,0.25);
     }
+    .route-note {
+      position: absolute; left: 10px; right: 10px; bottom: 10px; z-index: 10;
+      border-radius: 12px; background: rgba(17,24,39,0.88); color: white;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-size: 12px;
+      font-weight: 800; text-align: center; padding: 8px 10px;
+    }
   </style>
   <script src="https://api-maps.yandex.ru/2.1/?apikey=${encodeURIComponent(apiKey)}&lang=en_RU" type="text/javascript"></script>
 </head>
 <body>
   <div id="map"></div>
+  <div class="route-note">Route preview only. Live road routing is unavailable.</div>
   <script>
     var points = ${safeScriptJson(points)};
     function init() {

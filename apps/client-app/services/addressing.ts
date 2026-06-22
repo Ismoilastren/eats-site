@@ -21,6 +21,11 @@ export type GeocodeAddressResult = {
   subtitle?: string;
 };
 
+export type GeocodeFailure = {
+  error: string;
+  errorCode?: string;
+};
+
 type YandexGeoObject = {
   name?: string;
   description?: string;
@@ -113,7 +118,14 @@ function parseGeocodePayload(payload: unknown): GeocodeAddressResult[] {
     formattedAddress?: unknown;
     lat?: unknown;
     lng?: unknown;
-    results?: {
+    results?: Array<{
+      address?: unknown;
+      fullAddress?: unknown;
+      title?: unknown;
+      subtitle?: unknown;
+      lat?: unknown;
+      lng?: unknown;
+    }> | {
       response?: {
         GeoObjectCollection?: {
           featureMember?: Array<{ GeoObject?: YandexGeoObject }>;
@@ -122,7 +134,28 @@ function parseGeocodePayload(payload: unknown): GeocodeAddressResult[] {
     };
   };
 
-  const members = data.results?.response?.GeoObjectCollection?.featureMember || [];
+  const normalizedResults: GeocodeAddressResult[] = Array.isArray(data.results)
+    ? data.results
+      .map((item): GeocodeAddressResult | null => {
+        const address = String(item.address || item.fullAddress || '').trim();
+        const lat = Number(item.lat);
+        const lng = Number(item.lng);
+        if (!isReadableAddress(address) || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        const result: GeocodeAddressResult = {
+          address,
+          lat,
+          lng,
+        };
+        if (typeof item.title === 'string') result.title = item.title;
+        if (typeof item.subtitle === 'string') result.subtitle = item.subtitle;
+        return result;
+      })
+      .filter((item): item is GeocodeAddressResult => item !== null)
+    : [];
+  if (normalizedResults.length > 0) return normalizedResults;
+
+  const legacyResults = !Array.isArray(data.results) ? data.results : undefined;
+  const members = legacyResults?.response?.GeoObjectCollection?.featureMember || [];
   const parsed = members
     .map((item) => parseGeoObject(item.GeoObject))
     .filter((item): item is GeocodeAddressResult => Boolean(item));
@@ -144,6 +177,14 @@ function parseGeocodePayload(payload: unknown): GeocodeAddressResult[] {
   return [];
 }
 
+function geocodeErrorFromPayload(payload: unknown, fallback: string): GeocodeFailure {
+  if (!payload || typeof payload !== 'object') return { error: fallback };
+  const data = payload as { error?: unknown; errorCode?: unknown };
+  const errorCode = typeof data.errorCode === 'string' ? data.errorCode : undefined;
+  const error = typeof data.error === 'string' && data.error.trim() ? data.error.trim() : fallback;
+  return { error, errorCode };
+}
+
 async function fetchWithTimeout(url: string, timeoutMs = 8000) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -157,13 +198,17 @@ async function fetchWithTimeout(url: string, timeoutMs = 8000) {
 export async function reverseGeocodeViaProxy(lat: number, lng: number) {
   const baseUrl = publicApiBaseUrl();
   if (!baseUrl) return { result: null, error: missingApiBaseUrlMessage() };
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return { result: null, error: 'Selected coordinates are invalid.' };
+  }
 
   try {
     const response = await fetchWithTimeout(
       `${baseUrl}/api/geocode?lat=${encodeURIComponent(String(lat))}&lng=${encodeURIComponent(String(lng))}`,
+      10000,
     );
     const payload: unknown = await response.json();
-    if (!response.ok) return { result: null, error: 'Address lookup is temporarily unavailable.' };
+    if (!response.ok) return { result: null, ...geocodeErrorFromPayload(payload, 'Address lookup failed.') };
     const result = parseGeocodePayload(payload)[0] || null;
     return { result, error: result ? null : 'Yandex did not return a readable street address.' };
   } catch {
@@ -180,10 +225,11 @@ export async function geocodeQueryViaProxy(query: string) {
 
   try {
     const response = await fetchWithTimeout(
-      `${baseUrl}/api/geocode?query=${encodeURIComponent(normalized)}`,
+      `${baseUrl}/api/geocode?q=${encodeURIComponent(normalized)}`,
+      10000,
     );
     const payload: unknown = await response.json();
-    if (!response.ok) return { results: [], error: 'Address search is temporarily unavailable.' };
+    if (!response.ok) return { results: [], ...geocodeErrorFromPayload(payload, 'Address search failed.') };
     const results = parseGeocodePayload(payload);
     return { results, error: results.length > 0 ? null : 'No readable address found.' };
   } catch {

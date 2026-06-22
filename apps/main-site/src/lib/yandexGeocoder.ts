@@ -32,6 +32,16 @@ type YandexGeoObject = {
   metaDataProperty?: { GeocoderMetaData?: { text?: string } };
 };
 
+type NormalizedGeocoderResponse = {
+  ok?: boolean;
+  address?: string;
+  lat?: number;
+  lng?: number;
+  results?: Array<Partial<AddressResult> & { address?: string }>;
+  error?: string;
+  errorCode?: string;
+};
+
 // Only cache successful (non-empty) results to allow retries on failure.
 const cache = new Map<string, AddressResult[]>();
 let lastError: { message: string; code: string } | null = null;
@@ -93,10 +103,35 @@ async function requestGeocoder(path: string, cacheKey: string): Promise<AddressR
       return [];
     }
 
+    const normalized = json as NormalizedGeocoderResponse;
+    const directResult =
+      typeof normalized.address === 'string' &&
+      Number.isFinite(Number(normalized.lat)) &&
+      Number.isFinite(Number(normalized.lng))
+        ? [{
+            title: normalized.address,
+            subtitle: 'Tashkent',
+            fullAddress: normalized.address,
+            lat: Number(normalized.lat),
+            lng: Number(normalized.lng),
+          }]
+        : [];
+    const normalizedResults: Array<Partial<AddressResult> & { address?: string }> = Array.isArray(normalized.results)
+      ? normalized.results.filter((item) => item?.fullAddress || item?.address)
+      : [];
     const data = json.results as YandexGeocoderResponse;
-    const results = (data.response?.GeoObjectCollection?.featureMember || [])
-      .map((item) => parseResult(item.GeoObject))
-      .filter((item): item is AddressResult => Boolean(item));
+    const legacyResults = Array.isArray(data?.response?.GeoObjectCollection?.featureMember)
+      ? data.response.GeoObjectCollection.featureMember
+        .map((item) => parseResult(item.GeoObject))
+        .filter((item): item is AddressResult => Boolean(item))
+      : [];
+    const results = [...directResult, ...normalizedResults.map((item: any) => ({
+      title: item.title || item.address || item.fullAddress,
+      subtitle: item.subtitle || 'Tashkent',
+      fullAddress: item.fullAddress || item.address,
+      lat: Number(item.lat),
+      lng: Number(item.lng),
+    })).filter((item) => item.fullAddress && Number.isFinite(item.lat) && Number.isFinite(item.lng)), ...legacyResults];
 
     // FIX: Only cache non-empty results so failed lookups can be retried
     if (results.length > 0) {

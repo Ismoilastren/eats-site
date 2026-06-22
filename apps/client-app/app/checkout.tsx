@@ -155,10 +155,11 @@ export default function CheckoutScreen() {
           .map(d => ({ id: d.id, ...d.data() } as SavedAddress))
           .filter((addr) => isReadableAddress(addr.address));
         setSavedAddresses(addrs);
-        if (addrs[0]) {
-          setSelectedAddressId(addrs[0].id);
-          setAddressText(addrs[0].address);
-          const coords = coordinateFromAddress(addrs[0]);
+        const preferredAddress = addrs.find((addr) => addr.isDefault) || addrs[0];
+        if (preferredAddress) {
+          setSelectedAddressId(preferredAddress.id);
+          setAddressText(preferredAddress.address);
+          const coords = coordinateFromAddress(preferredAddress);
           if (coords) {
             setLocation({
               coords: {

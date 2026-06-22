@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { DataTable, type ColumnDef } from '@/components/tables/DataTable';
 import { Badge } from '@/components/ui/Badge';
 import { db, collection, query, limit, getDocs, doc, updateDoc, where, onSnapshot, orderBy } from '@repo/firebase-config';
@@ -20,7 +21,7 @@ const getBrandColor = (brand: string) => {
 
 const cleanText = (value: unknown) => String(value || '').trim();
 const normalizeEmail = (value: unknown) => cleanText(value).toLowerCase();
-const normalizePhone = (value: unknown) => cleanText(value).replace(/[^\d+]/g, '');
+const normalizePhone = (value: unknown) => cleanText(value).replace(/\D/g, '');
 
 const isRealAddress = (value: unknown) => {
   const address = cleanText(value);
@@ -32,18 +33,23 @@ const getAddressText = (address: any) =>
   cleanText(address.addressDetails || address.address || address.fullAddress || address.street);
 
 const getAddressCoordinates = (address: any) => {
-  const lat = Number(address.lat ?? address.latitude);
-  const lng = Number(address.lng ?? address.longitude);
+  const location = address.location || address.deliveryLocation || address.customerLocation || {};
+  const lat = Number(address.lat ?? address.latitude ?? location.lat ?? location.latitude);
+  const lng = Number(address.lng ?? address.longitude ?? location.lng ?? location.longitude);
   return Number.isFinite(lat) && Number.isFinite(lng) ? `${lat.toFixed(5)}, ${lng.toFixed(5)}` : '';
 };
 
 const normalizePaymentMethod = (method: any) => {
-  const last4 = cleanText(method.last4).replace(/\D/g, '').slice(-4);
+  if (!method || typeof method !== 'object') return null;
+  const type = cleanText(method.type || method.method || method.provider || method.kind).toLowerCase();
+  if (['cash', 'cod', 'cash_on_delivery'].includes(type)) return null;
+  const last4 = cleanText(method.last4 || method.cardLast4).replace(/\D/g, '').slice(-4);
   if (last4.length !== 4) return null;
-  const expiry = cleanText(method.expiry) || [
+  const expiryCandidate = cleanText(method.expiry) || [
     cleanText(method.expiryMonth).padStart(2, '0'),
     cleanText(method.expiryYear).slice(-2),
   ].filter(Boolean).join('/');
+  const expiry = /^(0[1-9]|1[0-2])\/\d{2}$/.test(expiryCandidate) ? expiryCandidate : '';
   return {
     ...method,
     brand: cleanText(method.brand || method.cardBrand) || 'Card',
@@ -51,6 +57,56 @@ const normalizePaymentMethod = (method: any) => {
     last4,
     expiry,
   };
+};
+
+const getOrderAddress = (order: any) => {
+  const address = cleanText(order.deliveryAddress || order.customerAddress || order.address || order.customer?.address);
+  if (!isRealAddress(address)) return null;
+  return {
+    id: `${order.id}-order-address`,
+    userId: order.userId || order.customerId || order.customer?.uid,
+    label: order.restaurantName ? `Order delivery • ${order.restaurantName}` : 'Order delivery',
+    address,
+    deliveryLocation: order.deliveryLocation || order.customerLocation,
+    source: 'order',
+    createdAt: order.createdAt,
+  };
+};
+
+const getOrderPaymentMethod = (order: any) => {
+  const raw = order.paymentMethod || order.payment;
+  if (!raw || typeof raw !== 'object') return null;
+  const normalized = normalizePaymentMethod({
+    ...raw,
+    id: raw.paymentMethodId || raw.id || `${order.id}-payment`,
+    userId: order.userId || order.customerId || order.customer?.uid,
+  });
+  return normalized ? { ...normalized, source: 'order' } : null;
+};
+
+const orderMatchesIdentity = (order: any, uids: Set<string>, emails: Set<string>, phones: Set<string>) => {
+  const orderUids = [
+    order.userId,
+    order.customerId,
+    order.customerUid,
+    order.customer?.uid,
+    order.customer?.id,
+  ].map(cleanText).filter(Boolean);
+  if (orderUids.some((uid) => uids.has(uid))) return true;
+
+  const orderEmails = [
+    order.customerEmail,
+    order.email,
+    order.customer?.email,
+  ].map(normalizeEmail).filter(Boolean);
+  if (orderEmails.some((email) => emails.has(email))) return true;
+
+  const orderPhones = [
+    order.customerPhone,
+    order.phone,
+    order.customer?.phone,
+  ].map(normalizePhone).filter(Boolean);
+  return orderPhones.some((phone) => phones.has(phone));
 };
 
 const formatSource = (relatedUsers: User[]) => {
@@ -125,7 +181,7 @@ export default function UsersPage() {
               <p className="font-medium text-gray-900 dark:text-white">{name}</p>
               <p className="text-xs text-gray-500">{(row as any).email || 'No email provided'}</p>
               <div className="mt-1">
-                {(row as any).source === 'app' ? (
+                {['app', 'client-app'].includes((row as any).source) ? (
                   <span className="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-[11px] font-bold text-green-700 dark:bg-green-500/10 dark:text-green-400">
                     📱 App User
                   </span>
@@ -200,6 +256,13 @@ export default function UsersPage() {
 
           const related = Array.from(usersById.values());
           const relatedUids = related.map((user) => user.uid).filter(Boolean);
+          const emailCandidates = new Set(
+            related.flatMap((user) => [user.email, (user as any).customerEmail]).map(normalizeEmail).filter(Boolean)
+          );
+          const phoneCandidates = new Set(
+            related.flatMap((user) => [user.phone, (user as any).phoneNumber, (user as any).customerPhone]).map(normalizePhone).filter(Boolean)
+          );
+          const uidCandidates = new Set(relatedUids.map(cleanText).filter(Boolean));
 
           const addressDocs = await Promise.all(
             relatedUids.map(async (uid) => {
@@ -224,7 +287,8 @@ export default function UsersPage() {
           addressDocs.flat().forEach((address) => {
             const addressText = getAddressText(address);
             if (!isRealAddress(addressText)) return;
-            addressesByKey.set(address.id || `${address.userId}-${addressText}`, address);
+            const coords = getAddressCoordinates(address);
+            addressesByKey.set(`${addressText.toLowerCase()}-${coords}`, address);
           });
           
           const paymentDocs = await Promise.all(
@@ -249,34 +313,36 @@ export default function UsersPage() {
           paymentDocs.flat().forEach((method) => {
             const normalized = normalizePaymentMethod(method);
             if (!normalized) return;
-            paymentByKey.set(normalized.id || `${normalized.userId}-${normalized.last4}`, normalized);
+            paymentByKey.set(`${normalized.brand}-${normalized.last4}-${normalized.expiry}`, normalized);
           });
 
-          // Fetch Orders. Customer order payloads use flat fields and legacy nested fields.
-          const orderQueries = [
-            ...relatedUids.flatMap((uid) => [
-              query(collection(db, COLLECTIONS.ORDERS), where('userId', '==', uid)),
-              query(collection(db, COLLECTIONS.ORDERS), where('customerId', '==', uid)),
-            ]),
-            ...(email ? [
-              query(collection(db, COLLECTIONS.ORDERS), where('customerEmail', '==', email)),
-              query(collection(db, COLLECTIONS.ORDERS), where('customer.email', '==', email)),
-            ] : []),
-            ...(phone ? [
-              query(collection(db, COLLECTIONS.ORDERS), where('customerPhone', '==', selectedUser.phone)),
-              query(collection(db, COLLECTIONS.ORDERS), where('customerPhone', '==', phone)),
-              query(collection(db, COLLECTIONS.ORDERS), where('customer.phone', '==', selectedUser.phone)),
-            ] : []),
-          ];
-          const orderSnapshots = await Promise.all(orderQueries.map((orderQuery) => getDocs(orderQuery).catch(() => null)));
+          // Fetch Orders. Customer order payloads vary by app generation, so normalize UID/email/phone client-side.
+          const orderSnapshots = await Promise.all([
+            getDocs(collection(db, COLLECTIONS.ORDERS)).catch(() => null),
+          ]);
           const ordersById = new Map<string, any>();
           orderSnapshots.forEach((orderSnap) => {
             orderSnap?.docs.forEach((orderDoc) => {
-              ordersById.set(orderDoc.id, { id: orderDoc.id, ...orderDoc.data() });
+              const order = { id: orderDoc.id, ...orderDoc.data() };
+              if (orderMatchesIdentity(order, uidCandidates, emailCandidates, phoneCandidates)) {
+                ordersById.set(orderDoc.id, order);
+              }
             });
           });
           const ordersData: any[] = Array.from(ordersById.values());
           ordersData.sort((a, b) => ((b.createdAt as any)?.toMillis?.() || 0) - ((a.createdAt as any)?.toMillis?.() || 0));
+          ordersData.forEach((order) => {
+            const orderAddress = getOrderAddress(order);
+            if (orderAddress) {
+              const addressText = getAddressText(orderAddress);
+              const coords = getAddressCoordinates(orderAddress);
+              addressesByKey.set(`${addressText.toLowerCase()}-${coords}`, orderAddress);
+            }
+            const orderPayment = getOrderPaymentMethod(order);
+            if (orderPayment) {
+              paymentByKey.set(`${orderPayment.brand}-${orderPayment.last4}-${orderPayment.expiry}`, orderPayment);
+            }
+          });
 
           setRelatedUsers(related);
           setUserPaymentMethods(Array.from(paymentByKey.values()));
@@ -368,23 +434,28 @@ export default function UsersPage() {
       {/* View/Edit Modal */}
       {modalMode && selectedUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-gray-800">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">
-              {modalMode === 'view' ? 'User Details' : 'Edit User Role'}
-            </h2>
+          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-gray-800">
+            <div className="border-b border-gray-200 px-6 py-5 dark:border-gray-700">
+              <p className="text-xs font-black uppercase tracking-[0.24em] text-brand-500">{modalMode === 'view' ? 'Customer profile' : 'Role management'}</p>
+              <h2 className="mt-1 text-2xl font-black text-gray-900 dark:text-white">
+                {modalMode === 'view' ? 'User Details' : 'Edit User Role'}
+              </h2>
+            </div>
             
-            <div className="space-y-4">
-              <div>
+            <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="rounded-xl bg-gray-50 p-4 dark:bg-gray-900/50">
                 <p className="text-sm text-gray-500 dark:text-gray-400">Name</p>
-                <p className="font-medium text-gray-900 dark:text-white">{(selectedUser as any).fullName || selectedUser.displayName || 'Unknown'}</p>
+                <p className="mt-1 break-words font-bold text-gray-900 dark:text-white">{(selectedUser as any).fullName || selectedUser.displayName || 'Unknown'}</p>
               </div>
-              <div>
+              <div className="rounded-xl bg-gray-50 p-4 dark:bg-gray-900/50">
                 <p className="text-sm text-gray-500 dark:text-gray-400">Email</p>
-                <p className="font-medium text-gray-900 dark:text-white">{(selectedUser as any).email || 'No email provided'}</p>
+                <p className="mt-1 break-words font-bold text-gray-900 dark:text-white">{(selectedUser as any).email || 'No email provided'}</p>
               </div>
-              <div>
+              <div className="rounded-xl bg-gray-50 p-4 dark:bg-gray-900/50">
                 <p className="text-sm text-gray-500 dark:text-gray-400">Phone</p>
-                <p className="font-medium text-gray-900 dark:text-white">{(selectedUser as any).phone || 'Not provided'}</p>
+                <p className="mt-1 break-words font-bold text-gray-900 dark:text-white">{(selectedUser as any).phone || 'Not provided'}</p>
+              </div>
               </div>
               
               {modalMode === 'view' ? (
@@ -438,8 +509,8 @@ export default function UsersPage() {
                     </div>
                   </div>
 
-                  <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Payment Methods</p>
+                  <div className="rounded-2xl border border-gray-200 p-4 dark:border-gray-700">
+                    <p className="text-sm font-bold text-gray-500 dark:text-gray-400 mb-2">Payment Methods</p>
                     {isLoadingPayments ? (
                       <div className="text-sm text-gray-400">Loading cards...</div>
                     ) : userPaymentMethods.length === 0 ? (
@@ -447,7 +518,7 @@ export default function UsersPage() {
                     ) : (
                       <div className="space-y-2 max-h-32 overflow-y-auto pr-2">
                         {userPaymentMethods.map(pm => (
-                          <div key={pm.id} className="flex items-center gap-3 bg-gray-50 dark:bg-gray-700/50 p-2.5 rounded-lg border border-gray-100 dark:border-gray-600">
+                          <div key={pm.id} className="flex items-center gap-3 bg-gray-50 dark:bg-gray-700/50 p-3 rounded-xl border border-gray-100 dark:border-gray-600">
                             <div className={`w-14 h-8 rounded-md flex items-center justify-center text-[10px] font-extrabold uppercase tracking-wider border shadow-sm ${getBrandColor(pm.brand)}`}>
                               {pm.brand}
                             </div>
@@ -462,14 +533,14 @@ export default function UsersPage() {
                     )}
                   </div>
 
-                  <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Order History</p>
+                  <div className="rounded-2xl border border-gray-200 p-4 dark:border-gray-700">
+                    <p className="text-sm font-bold text-gray-500 dark:text-gray-400 mb-2">Order History</p>
                     {userOrders.length === 0 ? (
                       <div className="text-sm text-gray-400 italic">No orders found for this user.</div>
                     ) : (
                       <div className="space-y-2 max-h-48 overflow-y-auto pr-2">
                         {userOrders.map(order => (
-                          <div key={order.id} className="flex justify-between items-center bg-gray-50 dark:bg-gray-700/50 p-2.5 rounded-lg border border-gray-100 dark:border-gray-600">
+                          <Link key={order.id} href={`/orders/${order.id}`} onClick={() => setModalMode(null)} className="flex justify-between items-center bg-gray-50 dark:bg-gray-700/50 p-3 rounded-xl border border-gray-100 transition hover:border-brand-200 hover:bg-brand-50/60 dark:border-gray-600 dark:hover:border-brand-500/40 dark:hover:bg-brand-500/10">
                             <div className="flex flex-col">
                               <span className="text-xs font-bold text-gray-900 dark:text-white">#{order.id.slice(0, 6).toUpperCase()}</span>
                               <span className="text-[10px] text-gray-500">{order.restaurantName || order.branchName || 'Restaurant'} • {formatDate(order.createdAt)}</span>
@@ -479,9 +550,9 @@ export default function UsersPage() {
                               <Badge variant={order.status === 'delivered' || order.status === 'Delivered' ? 'success' : 'info'} className="text-[10px] px-1.5 py-0 mb-1">
                                 {order.status}
                               </Badge>
-                              <span className="text-xs font-bold text-gray-900 dark:text-white">{new Intl.NumberFormat('ru-RU').format(order.totalAmount || 0)} UZS</span>
+                              <span className="text-xs font-bold text-gray-900 dark:text-white">{new Intl.NumberFormat('ru-RU').format(order.totalAmount || order.total || 0)} UZS</span>
                             </div>
-                          </div>
+                          </Link>
                         ))}
                       </div>
                     )}
@@ -502,7 +573,7 @@ export default function UsersPage() {
               )}
             </div>
 
-            <div className="mt-6 flex justify-end">
+            <div className="border-t border-gray-200 px-6 py-4 dark:border-gray-700 flex justify-end">
               <button 
                 onClick={() => setModalMode(null)}
                 className="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"

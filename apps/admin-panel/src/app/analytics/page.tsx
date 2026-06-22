@@ -49,6 +49,54 @@ function shortDayLabel(key: string): string {
   return new Date(`${key}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+function cleanText(value: unknown) {
+  return String(value || '').trim();
+}
+
+function cleanMoney(value: number) {
+  return formatCurrencyUZS(Math.round(Number.isFinite(value) ? value : 0));
+}
+
+function normalizePaymentLabel(order: Record<string, any>) {
+  const raw = order.paymentMethod ?? order.payment?.method ?? order.payment ?? order.paymentType;
+  if (!raw) return 'unknown';
+
+  if (typeof raw === 'string') {
+    const normalized = raw.trim().toLowerCase().replace(/[_-]+/g, ' ');
+    if (!normalized || normalized === '[object object]') return 'unknown';
+    if (['cod', 'cash on delivery'].includes(normalized)) return 'cash';
+    if (['saved card', 'saved_card', 'credit card', 'debit card'].includes(normalized)) return 'card';
+    return normalized;
+  }
+
+  if (typeof raw === 'object') {
+    const candidates = [
+      raw.provider,
+      raw.method,
+      raw.type,
+      raw.kind,
+      raw.paymentType,
+      raw.brand && (raw.type === 'CARD' || raw.last4) ? 'card' : '',
+    ].map(cleanText).filter(Boolean);
+    const value = (candidates[0] || 'unknown').toLowerCase().replace(/[_-]+/g, ' ');
+    if (['card', 'saved card', 'credit card', 'debit card'].includes(value)) return 'card';
+    if (['cash', 'cod', 'cash on delivery'].includes(value)) return 'cash';
+    return value;
+  }
+
+  return 'unknown';
+}
+
+function safeLineRevenue(item: Record<string, any>, quantity: number, orderRevenue: number) {
+  const maxReasonableFoodLineRevenue = 100_000_000;
+  const direct = Number(item.total ?? item.lineTotal ?? item.totalPrice);
+  const calculated = Number(item.price || 0) * quantity;
+  const candidate = Number.isFinite(direct) && direct >= 0 ? direct : calculated;
+  if (!Number.isFinite(candidate) || candidate < 0) return 0;
+  const orderCap = Number.isFinite(orderRevenue) && orderRevenue > 0 ? orderRevenue : 2_000_000;
+  return candidate <= Math.min(Math.max(orderCap, 2_000_000), maxReasonableFoodLineRevenue) ? candidate : 0;
+}
+
 export default function AnalyticsPage() {
   const [mounted, setMounted] = useState(false);
   const { theme, systemTheme } = useTheme();
@@ -108,7 +156,7 @@ export default function AnalyticsPage() {
           const order = documentSnapshot.data();
           const status = normalizeOrderStatus(order.status);
           const createdAt = toDate(order.createdAt);
-          const paymentMethod = String(order.paymentMethod || order.payment?.method || 'unknown');
+          const paymentMethod = normalizePaymentLabel(order);
           const restaurantName = String(order.brandName || order.restaurantName || order.branchName || 'Unknown branch');
           const orderRevenue = Number(order.totalAmount || order.total || 0);
           statusBreakdown[status] = (statusBreakdown[status] || 0) + 1;
@@ -129,7 +177,7 @@ export default function AnalyticsPage() {
             order.items.forEach((item: any) => {
               const name = String(item.name || item.title || item.id || 'Unknown product');
               const quantity = Number(item.quantity || item.qty || 1);
-              const itemRevenue = Number(item.price || 0) * quantity;
+              const itemRevenue = safeLineRevenue(item, quantity, orderRevenue);
               products[name] = products[name] || { name, quantity: 0, revenue: 0 };
               products[name].quantity += quantity;
               products[name].revenue += itemRevenue;
@@ -154,7 +202,7 @@ export default function AnalyticsPage() {
           users: usersSnap.size,
           orders: ordersSnap.size,
           restaurants: restaurantsSnap.size,
-          revenue,
+          revenue: Math.round(revenue),
           delivered,
           cancelled,
           chartLabels: dayKeys.map(shortDayLabel),
@@ -233,34 +281,34 @@ export default function AnalyticsPage() {
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Detailed performance metrics and live data.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-6">
-        <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
+        <div className="min-w-0 rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
           <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Users</p>
           <p className="mt-2 text-3xl font-bold text-gray-900 dark:text-white">{metrics.users}</p>
         </div>
-        <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+        <div className="min-w-0 rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
           <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Orders</p>
           <p className="mt-2 text-3xl font-bold text-brand-600 dark:text-brand-400">{metrics.orders}</p>
         </div>
-        <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+        <div className="min-w-0 rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
           <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Restaurants</p>
           <p className="mt-2 text-3xl font-bold text-gray-900 dark:text-white">{metrics.restaurants}</p>
         </div>
-        <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+        <div className="min-w-0 rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
           <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Delivered</p>
           <p className="mt-2 text-3xl font-bold text-success-600 dark:text-success-400">{metrics.delivered}</p>
         </div>
-        <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+        <div className="min-w-0 rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
           <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Completion Rate</p>
           <p className="mt-2 text-3xl font-bold text-gray-900 dark:text-white">{completionRate}%</p>
         </div>
-        <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+        <div className="min-w-0 rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
           <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Delivered Revenue</p>
-          <p className="mt-2 text-xl font-bold text-gray-900 dark:text-white">{formatCurrencyUZS(metrics.revenue)}</p>
+          <p className="mt-2 break-words text-2xl font-black leading-tight text-gray-900 dark:text-white">{cleanMoney(metrics.revenue)}</p>
         </div>
-        <div className="rounded-xl bg-white p-6 shadow-sm dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+        <div className="min-w-0 rounded-xl bg-white p-5 shadow-sm dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
           <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Average Order Value</p>
-          <p className="mt-2 text-xl font-bold text-gray-900 dark:text-white">{formatCurrencyUZS(metrics.averageOrderValue)}</p>
+          <p className="mt-2 break-words text-2xl font-black leading-tight text-gray-900 dark:text-white">{cleanMoney(metrics.averageOrderValue)}</p>
         </div>
       </div>
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[2fr_1fr]">
@@ -297,17 +345,17 @@ export default function AnalyticsPage() {
         <BreakdownCard title="Top Restaurants / Branches" empty="No restaurant order data yet." rows={metrics.topRestaurants.map((item) => ({
           label: item.name,
           value: `${item.orders} orders`,
-          detail: formatCurrencyUZS(item.revenue),
+          detail: cleanMoney(item.revenue),
         }))} />
         <BreakdownCard title="Top Products" empty="No product data yet." rows={metrics.topProducts.map((item) => ({
           label: item.name,
           value: `${item.quantity} sold`,
-          detail: formatCurrencyUZS(item.revenue),
+          detail: cleanMoney(item.revenue),
         }))} />
         <BreakdownCard title="Courier Performance" empty="No delivered courier data yet." rows={metrics.courierPerformance.map((item) => ({
           label: item.name,
           value: `${item.delivered} delivered`,
-          detail: formatCurrencyUZS(item.revenue),
+          detail: cleanMoney(item.revenue),
         }))} />
       </div>
       <BreakdownCard title="Payment Method Distribution" empty="No payment data yet." rows={Object.entries(metrics.paymentBreakdown).sort((a, b) => b[1] - a[1]).map(([label, count]) => ({

@@ -102,6 +102,24 @@ function createBranchOption(id: string, data: Record<string, unknown>): BranchOp
   };
 }
 
+function normalizeBranchIds(zone: Partial<DeliveryGeozone> & Record<string, unknown>) {
+  const raw = [
+    ...(Array.isArray(zone.branchIds) ? zone.branchIds : []),
+    ...(Array.isArray(zone.branches) ? zone.branches : []),
+    ...(Array.isArray(zone.restaurantIds) ? zone.restaurantIds : []),
+    zone.branchId,
+  ];
+
+  return Array.from(new Set(raw.map((item) => {
+    if (typeof item === 'string') return item;
+    if (item && typeof item === 'object') {
+      const record = item as Record<string, unknown>;
+      return asText(record.id, asText(record.uid, asText(record.branchId)));
+    }
+    return '';
+  }).filter(Boolean)));
+}
+
 function markerElement(index: number, color: string) {
   const element = document.createElement('div');
   element.style.cssText = `
@@ -286,10 +304,14 @@ export default function GeozonesPage() {
     try {
       setLoadError('');
       const snapshot = await getDocs(collection(db, GEOZONES_COLLECTION));
-      const nextZones = snapshot.docs.map((documentSnapshot) => ({
-        id: documentSnapshot.id,
-        ...documentSnapshot.data(),
-      })) as DeliveryGeozone[];
+      const nextZones = snapshot.docs.map((documentSnapshot) => {
+        const data = documentSnapshot.data() as Partial<DeliveryGeozone> & Record<string, unknown>;
+        return {
+          id: documentSnapshot.id,
+          ...data,
+          branchIds: normalizeBranchIds(data),
+        } as DeliveryGeozone;
+      });
       setZones(nextZones.sort((a, b) => a.name.localeCompare(b.name)));
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : 'Unable to load geozones.');
@@ -381,7 +403,7 @@ export default function GeozonesPage() {
       deliveryFee: String(zone.deliveryFee || ''),
       minOrder: String(zone.minOrder || ''),
       freeDeliveryThreshold: String(zone.freeDeliveryThreshold || ''),
-      branchIds: Array.isArray(zone.branchIds) ? zone.branchIds.map(String).filter(Boolean) : [],
+      branchIds: normalizeBranchIds(zone as DeliveryGeozone & Record<string, unknown>),
       polygon: Array.isArray(zone.polygon) ? zone.polygon : [],
     });
   };
@@ -424,12 +446,13 @@ export default function GeozonesPage() {
     setIsSaving(true);
     const zoneId = form.id || slugify(form.name);
     const before = zones.find((zone) => zone.id === zoneId);
+    const branchIds = Array.from(new Set(form.branchIds.map(String).filter(Boolean)));
     const payload = {
       name: form.name.trim(),
       status: form.status,
       color: form.color || DEFAULT_COLOR,
       polygon: validation.polygon,
-      branchIds: form.branchIds,
+      branchIds,
       deliveryFee: deliveryFee.value,
       minOrder: minOrder.value,
       freeDeliveryThreshold: freeDeliveryThreshold.value,
@@ -449,7 +472,18 @@ export default function GeozonesPage() {
         after: payload as Record<string, unknown>,
       });
       toast.success(before ? 'Geozone updated' : 'Geozone created');
-      resetForm();
+      setPointDrafts({});
+      setForm({
+        id: zoneId,
+        name: payload.name,
+        status: payload.status,
+        color: payload.color,
+        deliveryFee: String(payload.deliveryFee ?? ''),
+        minOrder: String(payload.minOrder ?? ''),
+        freeDeliveryThreshold: payload.freeDeliveryThreshold === null ? '' : String(payload.freeDeliveryThreshold ?? ''),
+        branchIds,
+        polygon: validation.polygon,
+      });
       await loadZones();
     } catch (error) {
       console.error('Failed to save geozone:', error);
@@ -477,6 +511,7 @@ export default function GeozonesPage() {
         after: { status: 'archived' },
       });
       toast.success('Geozone archived');
+      if (form.id === zone.id) resetForm();
       await loadZones();
     } catch (error) {
       console.error('Failed to archive geozone:', error);
@@ -533,6 +568,9 @@ export default function GeozonesPage() {
             <label className="text-sm font-bold text-gray-700 dark:text-gray-200">
               Free delivery threshold
               <input inputMode="numeric" value={form.freeDeliveryThreshold} onChange={(event) => setForm({ ...form, freeDeliveryThreshold: event.target.value })} className="mt-2 w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 outline-none dark:border-gray-700 dark:bg-gray-900" />
+              <span className="mt-1 block text-xs font-semibold text-gray-500">
+                Orders at or above this amount receive free delivery.
+              </span>
             </label>
             <div className="text-sm font-bold text-gray-700 dark:text-gray-200 md:col-span-2">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -602,12 +640,12 @@ export default function GeozonesPage() {
                 </div>
               )}
               {selectedBranchLabels.length ? (
-                <p className="mt-2 text-xs font-semibold text-gray-500">
+                <p className="mt-2 rounded-lg bg-green-50 px-3 py-2 text-xs font-semibold text-green-700 dark:bg-green-900/20 dark:text-green-200">
                   Zone applies to: {selectedBranchLabels.join(', ')}
                 </p>
               ) : (
-                <p className="mt-2 text-xs font-semibold text-orange-600">
-                  No branches selected. This zone will not be tied to restaurant branches until you select them.
+                <p className="mt-2 rounded-lg bg-orange-50 px-3 py-2 text-xs font-semibold text-orange-700 dark:bg-orange-900/20 dark:text-orange-200">
+                  Select at least one branch to use this zone for branch-specific delivery pricing.
                 </p>
               )}
             </div>
@@ -678,6 +716,7 @@ export default function GeozonesPage() {
                       </div>
                       <p className="mt-2 text-sm text-gray-500">
                         {zone.polygon?.length || 0} points · fee {formatCurrencyUZS(zone.deliveryFee || 0)} · min {formatCurrencyUZS(zone.minOrder || 0)}
+                        {zone.freeDeliveryThreshold ? ` · free from ${formatCurrencyUZS(zone.freeDeliveryThreshold)}` : ''}
                       </p>
                       {zone.branchIds?.length ? (
                         <p className="mt-1 text-xs font-semibold text-gray-400">
@@ -693,6 +732,24 @@ export default function GeozonesPage() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+            {zones.length - activeZones.length > 0 && (
+              <div className="border-t border-gray-200 p-5 dark:border-gray-700">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-gray-400">Archived</p>
+                <div className="mt-3 space-y-2">
+                  {zones.filter((zone) => zone.status === 'archived').map((zone) => (
+                    <div key={zone.id} className="rounded-xl bg-gray-50 px-4 py-3 text-sm dark:bg-gray-900">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-black text-gray-700 dark:text-gray-200">{zone.name}</span>
+                        <span className="rounded-full bg-gray-200 px-2 py-1 text-[10px] font-black uppercase text-gray-600 dark:bg-gray-700 dark:text-gray-300">Archived</span>
+                      </div>
+                      <p className="mt-1 text-xs font-semibold text-gray-500">
+                        {zone.branchIds?.length ? `Branches: ${zone.branchIds.map((branchId) => branchLabelById.get(branchId) || branchId).join(', ')}` : 'No branches assigned'}
+                      </p>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
           </div>

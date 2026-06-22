@@ -10,7 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import MapView, { Region } from 'react-native-maps';
+import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -60,10 +60,54 @@ export default function AddressesScreen() {
 
   // Map Picker State
   const [showMap, setShowMap] = useState(params.openMap === 'true');
-  const [mapRegion, setMapRegion] = useState<Region>({ latitude: 41.2995, longitude: 69.2401, latitudeDelta: 0.01, longitudeDelta: 0.01 });
+  const [mapRegion, setMapRegion] = useState({ latitude: 41.2995, longitude: 69.2401 });
   const [mapLoading, setMapLoading] = useState(false);
   const [mapResolvedAddress, setMapResolvedAddress] = useState('Move map to location');
-  const mapRef = useRef<MapView>(null);
+  const webViewRef = useRef<WebView>(null);
+  const resolveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const yandexMapHTML = (initialLat: number, initialLng: number) => {
+    const apiKey = process.env.EXPO_PUBLIC_YANDEX_MAPS_API_KEY || '';
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background-color: #1a1a1c; }
+        #map { width: 100%; height: 100%; }
+    </style>
+    <script src="https://api-maps.yandex.ru/2.1/?apikey=${apiKey}&lang=en_RU" type="text/javascript"></script>
+</head>
+<body>
+    <div id="map"></div>
+    <script>
+        ymaps.ready(init);
+        var myMap;
+        function init() {
+            myMap = new ymaps.Map("map", {
+                center: [${initialLat}, ${initialLng}],
+                zoom: 16,
+                controls: []
+            });
+
+            myMap.events.add('boundschange', function (e) {
+                var center = e.get('newCenter');
+                window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'move', lat: center[0], lng: center[1] }));
+            });
+            window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'ready', lat: ${initialLat}, lng: ${initialLng} }));
+        }
+
+        window.updateCenter = function(lat, lng) {
+            if (myMap) {
+                myMap.setCenter([lat, lng], 16, { duration: 300 });
+            }
+        };
+    </script>
+</body>
+</html>
+  `;
+  };
 
   useEffect(() => {
     if (params.openMap === 'true') {
@@ -116,12 +160,28 @@ export default function AddressesScreen() {
     }
   };
 
-  const resolveMapRegion = async (region: Region) => {
-    setMapRegion(region);
+  const resolveMapRegion = async (latitude: number, longitude: number) => {
+    setMapRegion({ latitude, longitude });
     setMapLoading(true);
-    const resolved = await fetchYandexAddress(region.latitude, region.longitude);
-    setMapResolvedAddress(resolved);
-    setMapLoading(false);
+
+    if (resolveTimeoutRef.current) clearTimeout(resolveTimeoutRef.current);
+
+    resolveTimeoutRef.current = setTimeout(async () => {
+      const resolved = await fetchYandexAddress(latitude, longitude);
+      setMapResolvedAddress(resolved);
+      setMapLoading(false);
+    }, 800);
+  };
+
+  const onWebViewMessage = (event: WebViewMessageEvent) => {
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      if (data.event === 'move' || data.event === 'ready') {
+        resolveMapRegion(data.lat, data.lng);
+      }
+    } catch (e) {
+      console.warn('WebView message error:', e);
+    }
   };
 
   const jumpToCurrentLocation = async () => {
@@ -133,15 +193,10 @@ export default function AddressesScreen() {
         return;
       }
       const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      const newRegion = {
-        latitude: current.coords.latitude,
-        longitude: current.coords.longitude,
-        latitudeDelta: 0.005,
-        longitudeDelta: 0.005,
-      };
-      setMapRegion(newRegion);
-      mapRef.current?.animateToRegion(newRegion, 500);
-      const resolved = await fetchYandexAddress(newRegion.latitude, newRegion.longitude);
+      setMapRegion({ latitude: current.coords.latitude, longitude: current.coords.longitude });
+      // Tell webview to move map
+      webViewRef.current?.injectJavaScript(`window.updateCenter(${current.coords.latitude}, ${current.coords.longitude}); true;`);
+      const resolved = await fetchYandexAddress(current.coords.latitude, current.coords.longitude);
       setMapResolvedAddress(resolved);
     } catch (error) {
       console.error('GPS Jump failed:', error instanceof Error ? error.message : String(error));
@@ -387,14 +442,15 @@ export default function AddressesScreen() {
 
       <Modal visible={showMap} animationType="slide" transparent>
         <View className="flex-1 bg-[#1a1a1c]">
-          <MapView
-            ref={mapRef}
-            style={{ flex: 1 }}
-            initialRegion={mapRegion}
-            onRegionChangeComplete={resolveMapRegion}
-            userInterfaceStyle="dark"
-            mapType="mutedStandard"
-            showsUserLocation={false}
+          <WebView
+            ref={webViewRef}
+            style={{ flex: 1, backgroundColor: '#1a1a1c' }}
+            source={{ html: yandexMapHTML(mapRegion.latitude, mapRegion.longitude) }}
+            onMessage={onWebViewMessage}
+            scrollEnabled={false}
+            bounces={false}
+            showsHorizontalScrollIndicator={false}
+            showsVerticalScrollIndicator={false}
           />
           {/* Transparent Gradient Overlay at Top */}
           <View className="absolute top-0 w-full h-40 bg-black/40" pointerEvents="none" />
@@ -409,24 +465,26 @@ export default function AddressesScreen() {
           </SafeAreaView>
 
           <SafeAreaView className="absolute top-24 w-full px-8 pointer-events-none items-center">
-            <Text className="text-2xl font-black text-white text-center shadow-md drop-shadow-md" numberOfLines={2}>
-              {mapLoading ? 'Locating...' : mapResolvedAddress}
-            </Text>
+            <View className="rounded-2xl bg-black/80 px-6 py-4 shadow-xl border border-white/10 w-full">
+              <Text className="text-xl font-black text-white text-center" numberOfLines={2}>
+                {mapLoading ? 'Locating...' : mapResolvedAddress}
+              </Text>
+            </View>
           </SafeAreaView>
 
           {/* Custom Yandex-style Pin Overlay */}
           <View className="absolute top-1/2 left-1/2 -ml-4 -mt-10 items-center" pointerEvents="none">
-            <View className="h-8 w-8 rounded-full bg-[#f97316] items-center justify-center shadow-lg border-2 border-white">
-              <View className="h-2.5 w-2.5 rounded-full bg-white" />
+            <View className="h-10 w-10 rounded-full bg-[#f97316] items-center justify-center shadow-lg border-4 border-white">
+              <View className="h-2 w-2 rounded-full bg-white" />
             </View>
-            <View className="h-3 w-0.5 bg-[#f97316]" />
-            <View className="h-1.5 w-1.5 rounded-full bg-[#f97316]" />
+            <View className="h-4 w-1 bg-white/80 rounded-b-sm" />
+            <View className="h-2 w-4 rounded-full bg-black/30 mt-0.5" />
           </View>
 
           {/* Floating Actions */}
-          <View className="absolute right-5 bottom-32 gap-3">
-            <TouchableOpacity onPress={jumpToCurrentLocation} className="h-12 w-12 items-center justify-center rounded-full bg-[#202022] shadow-xl border border-white/10">
-              <Ionicons name="navigate" size={22} color="#fff" />
+          <View className="absolute right-5 bottom-36 gap-3">
+            <TouchableOpacity onPress={jumpToCurrentLocation} className="h-14 w-14 items-center justify-center rounded-full bg-white shadow-xl border border-gray-100">
+              <Ionicons name="navigate" size={24} color="#111827" />
             </TouchableOpacity>
           </View>
 
@@ -434,14 +492,14 @@ export default function AddressesScreen() {
           <SafeAreaView className="absolute bottom-0 w-full bg-[#1a1a1c] p-5 pb-8 rounded-t-3xl border-t border-white/10">
             <TouchableOpacity
               onPress={confirmMapLocation}
-              disabled={mapLoading}
+              disabled={mapLoading || !isReadableAddress(mapResolvedAddress)}
               activeOpacity={0.85}
-              className={`w-full items-center justify-center rounded-2xl py-4 ${mapLoading ? 'bg-[#f9d923]/50' : 'bg-[#f9d923]'}`}
+              className={`w-full items-center justify-center rounded-2xl py-4 ${mapLoading || !isReadableAddress(mapResolvedAddress) ? 'bg-[#f9d923]/40' : 'bg-[#f9d923]'}`}
             >
-              {mapLoading ? (
+              {saving ? (
                 <ActivityIndicator color="#111827" />
               ) : (
-                <Text className="font-black text-gray-950 text-lg">Done</Text>
+                <Text className={`font-black text-lg ${mapLoading || !isReadableAddress(mapResolvedAddress) ? 'text-gray-600' : 'text-gray-950'}`}>Done</Text>
               )}
             </TouchableOpacity>
           </SafeAreaView>

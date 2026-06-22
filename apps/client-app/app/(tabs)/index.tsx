@@ -25,6 +25,7 @@ import {
   isTerminalOrderStatus,
 } from '@repo/shared-types';
 import { useAuth } from '../../context/AuthContext';
+import { clientUserDocumentPatch } from '../../services/clientUserProfile';
 
 const CATEGORIES = [
   { label: 'All', icon: 'apps-outline' as const },
@@ -286,6 +287,7 @@ export default function HomeScreen() {
       const addressRef = await addDoc(collection(db, COLLECTIONS.USERS, uid, 'addresses'), payload);
       const nextAddress = { id: addressRef.id, ...payload };
       await setDoc(doc(db, COLLECTIONS.USERS, uid), {
+        ...clientUserDocumentPatch(user, profile),
         savedAddresses: [...savedAddresses.map(({ id, ...address }) => ({ id, ...address })), nextAddress],
         ...(isDefault ? { defaultAddress: addressText, address: addressText } : {}),
         updatedAt: new Date().toISOString(),
@@ -316,6 +318,7 @@ export default function HomeScreen() {
         )
       );
       await setDoc(doc(db, COLLECTIONS.USERS, uid), {
+        ...clientUserDocumentPatch(user, profile),
         savedAddresses: savedAddresses.map((savedAddress) => ({
           ...savedAddress,
           isDefault: savedAddress.id === address.id,

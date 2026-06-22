@@ -31,6 +31,7 @@ import {
 } from '@repo/shared-types';
 import { useAuthStore } from '../stores/authStore';
 import { useCartStore } from '../stores/cartStore';
+import { ensureClientUserDocument } from '../services/clientUserProfile';
 
 const TASHKENT = { latitude: 41.311081, longitude: 69.240562 };
 
@@ -215,6 +216,13 @@ export default function CheckoutScreen() {
         ? { latitude: location.coords.latitude, longitude: location.coords.longitude }
         : TASHKENT;
       const calculatedTotal = subtotal + latestFee;
+      await ensureClientUserDocument(firebaseUser, {
+        uid: firebaseUser.uid,
+        displayName: customerName,
+        email: firebaseUser.email || user?.email || '',
+        phone: customerPhone,
+        photoURL: user?.photoURL || firebaseUser.photoURL || '',
+      });
 
       const orderRef = await addDoc(collection(db, COLLECTIONS.ORDERS), {
         userId: firebaseUser.uid,

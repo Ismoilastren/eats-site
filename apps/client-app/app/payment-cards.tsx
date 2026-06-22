@@ -22,6 +22,7 @@ import {
 } from '@repo/firebase-config';
 import { COLLECTIONS } from '@repo/shared-types';
 import { useAuth } from '../context/AuthContext';
+import { clientUserDocumentPatch } from '../services/clientUserProfile';
 
 type PaymentCard = {
   id: string;
@@ -160,6 +161,7 @@ export default function PaymentCardsScreen() {
 
       const cardRef = await addDoc(collection(db, COLLECTIONS.USERS, uid, 'paymentMethods'), nextCard);
       await setDoc(doc(db, COLLECTIONS.USERS, uid), {
+        ...clientUserDocumentPatch(user, profile),
         paymentMethods: [
           ...cards.map(({ id, ...card }) => ({ id, ...card })),
           { id: cardRef.id, ...nextCard },
@@ -190,6 +192,7 @@ export default function PaymentCardsScreen() {
           try {
             await deleteDoc(doc(db, COLLECTIONS.USERS, uid, 'paymentMethods', cardId));
             await setDoc(doc(db, COLLECTIONS.USERS, uid), {
+              ...clientUserDocumentPatch(user, profile),
               paymentMethods: cards
                 .filter((card) => card.id !== cardId)
                 .map(({ id, ...card }) => ({ id, ...card })),

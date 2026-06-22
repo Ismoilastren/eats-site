@@ -23,6 +23,7 @@ import {
 } from '@repo/firebase-config';
 import { COLLECTIONS } from '@repo/shared-types';
 import { useAuth } from '../context/AuthContext';
+import { clientUserDocumentPatch } from '../services/clientUserProfile';
 
 type SavedAddress = {
   id: string;
@@ -152,6 +153,7 @@ export default function AddressesScreen() {
 
       const addressRef = await addDoc(collection(db, COLLECTIONS.USERS, uid, 'addresses'), payload);
       await setDoc(doc(db, COLLECTIONS.USERS, uid), {
+        ...clientUserDocumentPatch(user, profile),
         savedAddresses: [
           ...addresses.map(({ id, ...address }) => ({ id, ...address })),
           { id: addressRef.id, ...payload },
@@ -185,6 +187,7 @@ export default function AddressesScreen() {
               .filter((address) => address.id !== addressId)
               .map(({ id, ...address }) => ({ id, ...address }));
             await setDoc(doc(db, COLLECTIONS.USERS, uid), {
+              ...clientUserDocumentPatch(user, profile),
               savedAddresses: nextAddresses,
               defaultAddress: nextAddresses.find((address) => address.isDefault)?.address || nextAddresses[0]?.address || '',
               address: nextAddresses.find((address) => address.isDefault)?.address || nextAddresses[0]?.address || '',

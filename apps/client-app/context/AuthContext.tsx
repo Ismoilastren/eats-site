@@ -10,6 +10,7 @@ import {
   type FirebaseUser,
 } from '@repo/firebase-config';
 import { COLLECTIONS } from '@repo/shared-types';
+import { ensureClientUserDocument } from '../services/clientUserProfile';
 import { useAuthStore } from '../stores/authStore';
 import { useCartStore } from '../stores/cartStore';
 
@@ -91,6 +92,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
 
       setProfile(fallbackProfile);
+      ensureClientUserDocument(firebaseUser, fallbackProfile).catch((error) => {
+        console.warn('Failed to ensure client user document:', error);
+      });
       setStoreUser({
         uid: fallbackProfile.uid,
         displayName: fallbackProfile.displayName,
@@ -107,6 +111,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       toClientProfile(firebaseUser)
         .then((hydratedProfile) => {
           setProfile(hydratedProfile);
+          ensureClientUserDocument(firebaseUser, hydratedProfile).catch((error) => {
+            console.warn('Failed to update client user document:', error);
+          });
           setStoreUser({
             uid: hydratedProfile.uid,
             displayName: hydratedProfile.displayName,

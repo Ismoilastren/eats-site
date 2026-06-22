@@ -479,9 +479,9 @@ export default function NativeOrderTrackingScreen() {
   // (no useEffect for showReview — derived state handles it below)
 
   const points = useMemo(() => {
-    if (!order) return { restaurant: TASHKENT, customer: TASHKENT, courier: null as null | typeof TASHKENT };
+    if (!order) return { restaurant: TASHKENT, customer: null as null | typeof TASHKENT, courier: null as null | typeof TASHKENT };
     const restaurant = normalizeCoordinate(order.restaurantLocation) || TASHKENT;
-    const customer = normalizeCoordinate((order as any).deliveryLocation) || normalizeCoordinate((order as any).customerLocation) || TASHKENT;
+    const customer = normalizeCoordinate((order as any).deliveryLocation) || normalizeCoordinate((order as any).customerLocation);
     const assigned = !!order.assignedCourier?.id;
     const courier = assigned ? normalizeCoordinate(order.courierLocation || (order as any).courier?.location) : null;
     return { restaurant, customer, courier };

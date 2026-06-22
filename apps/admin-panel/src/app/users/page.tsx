@@ -474,7 +474,7 @@ export default function UsersPage() {
                                   // Brute-force extraction matching Client schema
                                   const labelName = addr.label || addr.title || addr.type || 'Saved Location';
                                   const addressText = getAddressText(addr) || 'Details unavailable';
-                                  const coords = getAddressCoordinates(addr);
+                                  const hasCoordinates = Boolean(getAddressCoordinates(addr));
                                   
                                   return (
                                       <li key={idx} className="bg-gray-50 dark:bg-gray-900/50 p-2.5 rounded border border-gray-100 dark:border-gray-700 flex flex-col gap-1">
@@ -482,7 +482,7 @@ export default function UsersPage() {
                                             {labelName}{addr.isDefault ? ' • Default' : ''}
                                           </span>
                                           <span className="text-sm text-gray-900 dark:text-gray-200">{addressText}</span>
-                                          {coords && <span className="text-[10px] text-gray-400">{coords}</span>}
+                                          {hasCoordinates && <span className="text-[10px] text-gray-400">Map pin saved</span>}
                                       </li>
                                   );
                               })}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 const TASHKENT_BBOX = '69.1200,41.1900~69.4200,41.4200';
+const REVERSE_KINDS = [undefined, 'house', 'street', 'district', 'locality'] as const;
 
 type YandexGeoObject = {
   name?: string;
@@ -19,6 +20,8 @@ function geocoderErrorMessage(code: string) {
       return 'Yandex geocoder timed out.';
     case 'INVALID_COORDINATES':
       return 'Valid coordinates are required.';
+    case 'ADDRESS_NOT_RESOLVED':
+      return 'Address not resolved';
     default:
       return 'Yandex geocoder is temporarily unavailable.';
   }
@@ -68,6 +71,68 @@ function errorResponse(code: string, status = 502) {
   }, { status });
 }
 
+function isValidLatitude(value: number) {
+  return Number.isFinite(value) && value >= -90 && value <= 90;
+}
+
+function isValidLongitude(value: number) {
+  return Number.isFinite(value) && value >= -180 && value <= 180;
+}
+
+function buildYandexParams({
+  apiKey,
+  query,
+  lat,
+  lng,
+  reverseKind,
+}: {
+  apiKey: string;
+  query: string;
+  lat?: number;
+  lng?: number;
+  reverseKind?: typeof REVERSE_KINDS[number];
+}) {
+  const isReverse = typeof lat === 'number' && typeof lng === 'number';
+  const params = new URLSearchParams({
+    apikey: apiKey,
+    format: 'json',
+    lang: 'en_US',
+    geocode: isReverse ? `${lng},${lat}` : `${query}, Tashkent`,
+    results: isReverse ? '1' : '5',
+  });
+
+  if (isReverse) {
+    params.set('sco', 'longlat');
+    if (reverseKind) params.set('kind', reverseKind);
+  } else {
+    params.set('bbox', TASHKENT_BBOX);
+    params.set('rspn', '1');
+  }
+
+  return params;
+}
+
+async function requestYandex(params: URLSearchParams) {
+  const response = await fetch(`https://geocode-maps.yandex.ru/1.x/?${params.toString()}`, {
+    cache: 'no-store',
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(7000),
+  });
+
+  if (!response.ok) {
+    return {
+      response,
+      results: [],
+    };
+  }
+
+  const data = await response.json();
+  return {
+    response,
+    results: parseYandexResponse(data),
+  };
+}
+
 export async function GET(request: NextRequest) {
   const apiKey = process.env.YANDEX_GEOCODER_API_KEY;
   if (!apiKey) {
@@ -84,7 +149,7 @@ export async function GET(request: NextRequest) {
   const hasCoordinates = Boolean(latParam?.trim() && lngParam?.trim());
   const lat = hasCoordinates ? Number(latParam) : NaN;
   const lng = hasCoordinates ? Number(lngParam) : NaN;
-  const isReverse = hasCoordinates && Number.isFinite(lat) && Number.isFinite(lng);
+  const isReverse = hasCoordinates && isValidLatitude(lat) && isValidLongitude(lng);
 
   if (hasCoordinates && !isReverse) {
     return errorResponse('INVALID_COORDINATES', 400);
@@ -98,53 +163,53 @@ export async function GET(request: NextRequest) {
     }, { status: 400 });
   }
 
-  const params = new URLSearchParams({
-    apikey: apiKey,
-    format: 'json',
-    lang: 'en_US',
-    geocode: isReverse ? `${lng},${lat}` : `${query}, Tashkent`,
-    results: isReverse ? '1' : '5',
-  });
-
-  if (!isReverse) {
-    params.set('bbox', TASHKENT_BBOX);
-    params.set('rspn', '1');
-  }
-
   try {
-    const response = await fetch(`https://geocode-maps.yandex.ru/1.x/?${params.toString()}`, {
-      cache: 'no-store',
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(7000),
-    });
+    if (isReverse) {
+      let rejectedStatus: number | null = null;
+      for (const reverseKind of REVERSE_KINDS) {
+        const params = buildYandexParams({ apiKey, query, lat, lng, reverseKind });
+        const { response, results } = await requestYandex(params);
+
+        if (!response.ok) {
+          rejectedStatus = response.status;
+          break;
+        }
+
+        const result = results[0];
+        if (result) {
+          return NextResponse.json({
+            ok: true,
+            address: result.address,
+            lat: result.lat,
+            lng: result.lng,
+            source: result.source,
+          });
+        }
+      }
+
+      if (rejectedStatus !== null) {
+        return errorResponse(
+          rejectedStatus === 403 ? 'YANDEX_GEOCODER_FORBIDDEN' : 'YANDEX_GEOCODER_REJECTED',
+          rejectedStatus === 403 ? 403 : 502,
+        );
+      }
+
+      console.warn('Yandex reverse geocode returned no address', {
+        lat: Number(lat.toFixed(5)),
+        lng: Number(lng.toFixed(5)),
+      });
+
+      return errorResponse('ADDRESS_NOT_RESOLVED', 404);
+    }
+
+    const params = buildYandexParams({ apiKey, query });
+    const { response, results } = await requestYandex(params);
 
     if (!response.ok) {
       return errorResponse(
         response.status === 403 ? 'YANDEX_GEOCODER_FORBIDDEN' : 'YANDEX_GEOCODER_REJECTED',
         response.status === 403 ? 403 : 502,
       );
-    }
-
-    const data = await response.json();
-    const results = parseYandexResponse(data);
-
-    if (isReverse) {
-      const result = results[0];
-      if (!result) {
-        return NextResponse.json({
-          ok: false,
-          error: 'Yandex geocoder did not return a readable address.',
-          errorCode: 'ADDRESS_NOT_RESOLVED',
-        }, { status: 404 });
-      }
-
-      return NextResponse.json({
-        ok: true,
-        address: result.address,
-        lat: result.lat,
-        lng: result.lng,
-        source: result.source,
-      });
     }
 
     return NextResponse.json({

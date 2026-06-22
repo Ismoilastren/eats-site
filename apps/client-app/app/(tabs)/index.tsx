@@ -721,7 +721,10 @@ export default function HomeScreen() {
             </ScrollView>
 
             <TouchableOpacity
-              onPress={() => setShowDeliveryTimeModal(true)}
+              onPress={() => {
+                setShowAddressModal(false);
+                setShowDeliveryTimeModal(true);
+              }}
               activeOpacity={0.85}
               className="mt-2 mb-4 flex-row items-center justify-between rounded-2xl bg-white/5 p-4"
             >
@@ -777,25 +780,40 @@ export default function HomeScreen() {
             <TouchableOpacity
               onPress={() => {
                 setDeliveryTime('ASAP');
-                setShowDeliveryTimeModal(false);
               }}
               activeOpacity={0.85}
               className="mb-3 flex-row items-center justify-between rounded-2xl bg-white/5 p-4"
             >
-              <Text className="text-base font-bold text-white">ASAP (around 30 min)</Text>
+              <View className="flex-row items-center">
+                <View className="mr-3 h-10 w-10 items-center justify-center rounded-2xl bg-[#f9d923]/15">
+                  <Ionicons name="flash" size={20} color="#f9d923" />
+                </View>
+                <View>
+                  <Text className="text-base font-bold text-white">ASAP</Text>
+                  <Text className="mt-0.5 text-xs font-semibold text-gray-400">Around 30 minutes</Text>
+                </View>
+              </View>
               {deliveryTime === 'ASAP' && <Ionicons name="checkmark" size={24} color="#f9d923" />}
             </TouchableOpacity>
 
-            <TouchableOpacity
-              onPress={() => {
-                Alert.alert('Coming Soon', 'Scheduled delivery is currently disabled. Please select ASAP.');
-              }}
-              activeOpacity={0.85}
-              className="mb-4 flex-row items-center justify-between rounded-2xl bg-white/5 p-4 opacity-50"
-            >
-              <Text className="text-base font-bold text-white">Schedule for later</Text>
-              <Ionicons name="calendar-outline" size={22} color="#fff" />
-            </TouchableOpacity>
+            <View className="mb-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4 opacity-70">
+              <View className="flex-row items-center justify-between">
+                <View className="flex-row items-center">
+                  <View className="mr-3 h-10 w-10 items-center justify-center rounded-2xl bg-white/5">
+                    <Ionicons name="calendar-outline" size={20} color="#9ca3af" />
+                  </View>
+                  <View>
+                    <Text className="text-base font-bold text-white">Schedule for later</Text>
+                    <Text className="mt-0.5 text-xs font-semibold text-gray-400">
+                      Scheduled delivery is coming soon
+                    </Text>
+                  </View>
+                </View>
+                <View className="rounded-full bg-white/10 px-3 py-1">
+                  <Text className="text-xs font-black text-gray-300">Soon</Text>
+                </View>
+              </View>
+            </View>
 
             <TouchableOpacity
               onPress={() => setShowDeliveryTimeModal(false)}

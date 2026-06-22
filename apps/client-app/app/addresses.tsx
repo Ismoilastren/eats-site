@@ -4,6 +4,7 @@ import {
   Alert,
   FlatList,
   Modal,
+  Platform,
   SafeAreaView,
   Text,
   TextInput,
@@ -112,8 +113,16 @@ export default function AddressesScreen() {
     <script>
         var myMap;
         var suppressMoveUntil = 0;
+        function send(data) {
+            var message = JSON.stringify(data);
+            if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                window.ReactNativeWebView.postMessage(message);
+            } else if (window.parent && window.parent !== window) {
+                window.parent.postMessage(message, '*');
+            }
+        }
         if (!window.ymaps) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'error', message: 'Yandex Maps script failed to load.' }));
+            send({ event: 'error', message: 'Yandex Maps script failed to load.' });
         } else {
             ymaps.ready(init);
         }
@@ -127,9 +136,9 @@ export default function AddressesScreen() {
             myMap.events.add('boundschange', function (e) {
                 if (Date.now() < suppressMoveUntil) return;
                 var center = e.get('newCenter');
-                window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'move', lat: center[0], lng: center[1] }));
+                send({ event: 'move', lat: center[0], lng: center[1] });
             });
-            window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'ready', lat: ${initialLat}, lng: ${initialLng} }));
+            send({ event: 'ready', lat: ${initialLat}, lng: ${initialLng} });
         }
 
         window.updateCenter = function(lat, lng, skipMoveEvent) {
@@ -150,6 +159,21 @@ export default function AddressesScreen() {
       setShowMap(true);
     }
   }, [params.openMap]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !showMap) return undefined;
+
+    const webWindow = globalThis as unknown as {
+      addEventListener?: (type: string, listener: (event: any) => void) => void;
+      removeEventListener?: (type: string, listener: (event: any) => void) => void;
+    };
+    const listener = (event: any) => {
+      handleMapPayload(event.data);
+    };
+
+    webWindow.addEventListener?.('message', listener);
+    return () => webWindow.removeEventListener?.('message', listener);
+  }, [showMap]);
 
   useEffect(() => {
     if (!uid) {
@@ -239,9 +263,9 @@ export default function AddressesScreen() {
     }, MAP_RESOLVE_DEBOUNCE_MS);
   };
 
-  const onWebViewMessage = (event: WebViewMessageEvent) => {
+  const handleMapPayload = (payload: unknown) => {
     try {
-      const data = JSON.parse(event.nativeEvent.data);
+      const data = typeof payload === 'string' ? JSON.parse(payload) : payload;
       if (data.event === 'move' || data.event === 'ready') {
         resolveMapRegion(data.lat, data.lng);
       } else if (data.event === 'error') {
@@ -251,6 +275,10 @@ export default function AddressesScreen() {
     } catch (e) {
       console.warn('WebView message error:', e);
     }
+  };
+
+  const onWebViewMessage = (event: WebViewMessageEvent) => {
+    handleMapPayload(event.nativeEvent.data);
   };
 
   const jumpToCurrentLocation = async () => {
@@ -611,16 +639,32 @@ export default function AddressesScreen() {
       <Modal visible={showMap} animationType="slide" transparent>
         <View className="flex-1 bg-[#1a1a1c]">
           {publicYandexMapsApiKey() ? (
-            <WebView
-              ref={webViewRef}
-              style={{ flex: 1, backgroundColor: '#1a1a1c' }}
-              source={{ html: yandexMapHTML(mapRegion.latitude, mapRegion.longitude) }}
-              onMessage={onWebViewMessage}
-              scrollEnabled={false}
-              bounces={false}
-              showsHorizontalScrollIndicator={false}
-              showsVerticalScrollIndicator={false}
-            />
+            Platform.OS === 'web' ? (
+              <View style={{ flex: 1, backgroundColor: '#1a1a1c' }}>
+                {React.createElement('iframe' as any, {
+                  srcDoc: yandexMapHTML(mapRegion.latitude, mapRegion.longitude),
+                  title: 'Yandex address picker',
+                  style: {
+                    border: 0,
+                    width: '100%',
+                    height: '100%',
+                    display: 'block',
+                    backgroundColor: '#1a1a1c',
+                  },
+                })}
+              </View>
+            ) : (
+              <WebView
+                ref={webViewRef}
+                style={{ flex: 1, backgroundColor: '#1a1a1c' }}
+                source={{ html: yandexMapHTML(mapRegion.latitude, mapRegion.longitude) }}
+                onMessage={onWebViewMessage}
+                scrollEnabled={false}
+                bounces={false}
+                showsHorizontalScrollIndicator={false}
+                showsVerticalScrollIndicator={false}
+              />
+            )
           ) : (
             <View className="flex-1 items-center justify-center px-8">
               <Ionicons name="map-outline" size={64} color="#f9d923" />

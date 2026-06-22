@@ -7,7 +7,7 @@ import { missingYandexMapsKeyMessage, publicYandexMapsApiKey } from '../services
 
 interface NativeOrderMapProps {
   restaurant: NormalizedCoordinate;
-  customer: NormalizedCoordinate;
+  customer?: NormalizedCoordinate | null;
   courier?: NormalizedCoordinate | null;
   restaurantName: string;
   customerAddress: string;
@@ -27,6 +27,7 @@ function yandexOrderMapHTML({
   customerAddress,
   courierName,
 }: NativeOrderMapProps & { apiKey: string }) {
+  const center = customer || restaurant;
   const points = [
     {
       id: 'restaurant',
@@ -37,15 +38,17 @@ function yandexOrderMapHTML({
       color: '#2563eb',
       icon: 'R',
     },
-    {
-      id: 'customer',
-      title: 'Customer',
-      description: customerAddress,
-      lat: customer.latitude,
-      lng: customer.longitude,
-      color: '#16a34a',
-      icon: 'C',
-    },
+    ...(customer
+      ? [{
+          id: 'customer',
+          title: 'Customer',
+          description: customerAddress,
+          lat: customer.latitude,
+          lng: customer.longitude,
+          color: '#16a34a',
+          icon: 'C',
+        }]
+      : []),
     ...(courier
       ? [{
           id: 'courier',
@@ -83,12 +86,12 @@ function yandexOrderMapHTML({
 </head>
 <body>
   <div id="map"></div>
-  <div class="route-note">Route preview only. Live road routing is unavailable.</div>
+  <div class="route-note">${customer ? 'Route preview only. Live road routing is unavailable.' : 'Customer pin unavailable until a confirmed delivery location is saved.'}</div>
   <script>
     var points = ${safeScriptJson(points)};
     function init() {
       var map = new ymaps.Map('map', {
-        center: [${customer.latitude}, ${customer.longitude}],
+        center: [${center.latitude}, ${center.longitude}],
         zoom: 13,
         controls: []
       });
@@ -108,12 +111,12 @@ function yandexOrderMapHTML({
         map.geoObjects.add(marker);
       });
 
-      var route = new ymaps.Polyline(
+      ${customer ? `var route = new ymaps.Polyline(
         [[${restaurant.latitude}, ${restaurant.longitude}], [${customer.latitude}, ${customer.longitude}]],
         {},
         { strokeColor: '#f97316', strokeWidth: 5, strokeStyle: 'shortdash' }
       );
-      map.geoObjects.add(route);
+      map.geoObjects.add(route);` : ''}
 
       if (points.length > 1) {
         map.setBounds(map.geoObjects.getBounds(), {
@@ -135,8 +138,8 @@ export default function NativeOrderMap(props: NativeOrderMapProps) {
     apiKey,
     props.restaurant.latitude,
     props.restaurant.longitude,
-    props.customer.latitude,
-    props.customer.longitude,
+    props.customer?.latitude,
+    props.customer?.longitude,
     props.courier?.latitude,
     props.courier?.longitude,
     props.restaurantName,

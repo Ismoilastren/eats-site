@@ -14,18 +14,25 @@ export interface CartRestaurant {
   imageUrl?: string;
   location?: NormalizedCoordinate | { lat: number; lng: number } | null;
   deliveryFee?: number;
+  avgDeliveryTime?: number;
+  minOrderAmount?: number;
+  freeDeliveryThreshold?: number;
 }
 
 interface CartState {
   items: CartItem[];
   restaurant: CartRestaurant | null;
   deliveryFee: number;
+  restaurantInstructions: string;
+  cutleryCount: number;
   lastSwitchWarning: string | null;
 
   addItem: (item: CartItem, restaurant: CartRestaurant) => void;
   removeItem: (itemId: string) => void;
   updateQuantity: (itemId: string, quantity: number) => void;
   setDeliveryFee: (fee: number) => void;
+  setRestaurantInstructions: (instructions: string) => void;
+  setCutleryCount: (count: number) => void;
   clearSwitchWarning: () => void;
   clearCart: () => void;
   getSubtotal: () => number;
@@ -55,6 +62,8 @@ const partialize = (state: CartState) => ({
   items: state.items,
   restaurant: state.restaurant,
   deliveryFee: state.deliveryFee,
+  restaurantInstructions: state.restaurantInstructions,
+  cutleryCount: state.cutleryCount,
   lastSwitchWarning: null,
 });
 
@@ -62,6 +71,8 @@ export const useCartStore = create<CartState>()((set, get) => ({
   items: [],
   restaurant: null,
   deliveryFee: 0,
+  restaurantInstructions: '',
+  cutleryCount: 0,
   lastSwitchWarning: null,
 
   addItem: (item, restaurant) => {
@@ -79,6 +90,8 @@ export const useCartStore = create<CartState>()((set, get) => ({
         items: [normalizedItem],
         restaurant,
         deliveryFee: money(restaurant.deliveryFee),
+        restaurantInstructions: '',
+        cutleryCount: 0,
         lastSwitchWarning: 'Cart switched to the selected restaurant.',
       });
       return;
@@ -130,8 +143,20 @@ export const useCartStore = create<CartState>()((set, get) => ({
   },
 
   setDeliveryFee: (fee) => set({ deliveryFee: money(fee) }),
+  setRestaurantInstructions: (instructions) => set({ restaurantInstructions: String(instructions || '').slice(0, 500) }),
+  setCutleryCount: (count) => {
+    const nextCount = Math.max(0, Math.min(20, Math.floor(Number(count) || 0)));
+    set({ cutleryCount: nextCount });
+  },
   clearSwitchWarning: () => set({ lastSwitchWarning: null }),
-  clearCart: () => set({ items: [], restaurant: null, deliveryFee: 0, lastSwitchWarning: null }),
+  clearCart: () => set({
+    items: [],
+    restaurant: null,
+    deliveryFee: 0,
+    restaurantInstructions: '',
+    cutleryCount: 0,
+    lastSwitchWarning: null,
+  }),
   getSubtotal: () => get().items.reduce((sum, item) => sum + money(item.price) * item.quantity, 0),
   getTotal: () => get().getSubtotal() + money(get().deliveryFee),
   getItemCount: () => get().items.reduce((count, item) => count + item.quantity, 0),
@@ -170,6 +195,8 @@ void (async () => {
         items: Array.isArray(state.items) ? state.items : [],
         restaurant: state.restaurant ?? null,
         deliveryFee: money(state.deliveryFee),
+        restaurantInstructions: String(state.restaurantInstructions || ''),
+        cutleryCount: Math.max(0, Math.min(20, Math.floor(Number(state.cutleryCount) || 0))),
         lastSwitchWarning: null,
       });
     }

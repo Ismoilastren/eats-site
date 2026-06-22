@@ -63,13 +63,17 @@ export default function CheckoutScreen() {
   const items = useCartStore((state) => state.items);
   const restaurant = useCartStore((state) => state.restaurant);
   const clearCart = useCartStore((state) => state.clearCart);
+  const cartDeliveryFee = useCartStore((state) => state.deliveryFee);
   const setStoreDeliveryFee = useCartStore((state) => state.setDeliveryFee);
+  const restaurantInstructions = useCartStore((state) => state.restaurantInstructions);
+  const cutleryCount = useCartStore((state) => state.cutleryCount);
   const subtotal = useCartStore((state) => state.getSubtotal());
 
-  const [deliveryFee, setDeliveryFee] = useState(0);
+  const [deliveryFee, setDeliveryFee] = useState(() => Number(cartDeliveryFee || restaurant?.deliveryFee || 0));
   const [addressText, setAddressText] = useState('');
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
-  const [loadingLocation, setLoadingLocation] = useState(true);
+  const [loadingLocation, setLoadingLocation] = useState(false);
+  const [addressError, setAddressError] = useState('');
 
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
   const [selectedAddressId, setSelectedAddressId] = useState<string | null>(null);
@@ -78,7 +82,7 @@ export default function CheckoutScreen() {
   const [paymentType, setPaymentType] = useState<'cash' | 'card'>('cash');
   const [selectedCardId, setSelectedCardId] = useState('');
 
-  const [deliveryInstructions, setDeliveryInstructions] = useState('');
+  const [deliveryInstructions, setDeliveryInstructions] = useState(restaurantInstructions);
   const [placing, setPlacing] = useState(false);
 
   const total = useMemo(() => subtotal + deliveryFee, [subtotal, deliveryFee]);
@@ -87,32 +91,44 @@ export default function CheckoutScreen() {
     setAddressText(value);
     setSelectedAddressId(null);
     setLocation(null);
+    setAddressError('');
   };
+
+  useEffect(() => {
+    if (!deliveryInstructions.trim() && restaurantInstructions.trim()) {
+      setDeliveryInstructions(restaurantInstructions);
+    }
+  }, [deliveryInstructions, restaurantInstructions]);
 
   // ── Load GPS location ──
   const loadLocation = async () => {
     setLoadingLocation(true);
+    setAddressError('');
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Location required', 'Please enable location access for delivery.');
-        setLoadingLocation(false);
+        setAddressError('Location permission was denied. Enter address manually or enable location access.');
         return;
       }
       const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      setLocation(current);
 
       const { result, error } = await reverseGeocodeViaProxy(current.coords.latitude, current.coords.longitude);
       if (!result) {
-        Alert.alert('Address unavailable', error || 'GPS was found, but no readable street address was returned.');
+        setAddressError(
+          error?.includes('forbidden') || error?.includes('rejected') || error?.includes('lookup')
+            ? 'Address lookup is unavailable. Enter address manually.'
+            : error || 'Address lookup is unavailable. Enter address manually.'
+        );
         return;
       }
+      setLocation(current);
       if (!selectedAddressId) {
         setAddressText(result.address);
       }
+      setAddressError('');
     } catch (e) {
       console.warn('GPS error:', e);
-      Alert.alert('Location error', 'Could not read your current GPS location.');
+      setAddressError('Could not read your current GPS location. Enter address manually.');
     } finally {
       setLoadingLocation(false);
     }
@@ -120,6 +136,14 @@ export default function CheckoutScreen() {
 
   // ── Fetch delivery fee ──
   const fetchDeliveryFee = async (): Promise<number> => {
+    if (restaurant && restaurant.deliveryFee !== undefined) {
+      const restaurantFee = Number(restaurant.deliveryFee);
+      if (Number.isFinite(restaurantFee) && restaurantFee >= 0) return restaurantFee;
+    }
+
+    const hydratedCartFee = Number(cartDeliveryFee);
+    if (Number.isFinite(hydratedCartFee) && hydratedCartFee > 0) return hydratedCartFee;
+
     try {
       const snap = await getDoc(doc(db, 'settings', 'global'));
       const fee = snap.exists() ? feeFromSettings(snap.data()) : null;
@@ -128,14 +152,17 @@ export default function CheckoutScreen() {
       const fee2 = snap2.exists() ? feeFromSettings(snap2.data()) : null;
       if (fee2 !== null) return fee2;
     } catch (_) {}
-    return Number(restaurant?.deliveryFee || 0);
+    return Number(cartDeliveryFee || restaurant?.deliveryFee || 0);
   };
 
-  // ── Load user data + delivery fee ──
   useEffect(() => {
-    loadLocation();
-  }, []);
+    const fee = Number(cartDeliveryFee || restaurant?.deliveryFee || 0);
+    if (Number.isFinite(fee) && fee >= 0) {
+      setDeliveryFee(fee);
+    }
+  }, [cartDeliveryFee, restaurant?.deliveryFee]);
 
+  // ── Load user data + delivery fee ──
   useEffect(() => {
     const firebaseUser = auth.currentUser;
     if (!firebaseUser) return;
@@ -159,6 +186,7 @@ export default function CheckoutScreen() {
         if (preferredAddress) {
           setSelectedAddressId(preferredAddress.id);
           setAddressText(preferredAddress.address);
+          setAddressError('');
           const coords = coordinateFromAddress(preferredAddress);
           if (coords) {
             setLocation({
@@ -224,7 +252,7 @@ export default function CheckoutScreen() {
       const restaurantLocation = normalizeCoordinate(restaurant.location) || TASHKENT;
       const selectedSavedAddress = savedAddresses.find((addr) => addr.id === selectedAddressId);
       const savedCoords = selectedSavedAddress ? coordinateFromAddress(selectedSavedAddress) : null;
-      let deliveryPoint = savedCoords
+      let deliveryPoint: { latitude: number; longitude: number } | null = savedCoords
         ? { latitude: savedCoords.lat, longitude: savedCoords.lng }
         : location?.coords
           ? { latitude: location.coords.latitude, longitude: location.coords.longitude }
@@ -235,14 +263,22 @@ export default function CheckoutScreen() {
         const { results, error } = await geocodeQueryViaProxy(addressText);
         const result = results[0];
         if (!result) {
-          Alert.alert('Address coordinates required', error || 'Could not resolve this address on the map.');
-          return;
+          setAddressError(
+            error?.includes('forbidden') || error?.includes('rejected') || error?.includes('lookup')
+              ? 'Address lookup is unavailable. Enter address manually.'
+              : 'Address lookup is unavailable. Enter address manually.'
+          );
+        } else {
+          deliveryPoint = { latitude: result.lat, longitude: result.lng };
+          cleanDeliveryAddress = result.address;
+          setAddressText(result.address);
+          setAddressError('');
         }
-        deliveryPoint = { latitude: result.lat, longitude: result.lng };
-        cleanDeliveryAddress = result.address;
-        setAddressText(result.address);
       }
       const calculatedTotal = subtotal + latestFee;
+      const deliveryCoordinate = deliveryPoint
+        ? { lat: deliveryPoint.latitude, lng: deliveryPoint.longitude }
+        : null;
       await ensureClientUserDocument(firebaseUser, {
         uid: firebaseUser.uid,
         displayName: customerName,
@@ -258,7 +294,7 @@ export default function CheckoutScreen() {
         customerEmail: firebaseUser.email || user?.email || '',
         customerPhone,
         customerAddress: cleanDeliveryAddress,
-        customerLocation: { lat: deliveryPoint.latitude, lng: deliveryPoint.longitude },
+        customerLocation: deliveryCoordinate,
         customer: {
           uid: firebaseUser.uid,
           id: firebaseUser.uid,
@@ -268,7 +304,8 @@ export default function CheckoutScreen() {
         },
         deliveryAddress: cleanDeliveryAddress,
         deliveryAddressId: selectedAddressId,
-        deliveryLocation: { lat: deliveryPoint.latitude, lng: deliveryPoint.longitude },
+        deliveryLocation: deliveryCoordinate,
+        deliveryCoordinatesConfirmed: Boolean(deliveryPoint),
         restaurantId: restaurant.id,
         restaurantName: restaurant.name,
         restaurantImage: restaurant.imageUrl || '',
@@ -297,6 +334,8 @@ export default function CheckoutScreen() {
             }
           : { type: 'CASH' },
         deliveryInstructions,
+        restaurantInstructions,
+        cutleryCount,
         source: 'client-app',
         platform: 'expo',
         estimatedDelivery: null,
@@ -354,9 +393,22 @@ export default function CheckoutScreen() {
           />
 
           <TouchableOpacity onPress={loadLocation} style={s.refreshBtn} activeOpacity={0.8}>
-            <Ionicons name="navigate" size={16} color="#fff" />
-            <Text style={s.refreshBtnText}>Refresh GPS</Text>
+            {loadingLocation ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="navigate" size={16} color="#fff" />
+                <Text style={s.refreshBtnText}>Refresh GPS</Text>
+              </>
+            )}
           </TouchableOpacity>
+
+          {!!addressError && (
+            <View style={s.inlineError}>
+              <Ionicons name="alert-circle-outline" size={17} color="#b45309" />
+              <Text style={s.inlineErrorText}>{addressError}</Text>
+            </View>
+          )}
 
           {/* Saved addresses */}
           {savedAddresses.length > 0 && (
@@ -368,6 +420,7 @@ export default function CheckoutScreen() {
                   onPress={() => {
                     setSelectedAddressId(addr.id);
                     setAddressText(addr.address);
+                    setAddressError('');
                     const coords = coordinateFromAddress(addr);
                     if (coords) {
                     setLocation({
@@ -532,8 +585,8 @@ export default function CheckoutScreen() {
         </View>
         <TouchableOpacity
           onPress={handlePlaceOrder}
-          disabled={placing || loadingLocation}
-          style={[s.placeBtn, (placing || loadingLocation) && s.placeBtnDisabled]}
+          disabled={placing}
+          style={[s.placeBtn, placing && s.placeBtnDisabled]}
           activeOpacity={0.85}
         >
           {placing
@@ -594,6 +647,18 @@ const s = StyleSheet.create({
     gap: 8, marginTop: 10,
   },
   refreshBtnText: { color: '#fff', fontWeight: '800', fontSize: 14 },
+  inlineError: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginTop: 10,
+    borderRadius: 14,
+    backgroundColor: '#fffbeb',
+    borderWidth: 1,
+    borderColor: '#fde68a',
+    padding: 12,
+  },
+  inlineErrorText: { flex: 1, color: '#92400e', fontSize: 12, fontWeight: '700', lineHeight: 17 },
 
   subLabel: { fontSize: 11, fontWeight: '900', color: '#9ca3af', letterSpacing: 1.5, marginBottom: 8 },
 

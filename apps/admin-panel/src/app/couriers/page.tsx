@@ -18,19 +18,21 @@ import {
 } from '@/lib/courierFilters';
 
 const StatusBadge = ({ online, status }: { online?: boolean; status?: string }) => {
-  const normalizedStatus = status === 'busy' ? 'busy' : status === 'inactive' ? 'inactive' : online ? 'online' : 'offline';
+  const normalizedStatus = status === 'busy' ? 'busy' : status === 'archived' ? 'archived' : status === 'inactive' ? 'inactive' : online ? 'online' : 'offline';
   const active = normalizedStatus === 'online' || normalizedStatus === 'busy';
   return (
   <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold uppercase tracking-wider ${
     normalizedStatus === 'busy'
       ? 'bg-orange-100 text-orange-700 border border-orange-200 dark:bg-orange-500/15 dark:text-orange-400 dark:border-orange-500/30'
+      : normalizedStatus === 'archived'
+      ? 'bg-slate-100 text-slate-600 border border-slate-200 dark:bg-slate-500/15 dark:text-slate-400 dark:border-slate-500/30'
       : normalizedStatus === 'inactive'
       ? 'bg-gray-100 text-gray-600 border border-gray-200 dark:bg-gray-500/15 dark:text-gray-400 dark:border-gray-500/30'
       : active
       ? 'bg-emerald-100 text-emerald-700 border border-emerald-200 dark:bg-emerald-500/15 dark:text-emerald-400 dark:border-emerald-500/30'
       : 'bg-red-100 text-red-700 border border-red-200 dark:bg-red-500/15 dark:text-red-400 dark:border-red-500/30'
   }`}>
-    <span className={`h-1.5 w-1.5 rounded-full ${normalizedStatus === 'busy' ? 'bg-orange-500' : active ? 'bg-emerald-500 dark:bg-emerald-400' : normalizedStatus === 'inactive' ? 'bg-gray-400' : 'bg-red-500 dark:bg-red-400'}`} />
+    <span className={`h-1.5 w-1.5 rounded-full ${normalizedStatus === 'busy' ? 'bg-orange-500' : active ? 'bg-emerald-500 dark:bg-emerald-400' : normalizedStatus === 'inactive' || normalizedStatus === 'archived' ? 'bg-gray-400' : 'bg-red-500 dark:bg-red-400'}`} />
     {normalizedStatus}
   </span>
   );
@@ -43,6 +45,11 @@ const vehicleEmoji: Record<string, string> = {
   motorcycle: '🏍️',
   car: '🚗',
   foot: '🚶',
+};
+
+const isArchivedCourier = (courier: AdminCourierRecord) => {
+  const status = String(courier.status || '').trim().toLowerCase();
+  return courier.archived === true || courier.deleted === true || courier.isDeleted === true || status === 'archived';
 };
 
 // ─── SHARED COMPONENTS (EXTRACTED TO PREVENT REMOUNTING/FOCUS LOSS) ───
@@ -165,6 +172,7 @@ export default function CouriersPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [viewMode, setViewMode] = useState<'active' | 'archived'>('active');
 
   const [form, setForm] = useState({
     fullName: '',
@@ -203,6 +211,11 @@ export default function CouriersPage() {
       }
     );
     return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setViewMode(params.get('view') === 'archived' ? 'archived' : 'active');
   }, []);
 
   const courierMetrics = useMemo(() => {
@@ -348,6 +361,37 @@ export default function CouriersPage() {
     }
   };
 
+  const handleRestore = async (courierId: string) => {
+    try {
+      await updateDoc(doc(db, COLLECTIONS.COURIERS, courierId), {
+        archived: false,
+        deleted: false,
+        isDeleted: false,
+        active: true,
+        isActive: true,
+        isAvailable: false,
+        isOnline: false,
+        status: 'offline',
+        currentOrderId: null,
+        updatedAt: serverTimestamp(),
+      });
+      toast.success('Courier restored to fleet');
+    } catch (err) {
+      toast.error('Restore failed');
+    }
+  };
+
+  const switchViewMode = (nextMode: 'active' | 'archived') => {
+    setViewMode(nextMode);
+    const url = new URL(window.location.href);
+    if (nextMode === 'archived') {
+      url.searchParams.set('view', 'archived');
+    } else {
+      url.searchParams.delete('view');
+    }
+    window.history.replaceState(null, '', `${url.pathname}${url.search}`);
+  };
+
   const resetForm = () =>
     setForm({ fullName: '', phone: '', vehicleType: 'bicycle', licensePlate: '', vehicleBrand: '' });
 
@@ -363,9 +407,13 @@ export default function CouriersPage() {
     setShowEditModal(true);
   };
 
-  const productionCouriers = couriers.filter(isRealCourier);
+  const archivedCouriers = couriers.filter(isArchivedCourier);
+  const productionCouriers = couriers.filter((courier) => isRealCourier(courier) && !isArchivedCourier(courier));
   const hiddenRecordsCount = couriers.length - productionCouriers.length;
-  const filtered = productionCouriers.filter((c) => {
+  const nonArchivedHiddenCount = Math.max(hiddenRecordsCount - archivedCouriers.length, 0);
+  const visibleCouriers = viewMode === 'archived' ? archivedCouriers : productionCouriers;
+  const selectedCourierIsArchived = selectedCourier ? isArchivedCourier(selectedCourier as AdminCourierRecord) : false;
+  const filtered = visibleCouriers.filter((c) => {
     const name = getCourierName(c).toLowerCase();
     const phone = getCourierPhone(c).toLowerCase();
     const q = search.toLowerCase();
@@ -388,7 +436,7 @@ export default function CouriersPage() {
           </p>
           {hiddenRecordsCount > 0 && (
             <p className="mt-2 text-xs font-semibold text-amber-600 dark:text-amber-400">
-              {hiddenRecordsCount} invalid, archived, or test courier record{hiddenRecordsCount === 1 ? '' : 's'} hidden from production fleet.
+              {archivedCouriers.length} archived and {nonArchivedHiddenCount} invalid/test courier record{hiddenRecordsCount === 1 ? '' : 's'} hidden from production fleet.
             </p>
           )}
         </div>
@@ -400,13 +448,43 @@ export default function CouriersPage() {
         </button>
       </div>
 
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-gray-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+        <button
+          type="button"
+          onClick={() => switchViewMode('active')}
+          className={`rounded-xl px-4 py-2 text-sm font-bold transition-colors ${
+            viewMode === 'active'
+              ? 'bg-orange-500 text-white shadow-sm'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600'
+          }`}
+        >
+          Active fleet ({productionCouriers.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => switchViewMode('archived')}
+          className={`rounded-xl px-4 py-2 text-sm font-bold transition-colors ${
+            viewMode === 'archived'
+              ? 'bg-orange-500 text-white shadow-sm'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600'
+          }`}
+        >
+          Archive ({archivedCouriers.length})
+        </button>
+        <p className="text-xs font-semibold text-gray-500 dark:text-slate-400">
+          {viewMode === 'archived'
+            ? 'Archived couriers stay out of assignment until restored.'
+            : 'Only active production couriers appear in dispatcher assignment.'}
+        </p>
+      </div>
+
       {/* ─── Stats Bar ─── */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         {[
-          { label: 'Total Couriers', value: productionCouriers.length, color: 'text-gray-900 dark:text-white' },
-          { label: 'Online Now', value: productionCouriers.filter((c) => ['online', 'busy'].includes(getCourierStatus(c))).length, color: 'text-emerald-600 dark:text-emerald-400' },
-          { label: 'Offline', value: productionCouriers.filter((c) => getCourierStatus(c) === 'offline').length, color: 'text-red-600 dark:text-red-400' },
-          { label: 'Available', value: productionCouriers.filter(isAssignableCourier).length, color: 'text-orange-600 dark:text-orange-400' },
+          { label: viewMode === 'archived' ? 'Archived Couriers' : 'Total Couriers', value: visibleCouriers.length, color: 'text-gray-900 dark:text-white' },
+          { label: 'Online Now', value: visibleCouriers.filter((c) => ['online', 'busy'].includes(getCourierStatus(c))).length, color: 'text-emerald-600 dark:text-emerald-400' },
+          { label: 'Offline', value: visibleCouriers.filter((c) => getCourierStatus(c) === 'offline').length, color: 'text-red-600 dark:text-red-400' },
+          { label: viewMode === 'archived' ? 'Restorable' : 'Available', value: viewMode === 'archived' ? archivedCouriers.length : visibleCouriers.filter(isAssignableCourier).length, color: 'text-orange-600 dark:text-orange-400' },
         ].map((stat) => (
           <div
             key={stat.label}
@@ -439,8 +517,12 @@ export default function CouriersPage() {
         ) : filtered.length === 0 ? (
           <div className="py-24 text-center">
             <p className="text-5xl mb-4">🚴</p>
-            <p className="text-gray-700 dark:text-slate-300 font-semibold">No couriers found</p>
-            <p className="text-gray-500 dark:text-slate-500 text-sm mt-1">Create your first courier using the button above.</p>
+            <p className="text-gray-700 dark:text-slate-300 font-semibold">
+              {viewMode === 'archived' ? 'No archived couriers found' : 'No couriers found'}
+            </p>
+            <p className="text-gray-500 dark:text-slate-500 text-sm mt-1">
+              {viewMode === 'archived' ? 'Archived couriers will appear here after you archive them.' : 'Create your first courier using the button above.'}
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -464,6 +546,7 @@ export default function CouriersPage() {
                   const phone = getCourierPhone(courier);
                   const status = getCourierStatus(courier);
                   const invalidReason = getCourierInvalidReason(courier);
+                  const isArchived = isArchivedCourier(courier);
                   const isCopied = copiedId === getCourierId(courier);
                   const metrics = courierMetrics.get(courier.id) || { completedOrders: 0, deliveryEarnings: 0 };
                   return (
@@ -527,7 +610,7 @@ export default function CouriersPage() {
 
                       {/* Status */}
                       <td className="px-5 py-4">
-                        <StatusBadge online={status === 'online' || status === 'busy'} status={status} />
+                        <StatusBadge online={status === 'online' || status === 'busy'} status={isArchived ? 'archived' : status} />
                       </td>
 
                       {/* Actions */}
@@ -545,12 +628,21 @@ export default function CouriersPage() {
                           >
                             Edit
                           </button>
-                          <button
-                            onClick={() => setDeleteCourierId(getCourierId(courier))}
-                            className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100 transition-colors dark:border-red-500/20 dark:bg-red-500/15 dark:text-red-400 dark:hover:bg-red-500/25"
-                          >
-                            Archive
-                          </button>
+                          {isArchived ? (
+                            <button
+                              onClick={() => handleRestore(getCourierId(courier))}
+                              className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 transition-colors dark:border-emerald-500/20 dark:bg-emerald-500/15 dark:text-emerald-400 dark:hover:bg-emerald-500/25"
+                            >
+                              Restore
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => setDeleteCourierId(getCourierId(courier))}
+                              className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-100 transition-colors dark:border-red-500/20 dark:bg-red-500/15 dark:text-red-400 dark:hover:bg-red-500/25"
+                            >
+                              Archive
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -596,7 +688,7 @@ export default function CouriersPage() {
               </h3>
               <p className="text-sm text-gray-500 dark:text-slate-400">{selectedCourier.phone}</p>
               <div className="mt-1.5">
-                <StatusBadge online={selectedCourier.isOnline} status={selectedCourier.status} />
+                <StatusBadge online={selectedCourier.isOnline} status={selectedCourierIsArchived ? 'archived' : selectedCourier.status} />
               </div>
             </div>
           </div>
@@ -641,6 +733,14 @@ export default function CouriersPage() {
             >
               Close
             </button>
+            {selectedCourierIsArchived && (
+              <button
+                onClick={() => { handleRestore(selectedCourier.id); setShowViewModal(false); }}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-700"
+              >
+                Restore
+              </button>
+            )}
             <button
               onClick={() => { setShowViewModal(false); openEdit(selectedCourier); }}
               className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-bold text-white hover:bg-orange-600"

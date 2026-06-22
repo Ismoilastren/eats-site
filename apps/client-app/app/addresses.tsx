@@ -13,7 +13,7 @@ import {
 import MapView, { Region } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import {
   addDoc,
   collection,
@@ -46,6 +46,7 @@ function isReadableAddress(value: string) {
 
 export default function AddressesScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ openMap?: string }>();
   const { user, profile } = useAuth();
   const uid = user?.uid || profile?.uid || '';
   const [addresses, setAddresses] = useState<SavedAddress[]>([]);
@@ -58,11 +59,17 @@ export default function AddressesScreen() {
   const [loading, setLoading] = useState(true);
 
   // Map Picker State
-  const [showMap, setShowMap] = useState(false);
+  const [showMap, setShowMap] = useState(params.openMap === 'true');
   const [mapRegion, setMapRegion] = useState<Region>({ latitude: 41.2995, longitude: 69.2401, latitudeDelta: 0.01, longitudeDelta: 0.01 });
   const [mapLoading, setMapLoading] = useState(false);
   const [mapResolvedAddress, setMapResolvedAddress] = useState('Move map to location');
   const mapRef = useRef<MapView>(null);
+
+  useEffect(() => {
+    if (params.openMap === 'true') {
+      setShowMap(true);
+    }
+  }, [params.openMap]);
 
   useEffect(() => {
     if (!uid) {

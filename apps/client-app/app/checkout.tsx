@@ -82,6 +82,47 @@ export default function CheckoutScreen() {
 
   const total = useMemo(() => subtotal + deliveryFee, [subtotal, deliveryFee]);
 
+  // ── Helper: Safe Geocode Parser ──
+  const extractReadableAddressFromGeocode = (payload: unknown): string | null => {
+    if (!payload || typeof payload !== 'object') return null;
+
+    const data = payload as {
+      ok?: boolean;
+      address?: unknown;
+      formattedAddress?: unknown;
+      results?: {
+        response?: {
+          GeoObjectCollection?: {
+            featureMember?: Array<{
+              GeoObject?: {
+                name?: string;
+                description?: string;
+              };
+            }>;
+          };
+        };
+      };
+    };
+
+    if (data.ok && data.results?.response?.GeoObjectCollection?.featureMember?.[0]?.GeoObject) {
+      const geo = data.results.response.GeoObjectCollection.featureMember[0].GeoObject;
+      const addr = geo.name || geo.description || '';
+      if (addr.trim() && !/^(unknown location|order delivery)/i.test(addr)) {
+        return addr.trim();
+      }
+    }
+
+    if (typeof data.address === 'string' && data.address.trim()) {
+      return data.address.trim();
+    }
+
+    if (typeof data.formattedAddress === 'string' && data.formattedAddress.trim()) {
+      return data.formattedAddress.trim();
+    }
+
+    return null;
+  };
+
   // ── Format GPS reverse geocode — deduplicated (Robust) ──
   const formatAddress = (addr: any) => {
     if (!addr) return 'Current GPS location, Tashkent';
@@ -104,10 +145,12 @@ export default function CheckoutScreen() {
       const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       setLocation(current);
 
-      const [reverse] = await Location.reverseGeocodeAsync(current.coords);
-      if (reverse) {
-        const formatted = formatAddress(reverse);
-        if (formatted && !selectedAddressId) setAddressText(formatted);
+      const baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://eats-site-main-site.vercel.app';
+      const response = await fetch(`${baseUrl}/api/geocode?lat=${current.coords.latitude}&lng=${current.coords.longitude}`);
+      const payload: unknown = await response.json();
+      const readableAddress = extractReadableAddressFromGeocode(payload);
+      if (readableAddress && !selectedAddressId) {
+        setAddressText(readableAddress);
       }
     } catch (e) {
       console.warn('GPS error:', e);

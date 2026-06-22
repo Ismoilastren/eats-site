@@ -118,6 +118,8 @@ export default function HomeScreen() {
   const [savedAddresses, setSavedAddresses] = useState<SavedAddress[]>([]);
   const [selectedAddress, setSelectedAddress] = useState<SavedAddress | null>(null);
   const [savingLocation, setSavingLocation] = useState(false);
+  const [showDeliveryTimeModal, setShowDeliveryTimeModal] = useState(false);
+  const [deliveryTime, setDeliveryTime] = useState('ASAP');
   const customerEmail = user?.email || profile?.email || '';
   const uid = user?.uid || profile?.uid || '';
 
@@ -696,6 +698,7 @@ export default function HomeScreen() {
             </ScrollView>
 
             <TouchableOpacity
+              onPress={() => setShowDeliveryTimeModal(true)}
               activeOpacity={0.85}
               className="mt-2 mb-4 flex-row items-center justify-between rounded-2xl bg-white/5 p-4"
             >
@@ -704,7 +707,7 @@ export default function HomeScreen() {
                 <Text className="ml-3 text-base font-bold text-white">Delivery time</Text>
               </View>
               <View className="flex-row items-center">
-                <Text className="mr-1 text-sm font-bold text-gray-400">ASAP</Text>
+                <Text className="mr-1 text-sm font-bold text-gray-400">{deliveryTime}</Text>
                 <Ionicons name="chevron-forward" size={18} color="#6b7280" />
               </View>
             </TouchableOpacity>
@@ -712,12 +715,55 @@ export default function HomeScreen() {
             <TouchableOpacity
               onPress={() => {
                 setShowAddressModal(false);
-                router.push('/addresses' as any);
+                router.push({ pathname: '/addresses', params: { openMap: 'true' } } as any);
               }}
               activeOpacity={0.85}
               className="w-full items-center justify-center rounded-2xl bg-white/10 py-4"
             >
               <Text className="text-base font-black text-white">Select a different address</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showDeliveryTimeModal}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setShowDeliveryTimeModal(false)}
+      >
+        <View className="flex-1 justify-end bg-black/60">
+          <View className="rounded-t-[32px] bg-[#1c1c1e] p-5 pb-8">
+            <Text className="mb-5 text-2xl font-black text-white">Delivery time</Text>
+            <TouchableOpacity
+              onPress={() => {
+                setDeliveryTime('ASAP');
+                setShowDeliveryTimeModal(false);
+              }}
+              activeOpacity={0.85}
+              className="mb-3 flex-row items-center justify-between rounded-2xl bg-white/5 p-4"
+            >
+              <Text className="text-base font-bold text-white">ASAP (around 30 min)</Text>
+              {deliveryTime === 'ASAP' && <Ionicons name="checkmark" size={24} color="#f9d923" />}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => {
+                Alert.alert('Coming Soon', 'Scheduled delivery is currently disabled. Please select ASAP.');
+              }}
+              activeOpacity={0.85}
+              className="mb-4 flex-row items-center justify-between rounded-2xl bg-white/5 p-4 opacity-50"
+            >
+              <Text className="text-base font-bold text-white">Schedule for later</Text>
+              <Ionicons name="calendar-outline" size={22} color="#fff" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => setShowDeliveryTimeModal(false)}
+              activeOpacity={0.85}
+              className="w-full items-center justify-center rounded-2xl bg-[#f9d923] py-4"
+            >
+              <Text className="text-base font-black text-gray-950">Done</Text>
             </TouchableOpacity>
           </View>
         </View>

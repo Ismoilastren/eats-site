@@ -1,8 +1,9 @@
-import React, { useEffect, useRef } from 'react';
-import { View } from 'react-native';
-import MapView, { Marker, Polyline, Region } from 'react-native-maps';
+import React, { useMemo } from 'react';
+import { Text, View } from 'react-native';
+import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
 import type { NormalizedCoordinate } from '@repo/shared-types';
+import { missingYandexMapsKeyMessage, publicYandexMapsApiKey } from '../services/addressing';
 
 interface NativeOrderMapProps {
   restaurant: NormalizedCoordinate;
@@ -14,70 +15,148 @@ interface NativeOrderMapProps {
   vehicleIcon: string;
 }
 
-export default function NativeOrderMap({
+const safeScriptJson = (value: unknown) =>
+  JSON.stringify(value).replace(/<\/script/gi, '<\\/script');
+
+function yandexOrderMapHTML({
+  apiKey,
   restaurant,
   customer,
   courier,
   restaurantName,
   customerAddress,
   courierName,
-  vehicleIcon,
-}: NativeOrderMapProps) {
-  const mapRef = useRef<MapView | null>(null);
+}: NativeOrderMapProps & { apiKey: string }) {
+  const points = [
+    {
+      id: 'restaurant',
+      title: 'Restaurant',
+      description: restaurantName,
+      lat: restaurant.latitude,
+      lng: restaurant.longitude,
+      color: '#2563eb',
+      icon: 'R',
+    },
+    {
+      id: 'customer',
+      title: 'Customer',
+      description: customerAddress,
+      lat: customer.latitude,
+      lng: customer.longitude,
+      color: '#16a34a',
+      icon: 'C',
+    },
+    ...(courier
+      ? [{
+          id: 'courier',
+          title: 'Courier',
+          description: courierName || 'Courier',
+          lat: courier.latitude,
+          lng: courier.longitude,
+          color: '#f97316',
+          icon: 'D',
+        }]
+      : []),
+  ];
 
-  useEffect(() => {
-    const coordinates = [restaurant, customer, courier].filter(Boolean) as NormalizedCoordinate[];
-    if (coordinates.length < 2) return;
-    setTimeout(() => {
-      mapRef.current?.fitToCoordinates(coordinates, {
-        edgePadding: { top: 70, right: 50, bottom: 70, left: 50 },
-        animated: false,
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <style>
+    html, body, #map { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #e5e7eb; }
+    .pin {
+      width: 34px; height: 34px; border-radius: 17px; border: 3px solid white;
+      color: white; display: flex; align-items: center; justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif; font-weight: 900;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.25);
+    }
+  </style>
+  <script src="https://api-maps.yandex.ru/2.1/?apikey=${encodeURIComponent(apiKey)}&lang=en_RU" type="text/javascript"></script>
+</head>
+<body>
+  <div id="map"></div>
+  <script>
+    var points = ${safeScriptJson(points)};
+    function init() {
+      var map = new ymaps.Map('map', {
+        center: [${customer.latitude}, ${customer.longitude}],
+        zoom: 13,
+        controls: []
       });
-    }, 350);
-  }, [
-    restaurant.latitude,
-    restaurant.longitude,
-    customer.latitude,
-    customer.longitude,
-    courier?.latitude,
-    courier?.longitude,
+
+      points.forEach(function(point) {
+        var marker = new ymaps.Placemark(
+          [point.lat, point.lng],
+          { balloonContentHeader: point.title, balloonContentBody: point.description },
+          {
+            iconLayout: ymaps.templateLayoutFactory.createClass(
+              '<div class="pin" style="background:' + point.color + '">' + point.icon + '</div>'
+            ),
+            iconShape: { type: 'Circle', coordinates: [17, 17], radius: 18 },
+            iconOffset: [-17, -17]
+          }
+        );
+        map.geoObjects.add(marker);
+      });
+
+      var route = new ymaps.Polyline(
+        [[${restaurant.latitude}, ${restaurant.longitude}], [${customer.latitude}, ${customer.longitude}]],
+        {},
+        { strokeColor: '#f97316', strokeWidth: 5, strokeStyle: 'shortdash' }
+      );
+      map.geoObjects.add(route);
+
+      if (points.length > 1) {
+        map.setBounds(map.geoObjects.getBounds(), {
+          checkZoomRange: true,
+          zoomMargin: [38, 38, 38, 38]
+        });
+      }
+    }
+    if (window.ymaps) ymaps.ready(init);
+  </script>
+</body>
+</html>
+`;
+}
+
+export default function NativeOrderMap(props: NativeOrderMapProps) {
+  const apiKey = publicYandexMapsApiKey();
+  const html = useMemo(() => apiKey ? yandexOrderMapHTML({ ...props, apiKey }) : '', [
+    apiKey,
+    props.restaurant.latitude,
+    props.restaurant.longitude,
+    props.customer.latitude,
+    props.customer.longitude,
+    props.courier?.latitude,
+    props.courier?.longitude,
+    props.restaurantName,
+    props.customerAddress,
+    props.courierName,
   ]);
 
-  const region: Region = {
-    latitude: customer.latitude,
-    longitude: customer.longitude,
-    latitudeDelta: 0.08,
-    longitudeDelta: 0.08,
-  };
+  if (!apiKey) {
+    return (
+      <View className="flex-1 items-center justify-center bg-gray-100 px-6">
+        <Ionicons name="map-outline" size={48} color="#9ca3af" />
+        <Text className="mt-3 text-center font-bold text-gray-500">
+          {missingYandexMapsKeyMessage()}
+        </Text>
+      </View>
+    );
+  }
 
   return (
-    <MapView ref={mapRef} style={{ flex: 1 }} initialRegion={region} showsUserLocation={false}>
-      <Marker coordinate={restaurant} title="Restaurant" description={restaurantName}>
-        <View className="h-10 w-10 items-center justify-center rounded-full bg-blue-600 border-2 border-white">
-          <Ionicons name="restaurant" size={20} color="#fff" />
-        </View>
-      </Marker>
-
-      <Marker coordinate={customer} title="Customer" description={customerAddress}>
-        <View className="h-10 w-10 items-center justify-center rounded-full bg-emerald-600 border-2 border-white">
-          <Ionicons name="home" size={20} color="#fff" />
-        </View>
-      </Marker>
-
-      {courier && (
-        <Marker coordinate={courier} title="Courier" description={courierName || 'Courier'}>
-          <View className="h-11 w-11 items-center justify-center rounded-full bg-orange-500 border-2 border-white">
-            <Ionicons name={vehicleIcon as any} size={22} color="#fff" />
-          </View>
-        </Marker>
-      )}
-
-      <Polyline
-        coordinates={[restaurant, customer]}
-        strokeColor="#f97316"
-        strokeWidth={5}
-        lineDashPattern={[10, 8]}
-      />
-    </MapView>
+    <WebView
+      originWhitelist={['*']}
+      source={{ html }}
+      scrollEnabled={false}
+      bounces={false}
+      showsHorizontalScrollIndicator={false}
+      showsVerticalScrollIndicator={false}
+      style={{ flex: 1, backgroundColor: '#e5e7eb' }}
+    />
   );
 }

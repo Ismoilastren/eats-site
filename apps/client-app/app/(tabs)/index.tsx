@@ -26,6 +26,13 @@ import {
 } from '@repo/shared-types';
 import { useAuth } from '../../context/AuthContext';
 import { clientUserDocumentPatch } from '../../services/clientUserProfile';
+import {
+  CanonicalSavedAddress,
+  canonicalAddressForStorage,
+  coordinateFromAddress,
+  isReadableAddress,
+  reverseGeocodeViaProxy,
+} from '../../services/addressing';
 
 const CATEGORIES = [
   { label: 'All', icon: 'apps-outline' as const },
@@ -52,15 +59,7 @@ type ClientMenuItem = MenuItem & {
   restaurantName?: string;
 };
 
-type SavedAddress = {
-  id: string;
-  label?: string;
-  address: string;
-  latitude?: number;
-  longitude?: number;
-  isDefault?: boolean;
-  source?: string;
-};
+type SavedAddress = CanonicalSavedAddress & { latitude?: number; longitude?: number };
 
 const text = (value: unknown) => String(value || '').trim();
 
@@ -89,19 +88,6 @@ const getDeliveryEta = (restaurant: Restaurant) => restaurant.avgDeliveryTime ||
 
 const isFreeDelivery = (restaurant: Restaurant) =>
   Number(restaurant.deliveryFee ?? 0) === 0 || Boolean((restaurant as any).freeDelivery);
-
-const formatReverseAddress = (first: Location.LocationGeocodedAddress | undefined) => {
-  const parts = [first?.street, first?.district, first?.city, first?.subregion]
-    .map((part) => part?.trim())
-    .filter(Boolean);
-  return [...new Set(parts)].join(', ');
-};
-
-const isReadableAddress = (value: string) => {
-  const address = value.trim();
-  if (address.length < 6) return false;
-  return !/^(selected point|address could not be resolved|map is unavailable|enter readable address|current gps location|order delivery)/i.test(address);
-};
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -266,33 +252,35 @@ export default function HomeScreen() {
       }
 
       const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      const [reverse] = await Location.reverseGeocodeAsync(current.coords);
-      const addressText = formatReverseAddress(reverse);
-      if (!isReadableAddress(addressText)) {
-        Alert.alert('Address unavailable', 'GPS was found, but no readable street address was returned.');
+      const { result, error } = await reverseGeocodeViaProxy(current.coords.latitude, current.coords.longitude);
+      if (!result || !isReadableAddress(result.address)) {
+        Alert.alert('Address unavailable', error || 'GPS was found, but no readable street address was returned.');
         return;
       }
 
       const isDefault = savedAddresses.length === 0;
+      const now = new Date().toISOString();
       const payload = {
         userId: uid,
-        customerId: uid,
         label: isDefault ? 'Home' : 'Current location',
-        address: addressText,
-        latitude: current.coords.latitude,
-        longitude: current.coords.longitude,
-        source: 'current_location',
+        address: result.address,
+        lat: result.lat,
+        lng: result.lng,
+        source: 'current_location' as const,
         isDefault,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt: now,
+        updatedAt: now,
       };
       const addressRef = await addDoc(collection(db, COLLECTIONS.USERS, uid, 'addresses'), payload);
       const nextAddress = { id: addressRef.id, ...payload };
+      const existingSavedAddresses = savedAddresses
+        .map((address) => canonicalAddressForStorage(address, uid, now))
+        .filter((address): address is NonNullable<typeof address> => Boolean(address));
       await setDoc(doc(db, COLLECTIONS.USERS, uid), {
         ...clientUserDocumentPatch(user, profile),
-        savedAddresses: [...savedAddresses.map(({ id, ...address }) => ({ id, ...address })), nextAddress],
-        ...(isDefault ? { defaultAddress: addressText, address: addressText } : {}),
-        updatedAt: new Date().toISOString(),
+        savedAddresses: [...existingSavedAddresses, nextAddress],
+        ...(isDefault ? { defaultAddress: result.address, address: result.address } : {}),
+        updatedAt: now,
       }, { merge: true });
       setSelectedAddress(nextAddress);
       setShowAddressModal(false);
@@ -310,24 +298,31 @@ export default function HomeScreen() {
     if (!uid) return;
 
     try {
+      const now = new Date().toISOString();
       await Promise.all(
         savedAddresses.map((savedAddress) =>
           setDoc(
             doc(db, COLLECTIONS.USERS, uid, 'addresses', savedAddress.id),
-            { isDefault: savedAddress.id === address.id, updatedAt: new Date().toISOString() },
+            { isDefault: savedAddress.id === address.id, updatedAt: now },
             { merge: true }
           )
         )
       );
+      const canonicalAddresses = savedAddresses
+        .map((savedAddress) =>
+          canonicalAddressForStorage(
+            { ...savedAddress, isDefault: savedAddress.id === address.id },
+            uid,
+            now,
+          )
+        )
+        .filter((savedAddress): savedAddress is NonNullable<typeof savedAddress> => Boolean(savedAddress));
       await setDoc(doc(db, COLLECTIONS.USERS, uid), {
         ...clientUserDocumentPatch(user, profile),
-        savedAddresses: savedAddresses.map((savedAddress) => ({
-          ...savedAddress,
-          isDefault: savedAddress.id === address.id,
-        })),
+        savedAddresses: canonicalAddresses,
         defaultAddress: address.address,
         address: address.address,
-        updatedAt: new Date().toISOString(),
+        updatedAt: now,
       }, { merge: true });
     } catch (error) {
       console.error('Failed to update default address:', error);
@@ -657,44 +652,63 @@ export default function HomeScreen() {
       >
         <View className="flex-1 justify-end bg-black/60">
           <View className="rounded-t-[32px] bg-[#1c1c1e] p-5 pb-8">
-            <Text className="mb-5 text-2xl font-black text-white">My addresses</Text>
+              <Text className="mb-5 text-2xl font-black text-white">My addresses</Text>
+              <TouchableOpacity
+                onPress={() => setShowAddressModal(false)}
+                className="absolute right-5 top-5 h-10 w-10 items-center justify-center rounded-full bg-white/10"
+              >
+                <Ionicons name="close" size={21} color="#fff" />
+              </TouchableOpacity>
 
             <ScrollView className="max-h-72 mb-2" showsVerticalScrollIndicator={false}>
-              {savedAddresses.map((address) => (
-                <View key={address.id} className="mb-4 flex-row items-center">
-                  <TouchableOpacity
-                    onPress={() => chooseAddress(address)}
-                    activeOpacity={0.85}
-                    className="flex-1 flex-row items-center"
-                  >
-                    <Ionicons
-                      name="bookmark-outline"
-                      size={24}
-                      color={selectedAddress?.id === address.id ? '#f9d923' : '#fff'}
-                    />
-                    <View className="ml-4 flex-1 pr-2 border-b border-white/10 pb-4">
-                      <Text
-                        className={`text-base font-black ${selectedAddress?.id === address.id ? 'text-[#f9d923]' : 'text-white'}`}
-                        numberOfLines={1}
-                      >
-                        {address.label || address.address.split(',')[0]}
-                      </Text>
-                      <Text className="mt-0.5 text-sm font-medium text-gray-400" numberOfLines={1}>
-                        {address.address}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setShowAddressModal(false);
-                      router.push('/addresses' as any);
-                    }}
-                    className="p-2 border-b border-white/10 pb-4"
-                  >
-                    <Ionicons name="pencil-outline" size={20} color="#6b7280" />
-                  </TouchableOpacity>
+              {savedAddresses.length === 0 ? (
+                <View className="mb-4 rounded-2xl bg-white/5 p-4">
+                  <Text className="font-black text-white">No saved addresses yet</Text>
+                  <Text className="mt-1 text-sm font-semibold text-gray-400">Use GPS or pick a point on the map.</Text>
                 </View>
-              ))}
+              ) : (
+                savedAddresses.map((address) => {
+                  const coords = coordinateFromAddress(address);
+                  return (
+                    <View key={address.id} className="mb-4 flex-row items-center">
+                      <TouchableOpacity
+                        onPress={() => chooseAddress(address)}
+                        activeOpacity={0.85}
+                        className="flex-1 flex-row items-center"
+                      >
+                        <Ionicons
+                          name={selectedAddress?.id === address.id ? 'radio-button-on' : 'bookmark-outline'}
+                          size={24}
+                          color={selectedAddress?.id === address.id ? '#f9d923' : '#fff'}
+                        />
+                        <View className="ml-4 flex-1 pr-2 border-b border-white/10 pb-4">
+                          <Text
+                            className={`text-base font-black ${selectedAddress?.id === address.id ? 'text-[#f9d923]' : 'text-white'}`}
+                            numberOfLines={1}
+                          >
+                            {address.label || address.address.split(',')[0]}
+                          </Text>
+                          <Text className="mt-0.5 text-sm font-medium text-gray-400" numberOfLines={1}>
+                            {address.address}
+                          </Text>
+                          {!coords && (
+                            <Text className="mt-1 text-xs font-bold text-[#f9d923]">Open edit to add map coordinates.</Text>
+                          )}
+                        </View>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => {
+                          setShowAddressModal(false);
+                          router.push('/addresses' as any);
+                        }}
+                        className="p-2 border-b border-white/10 pb-4"
+                      >
+                        <Ionicons name="pencil-outline" size={20} color="#6b7280" />
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })
+              )}
             </ScrollView>
 
             <TouchableOpacity
@@ -721,6 +735,22 @@ export default function HomeScreen() {
               className="w-full items-center justify-center rounded-2xl bg-white/10 py-4"
             >
               <Text className="text-base font-black text-white">Select a different address</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={saveCurrentLocation}
+              disabled={savingLocation}
+              activeOpacity={0.85}
+              className="mt-3 w-full flex-row items-center justify-center rounded-2xl bg-[#f9d923] py-4"
+            >
+              {savingLocation ? (
+                <ActivityIndicator color="#111827" />
+              ) : (
+                <>
+                  <Ionicons name="navigate" size={18} color="#111827" />
+                  <Text className="ml-2 text-base font-black text-gray-950">Use GPS</Text>
+                </>
+              )}
             </TouchableOpacity>
           </View>
         </View>

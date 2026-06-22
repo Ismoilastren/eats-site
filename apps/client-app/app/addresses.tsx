@@ -26,23 +26,19 @@ import {
 import { COLLECTIONS } from '@repo/shared-types';
 import { useAuth } from '../context/AuthContext';
 import { clientUserDocumentPatch } from '../services/clientUserProfile';
+import {
+  AddressSource,
+  CanonicalSavedAddress,
+  DEFAULT_MAP_CENTER,
+  canonicalAddressForStorage,
+  geocodeQueryViaProxy,
+  isReadableAddress,
+  missingYandexMapsKeyMessage,
+  publicYandexMapsApiKey,
+  reverseGeocodeViaProxy,
+} from '../services/addressing';
 
-type SavedAddress = {
-  id: string;
-  label: string;
-  address: string;
-  latitude?: number;
-  longitude?: number;
-  createdAt?: string;
-  isDefault?: boolean;
-  source?: 'manual' | 'current_location' | 'map' | 'geocode';
-};
-
-function isReadableAddress(value: string) {
-  const address = value.trim();
-  if (address.length < 6) return false;
-  return !/^(selected point|address could not be resolved|map is unavailable|enter readable address|current gps location|order delivery)/i.test(address);
-}
+type SavedAddress = CanonicalSavedAddress & { latitude?: number; longitude?: number };
 
 export default function AddressesScreen() {
   const router = useRouter();
@@ -52,7 +48,7 @@ export default function AddressesScreen() {
   const [addresses, setAddresses] = useState<SavedAddress[]>([]);
   const [label, setLabel] = useState('Home');
   const [addressText, setAddressText] = useState('');
-  const [addressSource, setAddressSource] = useState<'manual' | 'current_location' | 'map' | 'geocode'>('manual');
+  const [addressSource, setAddressSource] = useState<AddressSource>('manual');
   const [lat, setLat] = useState<number | undefined>();
   const [lng, setLng] = useState<number | undefined>();
   const [saving, setSaving] = useState(false);
@@ -60,14 +56,17 @@ export default function AddressesScreen() {
 
   // Map Picker State
   const [showMap, setShowMap] = useState(params.openMap === 'true');
-  const [mapRegion, setMapRegion] = useState({ latitude: 41.2995, longitude: 69.2401 });
+  const [mapRegion, setMapRegion] = useState(DEFAULT_MAP_CENTER);
   const [mapLoading, setMapLoading] = useState(false);
-  const [mapResolvedAddress, setMapResolvedAddress] = useState('Move map to location');
+  const [mapResolvedAddress, setMapResolvedAddress] = useState('');
+  const [mapError, setMapError] = useState<string | null>(null);
+  const [mapSearch, setMapSearch] = useState('');
+  const [mapSearching, setMapSearching] = useState(false);
   const webViewRef = useRef<WebView>(null);
   const resolveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const yandexMapHTML = (initialLat: number, initialLng: number) => {
-    const apiKey = process.env.EXPO_PUBLIC_YANDEX_MAPS_API_KEY || '';
+    const apiKey = encodeURIComponent(publicYandexMapsApiKey());
     return `
 <!DOCTYPE html>
 <html>
@@ -82,8 +81,12 @@ export default function AddressesScreen() {
 <body>
     <div id="map"></div>
     <script>
-        ymaps.ready(init);
         var myMap;
+        if (!window.ymaps) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'error', message: 'Yandex Maps script failed to load.' }));
+        } else {
+            ymaps.ready(init);
+        }
         function init() {
             myMap = new ymaps.Map("map", {
                 center: [${initialLat}, ${initialLng}],
@@ -145,19 +148,9 @@ export default function AddressesScreen() {
   }, [uid]);
 
   const fetchYandexAddress = async (latitude: number, longitude: number): Promise<string> => {
-    try {
-      const baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://eats-site-main-site.vercel.app';
-      const response = await fetch(`${baseUrl}/api/geocode?lat=${latitude}&lng=${longitude}`);
-      const data: any = await response.json();
-      if (data.ok && data.results?.response?.GeoObjectCollection?.featureMember?.length > 0) {
-        const addressDetails = data.results.response.GeoObjectCollection.featureMember[0].GeoObject;
-        return addressDetails.name || addressDetails.description || 'Unknown location';
-      }
-      return 'Unknown location';
-    } catch (error) {
-      console.error('Yandex proxy geocode failed:', error instanceof Error ? error.message : String(error));
-      return 'Unknown location';
-    }
+    const { result, error } = await reverseGeocodeViaProxy(latitude, longitude);
+    setMapError(error);
+    return result?.address || '';
   };
 
   const resolveMapRegion = async (latitude: number, longitude: number) => {
@@ -167,9 +160,12 @@ export default function AddressesScreen() {
     if (resolveTimeoutRef.current) clearTimeout(resolveTimeoutRef.current);
 
     resolveTimeoutRef.current = setTimeout(async () => {
-      const resolved = await fetchYandexAddress(latitude, longitude);
-      setMapResolvedAddress(resolved);
-      setMapLoading(false);
+      try {
+        const resolved = await fetchYandexAddress(latitude, longitude);
+        setMapResolvedAddress(resolved);
+      } finally {
+        setMapLoading(false);
+      }
     }, 800);
   };
 
@@ -178,6 +174,9 @@ export default function AddressesScreen() {
       const data = JSON.parse(event.nativeEvent.data);
       if (data.event === 'move' || data.event === 'ready') {
         resolveMapRegion(data.lat, data.lng);
+      } else if (data.event === 'error') {
+        setMapError(data.message || 'Yandex map could not be loaded.');
+        setMapLoading(false);
       }
     } catch (e) {
       console.warn('WebView message error:', e);
@@ -187,8 +186,13 @@ export default function AddressesScreen() {
   const jumpToCurrentLocation = async () => {
     setMapLoading(true);
     try {
+      if (!publicYandexMapsApiKey()) {
+        setMapError(missingYandexMapsKeyMessage());
+        return;
+      }
       const permission = await Location.requestForegroundPermissionsAsync();
       if (permission.status !== 'granted') {
+        setMapError('Location permission was denied.');
         Alert.alert('Location required', 'Allow location access to find your current spot.');
         return;
       }
@@ -200,9 +204,35 @@ export default function AddressesScreen() {
       setMapResolvedAddress(resolved);
     } catch (error) {
       console.error('GPS Jump failed:', error instanceof Error ? error.message : String(error));
+      setMapError('Could not fetch your current GPS coordinates.');
       Alert.alert('Location error', 'Could not fetch your current GPS coordinates.');
     } finally {
       setMapLoading(false);
+    }
+  };
+
+  const searchMapAddress = async () => {
+    const query = mapSearch.trim();
+    if (query.length < 3) {
+      setMapError('Enter at least 3 characters to search.');
+      return;
+    }
+
+    setMapSearching(true);
+    setMapError(null);
+    try {
+      const { results, error } = await geocodeQueryViaProxy(query);
+      const result = results[0];
+      if (!result) {
+        setMapError(error || 'No readable address found.');
+        return;
+      }
+
+      setMapRegion({ latitude: result.lat, longitude: result.lng });
+      setMapResolvedAddress(result.address);
+      webViewRef.current?.injectJavaScript(`window.updateCenter(${result.lat}, ${result.lng}); true;`);
+    } finally {
+      setMapSearching(false);
     }
   };
 
@@ -216,18 +246,18 @@ export default function AddressesScreen() {
       }
 
       const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      const resolved = await fetchYandexAddress(current.coords.latitude, current.coords.longitude);
+      const { result, error } = await reverseGeocodeViaProxy(current.coords.latitude, current.coords.longitude);
 
-      if (!isReadableAddress(resolved)) {
-        Alert.alert('Address unavailable', 'GPS was found, but a readable street address was not returned. Enter it manually.');
+      if (!result || !isReadableAddress(result.address)) {
+        Alert.alert('Address unavailable', error || 'GPS was found, but a readable street address was not returned. Enter it manually.');
         return;
       }
 
-      setAddressText(resolved);
-      setLat(current.coords.latitude);
-      setLng(current.coords.longitude);
+      setAddressText(result.address);
+      setLat(result.lat);
+      setLng(result.lng);
       setAddressSource('current_location');
-      Alert.alert('GPS Found', `Address resolved to: ${resolved}. Please save when ready.`);
+      Alert.alert('GPS Found', `Address resolved to: ${result.address}. Please save when ready.`);
     } catch (error) {
       console.error('Failed to read current address:', error instanceof Error ? error.message : String(error));
       Alert.alert('Location error', 'Could not read your current GPS location.');
@@ -237,7 +267,7 @@ export default function AddressesScreen() {
   };
 
   const confirmMapLocation = () => {
-    if (!isReadableAddress(mapResolvedAddress) || mapResolvedAddress === 'Unknown location' || mapResolvedAddress === 'Move map to location') {
+    if (!isReadableAddress(mapResolvedAddress)) {
       Alert.alert('Invalid location', 'Please select a readable street address.');
       return;
     }
@@ -267,27 +297,38 @@ export default function AddressesScreen() {
     setSaving(true);
     try {
       const isDefault = addresses.length === 0;
+      const addressLat = Number(lat);
+      const addressLng = Number(lng);
+      if (!Number.isFinite(addressLat) || !Number.isFinite(addressLng)) {
+        Alert.alert('Location required', 'Pick this address on the map or use GPS so delivery coordinates are saved.');
+        return;
+      }
+
+      const now = new Date().toISOString();
       const payload = {
         userId: uid,
-        customerId: uid,
         label: label.trim() || 'Address',
         address: cleanAddress,
+        lat: addressLat,
+        lng: addressLng,
         source: addressSource,
         isDefault,
-        ...(lat && lng ? { latitude: lat, longitude: lng } : {}),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt: now,
+        updatedAt: now,
       };
 
       const addressRef = await addDoc(collection(db, COLLECTIONS.USERS, uid, 'addresses'), payload);
+      const existingSavedAddresses = addresses
+        .map((address) => canonicalAddressForStorage(address, uid, now))
+        .filter((address): address is NonNullable<typeof address> => Boolean(address));
       await setDoc(doc(db, COLLECTIONS.USERS, uid), {
         ...clientUserDocumentPatch(user, profile),
         savedAddresses: [
-          ...addresses.map(({ id, ...address }) => ({ id, ...address })),
+          ...existingSavedAddresses,
           { id: addressRef.id, ...payload },
         ],
         ...(isDefault ? { defaultAddress: cleanAddress, address: cleanAddress } : {}),
-        updatedAt: new Date().toISOString(),
+        updatedAt: now,
       }, { merge: true });
 
       setLabel('Home');
@@ -315,15 +356,17 @@ export default function AddressesScreen() {
         onPress: async () => {
           try {
             await deleteDoc(doc(db, COLLECTIONS.USERS, uid, 'addresses', addressId));
+            const now = new Date().toISOString();
             const nextAddresses = addresses
               .filter((address) => address.id !== addressId)
-              .map(({ id, ...address }) => ({ id, ...address }));
+              .map((address) => canonicalAddressForStorage(address, uid, now))
+              .filter((address): address is NonNullable<typeof address> => Boolean(address));
             await setDoc(doc(db, COLLECTIONS.USERS, uid), {
               ...clientUserDocumentPatch(user, profile),
               savedAddresses: nextAddresses,
               defaultAddress: nextAddresses.find((address) => address.isDefault)?.address || nextAddresses[0]?.address || '',
               address: nextAddresses.find((address) => address.isDefault)?.address || nextAddresses[0]?.address || '',
-              updatedAt: new Date().toISOString(),
+              updatedAt: now,
             }, { merge: true });
           } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
@@ -442,16 +485,24 @@ export default function AddressesScreen() {
 
       <Modal visible={showMap} animationType="slide" transparent>
         <View className="flex-1 bg-[#1a1a1c]">
-          <WebView
-            ref={webViewRef}
-            style={{ flex: 1, backgroundColor: '#1a1a1c' }}
-            source={{ html: yandexMapHTML(mapRegion.latitude, mapRegion.longitude) }}
-            onMessage={onWebViewMessage}
-            scrollEnabled={false}
-            bounces={false}
-            showsHorizontalScrollIndicator={false}
-            showsVerticalScrollIndicator={false}
-          />
+          {publicYandexMapsApiKey() ? (
+            <WebView
+              ref={webViewRef}
+              style={{ flex: 1, backgroundColor: '#1a1a1c' }}
+              source={{ html: yandexMapHTML(mapRegion.latitude, mapRegion.longitude) }}
+              onMessage={onWebViewMessage}
+              scrollEnabled={false}
+              bounces={false}
+              showsHorizontalScrollIndicator={false}
+              showsVerticalScrollIndicator={false}
+            />
+          ) : (
+            <View className="flex-1 items-center justify-center px-8">
+              <Ionicons name="map-outline" size={64} color="#f9d923" />
+              <Text className="mt-5 text-center text-xl font-black text-white">Map unavailable</Text>
+              <Text className="mt-2 text-center font-semibold text-gray-400">{missingYandexMapsKeyMessage()}</Text>
+            </View>
+          )}
           {/* Transparent Gradient Overlay at Top */}
           <View className="absolute top-0 w-full h-40 bg-black/40" pointerEvents="none" />
 
@@ -459,16 +510,33 @@ export default function AddressesScreen() {
             <TouchableOpacity onPress={() => setShowMap(false)} className="h-12 w-12 items-center justify-center rounded-full bg-[#202022] shadow-xl border border-white/10">
               <Ionicons name="close" size={24} color="#fff" />
             </TouchableOpacity>
-            <TouchableOpacity className="h-12 w-12 items-center justify-center rounded-full bg-[#202022] shadow-xl border border-white/10">
-              <Ionicons name="search" size={20} color="#fff" />
-            </TouchableOpacity>
+            <View className="ml-3 flex-1 flex-row items-center rounded-full bg-[#202022] px-4 border border-white/10">
+              <Ionicons name="search" size={18} color="#fff" />
+              <TextInput
+                value={mapSearch}
+                onChangeText={setMapSearch}
+                onSubmitEditing={searchMapAddress}
+                placeholder="Search address"
+                placeholderTextColor="#9ca3af"
+                returnKeyType="search"
+                className="ml-2 flex-1 py-3 font-bold text-white"
+              />
+              <TouchableOpacity onPress={searchMapAddress} disabled={mapSearching} className="h-8 w-8 items-center justify-center">
+                {mapSearching ? <ActivityIndicator color="#f9d923" size="small" /> : <Ionicons name="arrow-forward" size={18} color="#f9d923" />}
+              </TouchableOpacity>
+            </View>
           </SafeAreaView>
 
-          <SafeAreaView className="absolute top-24 w-full px-8 pointer-events-none items-center">
+          <SafeAreaView className="absolute top-28 w-full px-8 pointer-events-none items-center">
             <View className="rounded-2xl bg-black/80 px-6 py-4 shadow-xl border border-white/10 w-full">
               <Text className="text-xl font-black text-white text-center" numberOfLines={2}>
-                {mapLoading ? 'Locating...' : mapResolvedAddress}
+                {mapLoading ? 'Resolving address...' : mapResolvedAddress || 'Move the map or search for your address'}
               </Text>
+              {!!mapError && (
+                <Text className="mt-2 text-center text-sm font-bold text-[#f9d923]" numberOfLines={2}>
+                  {mapError}
+                </Text>
+              )}
             </View>
           </SafeAreaView>
 

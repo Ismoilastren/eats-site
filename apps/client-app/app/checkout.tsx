@@ -32,6 +32,13 @@ import {
 import { useAuthStore } from '../stores/authStore';
 import { useCartStore } from '../stores/cartStore';
 import { ensureClientUserDocument } from '../services/clientUserProfile';
+import {
+  CanonicalSavedAddress,
+  coordinateFromAddress,
+  geocodeQueryViaProxy,
+  isReadableAddress,
+  reverseGeocodeViaProxy,
+} from '../services/addressing';
 
 const TASHKENT = { latitude: 41.311081, longitude: 69.240562 };
 
@@ -41,13 +48,7 @@ const feeFromSettings = (data: any): number | null => {
   return Number.isFinite(amount) && amount >= 0 ? amount : null;
 };
 
-type SavedAddress = {
-  id: string;
-  label?: string;
-  address: string;
-  latitude?: number;
-  longitude?: number;
-};
+type SavedAddress = CanonicalSavedAddress & { latitude?: number; longitude?: number };
 
 type PaymentCard = {
   id: string;
@@ -82,54 +83,10 @@ export default function CheckoutScreen() {
 
   const total = useMemo(() => subtotal + deliveryFee, [subtotal, deliveryFee]);
 
-  // ── Helper: Safe Geocode Parser ──
-  const extractReadableAddressFromGeocode = (payload: unknown): string | null => {
-    if (!payload || typeof payload !== 'object') return null;
-
-    const data = payload as {
-      ok?: boolean;
-      address?: unknown;
-      formattedAddress?: unknown;
-      results?: {
-        response?: {
-          GeoObjectCollection?: {
-            featureMember?: Array<{
-              GeoObject?: {
-                name?: string;
-                description?: string;
-              };
-            }>;
-          };
-        };
-      };
-    };
-
-    if (data.ok && data.results?.response?.GeoObjectCollection?.featureMember?.[0]?.GeoObject) {
-      const geo = data.results.response.GeoObjectCollection.featureMember[0].GeoObject;
-      const addr = geo.name || geo.description || '';
-      if (addr.trim() && !/^(unknown location|order delivery)/i.test(addr)) {
-        return addr.trim();
-      }
-    }
-
-    if (typeof data.address === 'string' && data.address.trim()) {
-      return data.address.trim();
-    }
-
-    if (typeof data.formattedAddress === 'string' && data.formattedAddress.trim()) {
-      return data.formattedAddress.trim();
-    }
-
-    return null;
-  };
-
-  // ── Format GPS reverse geocode — deduplicated (Robust) ──
-  const formatAddress = (addr: any) => {
-    if (!addr) return 'Current GPS location, Tashkent';
-    const parts = [addr.street, addr.district, addr.city, addr.subregion]
-      .map(p => p?.trim())
-      .filter(Boolean);
-    return [...new Set(parts)].join(', ') || 'Current GPS location, Tashkent';
+  const updateAddressText = (value: string) => {
+    setAddressText(value);
+    setSelectedAddressId(null);
+    setLocation(null);
   };
 
   // ── Load GPS location ──
@@ -145,15 +102,17 @@ export default function CheckoutScreen() {
       const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       setLocation(current);
 
-      const baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://eats-site-main-site.vercel.app';
-      const response = await fetch(`${baseUrl}/api/geocode?lat=${current.coords.latitude}&lng=${current.coords.longitude}`);
-      const payload: unknown = await response.json();
-      const readableAddress = extractReadableAddressFromGeocode(payload);
-      if (readableAddress && !selectedAddressId) {
-        setAddressText(readableAddress);
+      const { result, error } = await reverseGeocodeViaProxy(current.coords.latitude, current.coords.longitude);
+      if (!result) {
+        Alert.alert('Address unavailable', error || 'GPS was found, but no readable street address was returned.');
+        return;
+      }
+      if (!selectedAddressId) {
+        setAddressText(result.address);
       }
     } catch (e) {
       console.warn('GPS error:', e);
+      Alert.alert('Location error', 'Could not read your current GPS location.');
     } finally {
       setLoadingLocation(false);
     }
@@ -192,15 +151,18 @@ export default function CheckoutScreen() {
         if (cancelled) return;
 
         // Addresses
-        const addrs: SavedAddress[] = addrSnap.docs.map(d => ({ id: d.id, ...d.data() } as SavedAddress));
+        const addrs: SavedAddress[] = addrSnap.docs
+          .map(d => ({ id: d.id, ...d.data() } as SavedAddress))
+          .filter((addr) => isReadableAddress(addr.address));
         setSavedAddresses(addrs);
         if (addrs[0]) {
           setSelectedAddressId(addrs[0].id);
           setAddressText(addrs[0].address);
-          if (addrs[0].latitude && addrs[0].longitude) {
+          const coords = coordinateFromAddress(addrs[0]);
+          if (coords) {
             setLocation({
               coords: {
-                latitude: addrs[0].latitude, longitude: addrs[0].longitude,
+                latitude: coords.lat, longitude: coords.lng,
                 altitude: null, accuracy: null, altitudeAccuracy: null, heading: null, speed: null,
               },
               timestamp: Date.now(),
@@ -243,6 +205,10 @@ export default function CheckoutScreen() {
       Alert.alert('Address required', 'Please enter a delivery address.');
       return;
     }
+    if (!isReadableAddress(addressText)) {
+      Alert.alert('Readable address required', 'Choose or enter a real street address before placing the order.');
+      return;
+    }
     if (paymentType === 'card' && !selectedCardId) {
       Alert.alert('No card selected', 'Please select a saved card or pay with cash.');
       return;
@@ -255,9 +221,26 @@ export default function CheckoutScreen() {
       const customerName = user?.displayName || firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Customer';
       const customerPhone = user?.phone || firebaseUser.phoneNumber || '';
       const restaurantLocation = normalizeCoordinate(restaurant.location) || TASHKENT;
-      const deliveryPoint = location?.coords
-        ? { latitude: location.coords.latitude, longitude: location.coords.longitude }
-        : TASHKENT;
+      const selectedSavedAddress = savedAddresses.find((addr) => addr.id === selectedAddressId);
+      const savedCoords = selectedSavedAddress ? coordinateFromAddress(selectedSavedAddress) : null;
+      let deliveryPoint = savedCoords
+        ? { latitude: savedCoords.lat, longitude: savedCoords.lng }
+        : location?.coords
+          ? { latitude: location.coords.latitude, longitude: location.coords.longitude }
+          : null;
+      let cleanDeliveryAddress = addressText.trim();
+
+      if (!deliveryPoint) {
+        const { results, error } = await geocodeQueryViaProxy(addressText);
+        const result = results[0];
+        if (!result) {
+          Alert.alert('Address coordinates required', error || 'Could not resolve this address on the map.');
+          return;
+        }
+        deliveryPoint = { latitude: result.lat, longitude: result.lng };
+        cleanDeliveryAddress = result.address;
+        setAddressText(result.address);
+      }
       const calculatedTotal = subtotal + latestFee;
       await ensureClientUserDocument(firebaseUser, {
         uid: firebaseUser.uid,
@@ -273,7 +256,7 @@ export default function CheckoutScreen() {
         customerName,
         customerEmail: firebaseUser.email || user?.email || '',
         customerPhone,
-        customerAddress: addressText.trim(),
+        customerAddress: cleanDeliveryAddress,
         customerLocation: { lat: deliveryPoint.latitude, lng: deliveryPoint.longitude },
         customer: {
           uid: firebaseUser.uid,
@@ -282,9 +265,9 @@ export default function CheckoutScreen() {
           phone: customerPhone,
           email: firebaseUser.email || user?.email || '',
         },
-        deliveryAddress: addressText.trim(),
+        deliveryAddress: cleanDeliveryAddress,
         deliveryAddressId: selectedAddressId,
-        deliveryLocation: deliveryPoint,
+        deliveryLocation: { lat: deliveryPoint.latitude, lng: deliveryPoint.longitude },
         restaurantId: restaurant.id,
         restaurantName: restaurant.name,
         restaurantImage: restaurant.imageUrl || '',
@@ -362,7 +345,7 @@ export default function CheckoutScreen() {
           {/* Editable address input */}
           <TextInput
             value={addressText}
-            onChangeText={(t) => { setAddressText(t); setSelectedAddressId(null); }}
+            onChangeText={updateAddressText}
             multiline
             style={s.textInput}
             placeholder="Apartment, entrance, floor..."
@@ -384,14 +367,17 @@ export default function CheckoutScreen() {
                   onPress={() => {
                     setSelectedAddressId(addr.id);
                     setAddressText(addr.address);
-                    if (addr.latitude && addr.longitude) {
-                      setLocation({
-                        coords: {
-                          latitude: addr.latitude, longitude: addr.longitude,
+                    const coords = coordinateFromAddress(addr);
+                    if (coords) {
+                    setLocation({
+                      coords: {
+                          latitude: coords.lat, longitude: coords.lng,
                           altitude: null, accuracy: null, altitudeAccuracy: null, heading: null, speed: null,
                         },
                         timestamp: Date.now(),
                       });
+                    } else {
+                      setLocation(null);
                     }
                   }}
                   style={[s.addrChip, selectedAddressId === addr.id && s.addrChipSelected]}

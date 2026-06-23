@@ -84,8 +84,7 @@ export default function RadarScreen() {
     setIsLoadingOrders(true);
     const q = query(
       collection(db, 'orders'),
-      where('status', 'in', COURIER_RADAR_STATUSES),
-      where('assignedCourier', '==', null)
+      where('status', 'in', COURIER_RADAR_STATUSES)
     );
 
     const unsub = onSnapshot(q, (snapshot) => {

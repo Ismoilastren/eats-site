@@ -150,6 +150,10 @@ service cloud.firestore {
         resource.data.assignedCourier == null;
     }
 
+    function isRadarReadableOrder() {
+      return resource.data.status in ['preparing', 'ready_for_pickup'];
+    }
+
     function isClientCreatedOrder() {
       return request.resource.data.userId == request.auth.uid &&
         request.resource.data.status == 'pending' &&
@@ -407,7 +411,7 @@ service cloud.firestore {
         isAssignedCourier() ||
         isRestaurantOwner(resource.data.restaurantId) ||
         isAdmin() ||
-        isUnassignedRadarOrder();
+        isRadarReadableOrder();
       // Clients must create orders as pending and explicitly unassigned.
       allow create: if isAuth() && isClientCreatedOrder();
       // Update: restaurant owner (status changes), assigned courier, or admin

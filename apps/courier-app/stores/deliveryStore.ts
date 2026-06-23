@@ -83,7 +83,6 @@ export const useDeliveryStore = create<DeliveryState>()((set, get) => ({
     const q = query(
       ordersRef,
       where('status', 'in', COURIER_RADAR_STATUSES),
-      where('assignedCourier', '==', null),
       limit(PAGE_SIZE)
     );
 

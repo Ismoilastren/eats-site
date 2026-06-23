@@ -63,8 +63,37 @@ const vehicleFormHints: Record<string, { brandLabel: string; brandPlaceholder: s
     brandLabel: 'Motorbike Brand (Optional)',
     brandPlaceholder: 'Yamaha, Lifan, Bajaj...',
     plateLabel: 'Motorbike Plate (Optional)',
-    platePlaceholder: '01 A 1234',
+    platePlaceholder: '01 123 AB',
   },
+};
+
+const MOTORBIKE_PLATE_PATTERN = /^\d{2}\s\d{3}\s[A-Z]{2}$/;
+
+const formatMotorbikePlateInput = (value: string) => {
+  const raw = value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7);
+  const parts = [raw.slice(0, 2), raw.slice(2, 5), raw.slice(5, 7)].filter(Boolean);
+  return parts.join(' ');
+};
+
+const formatPlateInput = (value: string, vehicleType: VehicleType) => {
+  const normalizedVehicleType = normalizeCanonicalVehicleType(vehicleType);
+  if (normalizedVehicleType === 'motorbike') return formatMotorbikePlateInput(value);
+  return value.toUpperCase();
+};
+
+const normalizePlateValue = (value: string, vehicleType: VehicleType) => {
+  const normalizedVehicleType = normalizeCanonicalVehicleType(vehicleType);
+  if (normalizedVehicleType === 'motorbike') return formatMotorbikePlateInput(value).trim();
+  return value.toUpperCase().trim();
+};
+
+const validateVehiclePlate = (vehicleType: VehicleType, plate: string) => {
+  const normalizedVehicleType = normalizeCanonicalVehicleType(vehicleType);
+  const normalizedPlate = normalizePlateValue(plate, vehicleType);
+  if (normalizedVehicleType === 'motorbike' && normalizedPlate && !MOTORBIKE_PLATE_PATTERN.test(normalizedPlate)) {
+    return 'Motorbike plate must be region + 3 digits + 2 letters, for example 01 123 AB';
+  }
+  return '';
 };
 
 // ─── SHARED COMPONENTS (EXTRACTED TO PREVENT REMOUNTING/FOCUS LOSS) ───
@@ -164,10 +193,15 @@ const FormFields = ({
           <label className="block text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">{hints.plateLabel}</label>
           <input
             value={form.licensePlate}
-            onChange={(e) => setForm({ ...form, licensePlate: e.target.value.toUpperCase() })}
+            onChange={(e) => setForm({ ...form, licensePlate: formatPlateInput(e.target.value, form.vehicleType) })}
             placeholder={hints.platePlaceholder}
             className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm uppercase text-gray-900 placeholder-gray-400 focus:border-orange-500 focus:outline-none dark:border-slate-600 dark:bg-slate-700 dark:text-white dark:placeholder-slate-400"
           />
+          {vehicleType === 'motorbike' && (
+            <p className="mt-1.5 text-xs font-semibold text-gray-500 dark:text-slate-400">
+              Format: region code, 3 digits, 2 letters. Example: 01 123 AB.
+            </p>
+          )}
         </div>
       </>
     )}
@@ -285,9 +319,18 @@ export default function CouriersPage() {
       toast.error('Phone must be +998XXXXXXXXX format');
       return;
     }
+    const plateError = validateVehiclePlate(form.vehicleType, form.licensePlate);
+    if (plateError) {
+      toast.error(plateError);
+      return;
+    }
     setIsSubmitting(true);
     try {
       const newId = 'courier_' + Date.now().toString();
+      const vehicleType = normalizeCanonicalVehicleType(form.vehicleType);
+      const keepsVehicleDetails = vehicleType === 'car' || vehicleType === 'motorbike';
+      const licensePlate = keepsVehicleDetails ? normalizePlateValue(form.licensePlate, form.vehicleType) : '';
+      const vehicleBrand = keepsVehicleDetails ? form.vehicleBrand.trim() : '';
       const data: any = {
         id: newId,
         uid: newId,
@@ -295,9 +338,9 @@ export default function CouriersPage() {
         fullName: form.fullName.trim(),
         displayName: form.fullName.trim(),
         phone: form.phone.trim(),
-        vehicleType: normalizeCanonicalVehicleType(form.vehicleType),
-        vehicleName: form.vehicleBrand.trim() || null,
-        plateNumber: form.licensePlate.toUpperCase() || null,
+        vehicleType,
+        vehicleName: vehicleBrand || null,
+        plateNumber: licensePlate || null,
         active: true,
         isActive: true,
         archived: false,
@@ -322,9 +365,9 @@ export default function CouriersPage() {
         updatedAt: serverTimestamp(),
         lastSeenAt: serverTimestamp(),
       };
-      if (form.vehicleType === 'car' || form.vehicleType === 'motorbike') {
-        if (form.licensePlate) data.licensePlate = form.licensePlate.toUpperCase();
-        if (form.vehicleBrand) data.vehicleBrand = form.vehicleBrand;
+      if (keepsVehicleDetails) {
+        if (licensePlate) data.licensePlate = licensePlate;
+        if (vehicleBrand) data.vehicleBrand = vehicleBrand;
       }
       await setDoc(doc(db, COLLECTIONS.COURIERS, newId), data);
       setSearch('');
@@ -345,22 +388,29 @@ export default function CouriersPage() {
   const handleEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCourier) return;
+    const plateError = validateVehiclePlate(form.vehicleType, form.licensePlate);
+    if (plateError) {
+      toast.error(plateError);
+      return;
+    }
     setIsSubmitting(true);
     try {
+      const vehicleType = normalizeCanonicalVehicleType(form.vehicleType);
+      const keepsVehicleDetails = vehicleType === 'car' || vehicleType === 'motorbike';
+      const licensePlate = keepsVehicleDetails ? normalizePlateValue(form.licensePlate, form.vehicleType) : '';
+      const vehicleBrand = keepsVehicleDetails ? form.vehicleBrand.trim() : '';
       const updates: any = {
         name: form.fullName.trim(),
         fullName: form.fullName.trim(),
         displayName: form.fullName.trim(),
         phone: form.phone.trim(),
-        vehicleType: normalizeCanonicalVehicleType(form.vehicleType),
-        vehicleName: form.vehicleBrand.trim() || null,
-        plateNumber: form.licensePlate.toUpperCase() || null,
+        vehicleType,
+        vehicleName: vehicleBrand || null,
+        plateNumber: licensePlate || null,
         updatedAt: serverTimestamp(),
       };
-      if (form.vehicleType === 'car' || form.vehicleType === 'motorbike') {
-        updates.licensePlate = form.licensePlate.toUpperCase();
-        updates.vehicleBrand = form.vehicleBrand;
-      }
+      updates.licensePlate = licensePlate || null;
+      updates.vehicleBrand = vehicleBrand || null;
       await updateDoc(doc(db, COLLECTIONS.COURIERS, selectedCourier.id), updates);
       toast.success('Courier updated!');
       setShowEditModal(false);

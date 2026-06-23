@@ -150,11 +150,6 @@ service cloud.firestore {
         resource.data.assignedCourier == null;
     }
 
-    function isAnonymousSession() {
-      return isAuth() &&
-        request.auth.token.firebase.sign_in_provider == 'anonymous';
-    }
-
     function isClientCreatedOrder() {
       return request.resource.data.userId == request.auth.uid &&
         request.resource.data.status == 'pending' &&
@@ -412,17 +407,21 @@ service cloud.firestore {
         isAssignedCourier() ||
         isRestaurantOwner(resource.data.restaurantId) ||
         isAdmin() ||
-        (isAnonymousSession() && isUnassignedRadarOrder());
+        isUnassignedRadarOrder();
       // Clients must create orders as pending and explicitly unassigned.
       allow create: if isAuth() && isClientCreatedOrder();
       // Update: restaurant owner (status changes), assigned courier, or admin
-      allow update: if isAuth() && isValidOrderStatus(request.resource.data.status) && (
-        isClientCancelOnly() ||
-        isClientReviewOnly() ||
-        isRestaurantStatusOnly() ||
+      allow update: if isValidOrderStatus(request.resource.data.status) && (
         isCourierAcceptOnly() ||
-        isAssignedCourierDeliveryUpdate() ||
-        isAdmin()
+        (
+          isAuth() && (
+            isClientCancelOnly() ||
+            isClientReviewOnly() ||
+            isRestaurantStatusOnly() ||
+            isAssignedCourierDeliveryUpdate() ||
+            isAdmin()
+          )
+        )
       );
       // Only admins can delete orders
       allow delete: if isAdmin();

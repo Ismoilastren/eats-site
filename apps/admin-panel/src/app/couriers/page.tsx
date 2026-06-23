@@ -52,6 +52,21 @@ const isArchivedCourier = (courier: AdminCourierRecord) => {
   return courier.archived === true || courier.deleted === true || courier.isDeleted === true || status === 'archived';
 };
 
+const vehicleFormHints: Record<string, { brandLabel: string; brandPlaceholder: string; plateLabel: string; platePlaceholder: string }> = {
+  car: {
+    brandLabel: 'Car Brand (Optional)',
+    brandPlaceholder: 'Chevrolet, KIA, BYD...',
+    plateLabel: 'License Plate',
+    platePlaceholder: '01 A 123 AA',
+  },
+  motorbike: {
+    brandLabel: 'Motorbike Brand (Optional)',
+    brandPlaceholder: 'Yamaha, Lifan, Bajaj...',
+    plateLabel: 'Motorbike Plate (Optional)',
+    platePlaceholder: '01 A 1234',
+  },
+};
+
 // ─── SHARED COMPONENTS (EXTRACTED TO PREVENT REMOUNTING/FOCUS LOSS) ───
 const Modal = ({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) => (
   <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
@@ -84,8 +99,13 @@ const FormFields = ({
   onSubmit: (e: React.FormEvent) => void;
   submitLabel: string;
   onClose: () => void;
-}) => (
-  <form onSubmit={onSubmit} className="space-y-4">
+}) => {
+  const vehicleType = normalizeCanonicalVehicleType(form.vehicleType);
+  const showPlateFields = vehicleType === 'car' || vehicleType === 'motorbike';
+  const hints = vehicleFormHints[vehicleType] || vehicleFormHints.car;
+
+  return (
+    <form onSubmit={onSubmit} className="space-y-4">
     <div>
       <label className="block text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">Full Name</label>
       <input
@@ -110,7 +130,17 @@ const FormFields = ({
       <label className="block text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">Vehicle Type</label>
       <select
         value={form.vehicleType}
-        onChange={(e) => setForm({ ...form, vehicleType: e.target.value as VehicleType })}
+        onChange={(e) => {
+          const nextVehicleType = e.target.value as VehicleType;
+          const normalizedNextVehicleType = normalizeCanonicalVehicleType(nextVehicleType);
+          const keepsVehicleDetails = normalizedNextVehicleType === 'car' || normalizedNextVehicleType === 'motorbike';
+          setForm({
+            ...form,
+            vehicleType: nextVehicleType,
+            vehicleBrand: keepsVehicleDetails ? form.vehicleBrand : '',
+            licensePlate: keepsVehicleDetails ? form.licensePlate : '',
+          });
+        }}
         className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-500/20 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
       >
         <option value="bicycle">🚲 Bicycle</option>
@@ -119,23 +149,23 @@ const FormFields = ({
         <option value="car">🚗 Car</option>
       </select>
     </div>
-    {(form.vehicleType === 'car' || form.vehicleType === 'motorbike') && (
+    {showPlateFields && (
       <>
         <div>
-          <label className="block text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">Vehicle Brand (Optional)</label>
+          <label className="block text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">{hints.brandLabel}</label>
           <input
             value={form.vehicleBrand}
             onChange={(e) => setForm({ ...form, vehicleBrand: e.target.value })}
-            placeholder="Chevrolet, KIA..."
+            placeholder={hints.brandPlaceholder}
             className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-orange-500 focus:outline-none dark:border-slate-600 dark:bg-slate-700 dark:text-white dark:placeholder-slate-400"
           />
         </div>
         <div>
-          <label className="block text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">License Plate</label>
+          <label className="block text-sm font-semibold text-gray-700 dark:text-slate-300 mb-1.5">{hints.plateLabel}</label>
           <input
             value={form.licensePlate}
             onChange={(e) => setForm({ ...form, licensePlate: e.target.value.toUpperCase() })}
-            placeholder="01 A 123 AA"
+            placeholder={hints.platePlaceholder}
             className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm uppercase text-gray-900 placeholder-gray-400 focus:border-orange-500 focus:outline-none dark:border-slate-600 dark:bg-slate-700 dark:text-white dark:placeholder-slate-400"
           />
         </div>
@@ -157,8 +187,9 @@ const FormFields = ({
         {isSubmitting ? 'Saving...' : submitLabel}
       </button>
     </div>
-  </form>
-);
+    </form>
+  );
+};
 
 export default function CouriersPage() {
   const [couriers, setCouriers] = useState<AdminCourierRecord[]>([]);

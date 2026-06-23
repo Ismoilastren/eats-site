@@ -748,7 +748,7 @@ export default function CouriersPage() {
           <div className="mb-5 rounded-xl border border-orange-200 bg-orange-50 p-4 dark:border-orange-500/30 dark:bg-orange-500/10">
             <p className="text-sm font-semibold text-orange-700 dark:text-orange-400">📋 After creating, copy the Courier ID</p>
             <p className="text-xs text-orange-600/80 dark:text-orange-300/70 mt-1">
-              The generated ID appears in the table immediately. The courier app uses Firebase Anonymous Auth to pair this ID, then the courier must go online before assignment.
+              The generated ID appears in the table immediately. The courier app pairs this ID to the courier device, then the courier must go online before assignment.
             </p>
           </div>
           <FormFields form={form} setForm={setForm} isSubmitting={isSubmitting} onSubmit={handleAdd} submitLabel="Create Courier" onClose={() => { setShowAddModal(false); resetForm(); }} />

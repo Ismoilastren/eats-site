@@ -51,10 +51,19 @@ service cloud.firestore {
     }
 
     function isCourierSessionFor(courierId) {
-      return isAuth() &&
-        courierId is string &&
+      return courierId is string &&
         courierId.size() > 0 &&
-        get(/databases/$(database)/documents/couriers/$(courierId)).data.sessionUid == request.auth.uid;
+        (
+          (
+            isAuth() &&
+            get(/databases/$(database)/documents/couriers/$(courierId)).data.sessionUid == request.auth.uid
+          ) ||
+          (
+            get(/databases/$(database)/documents/couriers/$(courierId)).data.authProvider == 'courier-id' &&
+            get(/databases/$(database)/documents/couriers/$(courierId)).data.sessionUid is string &&
+            get(/databases/$(database)/documents/couriers/$(courierId)).data.sessionUid.size() > 0
+          )
+        );
     }
 
     function isConnectableCourierProfile() {
@@ -70,13 +79,27 @@ service cloud.firestore {
     }
 
     function isCourierSessionClaim(courierId) {
-      return isAuth() &&
-        isConnectableCourierProfile() &&
-        request.resource.data.sessionUid == request.auth.uid &&
-        request.resource.data.authProvider == 'anonymous' &&
+      return isConnectableCourierProfile() &&
         (
-          resource.data.sessionUid == null ||
-          resource.data.sessionUid == request.auth.uid
+          (
+            isAuth() &&
+            request.resource.data.sessionUid == request.auth.uid &&
+            request.resource.data.authProvider == 'anonymous' &&
+            (
+              resource.data.sessionUid == null ||
+              resource.data.sessionUid == request.auth.uid
+            )
+          ) ||
+          (
+            !isAuth() &&
+            request.resource.data.sessionUid is string &&
+            request.resource.data.sessionUid.matches('^courier_device_[A-Za-z0-9_]+$') &&
+            request.resource.data.authProvider == 'courier-id' &&
+            (
+              resource.data.sessionUid == null ||
+              resource.data.sessionUid == request.resource.data.sessionUid
+            )
+          )
         ) &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'sessionUid',
@@ -86,8 +109,22 @@ service cloud.firestore {
         ]);
     }
 
+    function isCourierIdSessionForResource() {
+      return resource.data.authProvider == 'courier-id' &&
+        resource.data.sessionUid is string &&
+        resource.data.sessionUid.size() > 0 &&
+        (
+          !('sessionUid' in request.resource.data) ||
+          request.resource.data.sessionUid == resource.data.sessionUid
+        ) &&
+        (
+          !('authProvider' in request.resource.data) ||
+          request.resource.data.authProvider == 'courier-id'
+        );
+    }
+
     function isCourierSessionRelease(courierId) {
-      return isCourierSessionFor(courierId) &&
+      return (isCourierSessionFor(courierId) || isCourierIdSessionForResource()) &&
         request.resource.data.sessionUid == null &&
         request.resource.data.authProvider == null &&
         request.resource.data.status == 'offline' &&

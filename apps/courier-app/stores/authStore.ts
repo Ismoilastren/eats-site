@@ -40,8 +40,6 @@ let unsubscribeSnapshot: (() => void) | null = null;
 
 const COURIER_NOT_FOUND_MESSAGE =
   'Courier ID not found. Ask admin for the correct ID.';
-const COURIER_ALREADY_LINKED_MESSAGE =
-  'This courier profile is already connected to another device/account.';
 const COURIER_INACTIVE_MESSAGE =
   'This courier profile is inactive or archived. Ask admin to restore it before connecting.';
 
@@ -97,17 +95,9 @@ const isBlockedCourierRecord = (data: Record<string, unknown>) => {
   );
 };
 
-const assertCourierCanConnect = (
-  data: Record<string, unknown>,
-  sessionUid: string
-) => {
+const assertCourierCanConnect = (data: Record<string, unknown>) => {
   if (isBlockedCourierRecord(data)) {
     throw new CourierAuthError(COURIER_INACTIVE_MESSAGE);
-  }
-
-  const linkedUid = getTextField(data, 'sessionUid');
-  if (linkedUid && linkedUid !== sessionUid) {
-    throw new CourierAuthError(COURIER_ALREADY_LINKED_MESSAGE);
   }
 };
 
@@ -156,7 +146,7 @@ export const useAuthStore = create<AuthState>()((set, get) => {
 
     const data = snapshot.data();
     const sessionUid = await getOrCreateCourierSessionUidAsync();
-    assertCourierCanConnect(data, sessionUid);
+    assertCourierCanConnect(data);
 
     await updateDoc(courierRef, {
       sessionUid,

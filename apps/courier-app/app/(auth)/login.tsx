@@ -10,7 +10,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,11 +20,6 @@ export default function LoginScreen() {
   const { signIn, isLoading, error, clearError } = useAuthStore();
 
   const handleLogin = async () => {
-    if (!courierId.trim()) {
-      Alert.alert('Error', 'Please enter your Courier ID.');
-      return;
-    }
-
     try {
       await signIn(courierId.trim());
     } catch {
@@ -81,8 +75,11 @@ export default function LoginScreen() {
               <Ionicons name="id-card-outline" size={20} color="#9ca3af" />
               <TextInput
                 value={courierId}
-                onChangeText={setCourierId}
-                placeholder="e.g. courier_123456789"
+                onChangeText={(value) => {
+                  setCourierId(value);
+                  if (error) clearError();
+                }}
+                placeholder="e.g. courier_1781588300295"
                 placeholderTextColor="#9ca3af"
                 autoCapitalize="none"
                 autoCorrect={false}

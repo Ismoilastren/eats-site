@@ -6,6 +6,7 @@ import {
   db,
   doc,
   getDoc,
+  onAuthStateChanged,
   onSnapshot,
   serverTimestamp,
   signInAnonymously,
@@ -38,6 +39,22 @@ interface AuthState {
 
 let unsubscribeSnapshot: (() => void) | null = null;
 
+const COURIER_NOT_FOUND_MESSAGE =
+  'Courier ID not found. Ask admin for the correct ID.';
+const COURIER_AUTH_DISABLED_MESSAGE =
+  'Courier authentication is not enabled yet. Enable Anonymous sign-in in Firebase Auth or use a supported courier login method.';
+const COURIER_ALREADY_LINKED_MESSAGE =
+  'This courier profile is already connected to another device/account.';
+const COURIER_INACTIVE_MESSAGE =
+  'This courier profile is inactive or archived. Ask admin to restore it before connecting.';
+
+class CourierAuthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CourierAuthError';
+  }
+}
+
 const stopProfileSubscription = () => {
   if (unsubscribeSnapshot) {
     unsubscribeSnapshot();
@@ -45,21 +62,98 @@ const stopProfileSubscription = () => {
   }
 };
 
+const getFirebaseErrorCode = (error: unknown) =>
+  typeof error === 'object' && error && 'code' in error
+    ? String((error as { code?: unknown }).code)
+    : '';
+
 const getReadableError = (error: unknown) => {
-  const code =
-    typeof error === 'object' && error && 'code' in error
-      ? String((error as { code?: unknown }).code)
-      : '';
-  if (code.includes('permission-denied')) {
-    return 'Courier profile access is blocked. Deploy the updated Firestore rules.';
+  if (error instanceof CourierAuthError) return error.message;
+
+  const code = getFirebaseErrorCode(error);
+  if (code.includes('admin-restricted-operation')) {
+    return COURIER_AUTH_DISABLED_MESSAGE;
   }
-  return error instanceof Error ? error.message : 'Unable to connect courier profile.';
+  if (code.includes('permission-denied')) {
+    return 'Courier ID cannot be connected. Ask admin to verify this courier is active and not linked to another account.';
+  }
+  if (code.includes('network-request-failed') || code.includes('unavailable')) {
+    return 'Network connection failed. Check your internet and try again.';
+  }
+
+  if (error instanceof Error && !error.message.includes('Firebase:')) {
+    return error.message;
+  }
+
+  return 'Unable to connect courier profile. Please try again or ask admin for help.';
+};
+
+const waitForAuthHydration = async () => {
+  const authWithReady = auth as typeof auth & {
+    authStateReady?: () => Promise<void>;
+  };
+  if (typeof authWithReady.authStateReady === 'function') {
+    await authWithReady.authStateReady();
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    const timeout = setTimeout(resolve, 1200);
+    const unsubscribe = onAuthStateChanged(auth, () => {
+      clearTimeout(timeout);
+      unsubscribe();
+      resolve();
+    });
+  });
 };
 
 const ensureAnonymousCourierSession = async () => {
+  await waitForAuthHydration();
   if (auth.currentUser) return auth.currentUser.uid;
-  const credential = await signInAnonymously(auth);
-  return credential.user.uid;
+  try {
+    const credential = await signInAnonymously(auth);
+    return credential.user.uid;
+  } catch (error) {
+    if (getFirebaseErrorCode(error).includes('admin-restricted-operation')) {
+      if (__DEV__) {
+        console.warn(
+          'courier-auth-anonymous-disabled',
+          'Enable Anonymous sign-in in Firebase Authentication or add a supported courier login method.'
+        );
+      }
+      throw new CourierAuthError(COURIER_AUTH_DISABLED_MESSAGE);
+    }
+    throw error;
+  }
+};
+
+const getTextField = (data: Record<string, unknown>, key: string) =>
+  typeof data[key] === 'string' ? String(data[key]).trim() : '';
+
+const isBlockedCourierRecord = (data: Record<string, unknown>) => {
+  const status = getTextField(data, 'status').toLowerCase();
+  return (
+    data.archived === true ||
+    data.deleted === true ||
+    data.isDeleted === true ||
+    data.active === false ||
+    data.isActive === false ||
+    ['archived', 'deleted', 'disabled', 'inactive', 'suspended'].includes(status)
+  );
+};
+
+const assertCourierCanConnect = (
+  data: Record<string, unknown>,
+  sessionUid: string
+) => {
+  if (isBlockedCourierRecord(data)) {
+    throw new CourierAuthError(COURIER_INACTIVE_MESSAGE);
+  }
+
+  const linkedUid = getTextField(data, 'sessionUid');
+  if (linkedUid && linkedUid !== sessionUid) {
+    throw new CourierAuthError(COURIER_ALREADY_LINKED_MESSAGE);
+  }
 };
 
 export const useAuthStore = create<AuthState>()((set, get) => {
@@ -99,13 +193,16 @@ export const useAuthStore = create<AuthState>()((set, get) => {
 
   const connect = async (courierId: string) => {
     const normalizedId = courierId.trim();
-    if (!normalizedId) throw new Error('Enter a Courier ID.');
+    if (!normalizedId) throw new CourierAuthError('Enter a Courier ID.');
 
     const courierRef = doc(db, COLLECTIONS.COURIERS, normalizedId);
     const snapshot = await getDoc(courierRef);
-    if (!snapshot.exists()) throw new Error('Courier profile not found.');
+    if (!snapshot.exists()) throw new CourierAuthError(COURIER_NOT_FOUND_MESSAGE);
 
+    const data = snapshot.data();
     const sessionUid = await ensureAnonymousCourierSession();
+    assertCourierCanConnect(data, sessionUid);
+
     await updateDoc(courierRef, {
       sessionUid,
       authProvider: 'anonymous',
@@ -170,10 +267,11 @@ export const useAuthStore = create<AuthState>()((set, get) => {
       try {
         if (courier) {
           const timestamp = serverTimestamp();
-          await updateDoc(
-            doc(db, COLLECTIONS.COURIERS, courier.id),
-            getCourierOperationalFields(false, timestamp, null)
-          );
+          await updateDoc(doc(db, COLLECTIONS.COURIERS, courier.id), {
+            ...getCourierOperationalFields(false, timestamp, null),
+            sessionUid: null,
+            authProvider: null,
+          });
         }
       } catch (error) {
         if (__DEV__) console.warn('courier-sign-out-status', getReadableError(error));

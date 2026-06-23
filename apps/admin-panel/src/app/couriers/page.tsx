@@ -632,6 +632,7 @@ export default function CouriersPage() {
                   const invalidReason = getCourierInvalidReason(courier);
                   const isArchived = isArchivedCourier(courier);
                   const isCopied = copiedId === getCourierId(courier);
+                  const isConnected = typeof (courier as any).sessionUid === 'string' && Boolean((courier as any).sessionUid);
                   const metrics = courierMetrics.get(courier.id) || { completedOrders: 0, deliveryEarnings: 0 };
                   return (
                     <tr key={getCourierId(courier)} className="transition-colors hover:bg-gray-50 dark:hover:bg-slate-700/40">
@@ -670,6 +671,9 @@ export default function CouriersPage() {
                             {isCopied ? '✅ Copied!' : '📋 Copy ID'}
                           </button>
                         </div>
+                        <p className={`mt-1.5 text-xs font-semibold ${isConnected ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-500 dark:text-slate-400'}`}>
+                          {isConnected ? 'Connected to courier app' : 'Not connected yet'}
+                        </p>
                       </td>
 
                       {/* Vehicle */}
@@ -744,7 +748,7 @@ export default function CouriersPage() {
           <div className="mb-5 rounded-xl border border-orange-200 bg-orange-50 p-4 dark:border-orange-500/30 dark:bg-orange-500/10">
             <p className="text-sm font-semibold text-orange-700 dark:text-orange-400">📋 After creating, copy the Courier ID</p>
             <p className="text-xs text-orange-600/80 dark:text-orange-300/70 mt-1">
-              The generated ID appears in the table immediately. It is not assignable until the courier logs into the courier app and goes online.
+              The generated ID appears in the table immediately. The courier app uses Firebase Anonymous Auth to pair this ID, then the courier must go online before assignment.
             </p>
           </div>
           <FormFields form={form} setForm={setForm} isSubmitting={isSubmitting} onSubmit={handleAdd} submitLabel="Create Courier" onClose={() => { setShowAddModal(false); resetForm(); }} />

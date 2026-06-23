@@ -57,18 +57,50 @@ service cloud.firestore {
         get(/databases/$(database)/documents/couriers/$(courierId)).data.sessionUid == request.auth.uid;
     }
 
+    function isConnectableCourierProfile() {
+      return (!('archived' in resource.data) || resource.data.archived != true) &&
+        (!('deleted' in resource.data) || resource.data.deleted != true) &&
+        (!('isDeleted' in resource.data) || resource.data.isDeleted != true) &&
+        (!('active' in resource.data) || resource.data.active != false) &&
+        (!('isActive' in resource.data) || resource.data.isActive != false) &&
+        (
+          !('status' in resource.data) ||
+          !(resource.data.status in ['archived', 'deleted', 'disabled', 'inactive', 'suspended'])
+        );
+    }
+
     function isCourierSessionClaim(courierId) {
       return isAuth() &&
+        isConnectableCourierProfile() &&
         request.resource.data.sessionUid == request.auth.uid &&
         request.resource.data.authProvider == 'anonymous' &&
         (
           resource.data.sessionUid == null ||
-          resource.data.sessionUid == request.auth.uid ||
-          resource.data.currentOrderId == null
+          resource.data.sessionUid == request.auth.uid
         ) &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'sessionUid',
           'authProvider',
+          'lastSeenAt',
+          'updatedAt'
+        ]);
+    }
+
+    function isCourierSessionRelease(courierId) {
+      return isCourierSessionFor(courierId) &&
+        request.resource.data.sessionUid == null &&
+        request.resource.data.authProvider == null &&
+        request.resource.data.status == 'offline' &&
+        request.resource.data.isOnline == false &&
+        request.resource.data.isAvailable == false &&
+        request.resource.data.currentOrderId == null &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'sessionUid',
+          'authProvider',
+          'status',
+          'isOnline',
+          'isAvailable',
+          'currentOrderId',
           'lastSeenAt',
           'updatedAt'
         ]);
@@ -387,6 +419,7 @@ service cloud.firestore {
       allow create: if isAdmin();
       allow update: if isAdmin() ||
         isCourierSessionClaim(courierId) ||
+        isCourierSessionRelease(courierId) ||
         (isCourierSessionFor(courierId) && isPublicCourierOperationalUpdate());
       allow delete: if isAdmin();
 

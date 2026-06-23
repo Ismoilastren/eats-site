@@ -63,15 +63,15 @@ const vehicleFormHints: Record<string, { brandLabel: string; brandPlaceholder: s
     brandLabel: 'Motorbike Brand (Optional)',
     brandPlaceholder: 'Yamaha, Lifan, Bajaj...',
     plateLabel: 'Motorbike Plate (Optional)',
-    platePlaceholder: '01 123 AB',
+    platePlaceholder: '01 A 1234',
   },
 };
 
-const MOTORBIKE_PLATE_PATTERN = /^\d{2}\s\d{3}\s[A-Z]{2}$/;
+const MOTORBIKE_PLATE_PATTERN = /^\d{2}\s[A-Z]\s\d{4}$/;
 
 const formatMotorbikePlateInput = (value: string) => {
   const raw = value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7);
-  const parts = [raw.slice(0, 2), raw.slice(2, 5), raw.slice(5, 7)].filter(Boolean);
+  const parts = [raw.slice(0, 2), raw.slice(2, 3), raw.slice(3, 7)].filter(Boolean);
   return parts.join(' ');
 };
 
@@ -91,7 +91,7 @@ const validateVehiclePlate = (vehicleType: VehicleType, plate: string) => {
   const normalizedVehicleType = normalizeCanonicalVehicleType(vehicleType);
   const normalizedPlate = normalizePlateValue(plate, vehicleType);
   if (normalizedVehicleType === 'motorbike' && normalizedPlate && !MOTORBIKE_PLATE_PATTERN.test(normalizedPlate)) {
-    return 'Motorbike plate must be region + 3 digits + 2 letters, for example 01 123 AB';
+    return 'Motorbike plate must be region + 1 letter + 4 digits, for example 01 A 1234';
   }
   return '';
 };
@@ -199,7 +199,7 @@ const FormFields = ({
           />
           {vehicleType === 'motorbike' && (
             <p className="mt-1.5 text-xs font-semibold text-gray-500 dark:text-slate-400">
-              Format: region code, 3 digits, 2 letters. Example: 01 123 AB.
+              Format: region code, 1 letter, 4 digits. Example: 01 A 1234.
             </p>
           )}
         </div>

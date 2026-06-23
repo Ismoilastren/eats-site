@@ -24,9 +24,13 @@ const STATUS_MESSAGES: Record<string, { title: string; body: string }> = {
     title: '👨‍🍳 Preparing Your Order',
     body: 'The restaurant has started cooking your order.',
   },
-  courier_picked_up: {
+  picked_up: {
     title: '🚗 Courier is on the way!',
     body: 'Your order has been picked up and is heading to you.',
+  },
+  on_the_way: {
+    title: '🚗 Courier is on the way!',
+    body: 'Your order is heading to your address.',
   },
   delivered: {
     title: '🎉 Order Delivered!',

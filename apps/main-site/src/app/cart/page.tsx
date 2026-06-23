@@ -18,6 +18,7 @@ import {
   subscribeCustomerProfileStorage,
   type PaymentMethod,
 } from '@/services/customerProfile';
+import { isFirestoreDataSource } from '@/services/marketplace/config';
 
 export default function CartPage() {
   const router = useRouter();
@@ -51,6 +52,7 @@ export default function CartPage() {
   const [addressPickerOpen, setAddressPickerOpen] = useState(false);
   const [savedCards, setSavedCards] = useState<PaymentMethod[]>([]);
   const [cardsLoading, setCardsLoading] = useState(true);
+  const [firebaseUid, setFirebaseUid] = useState(auth.currentUser?.uid || '');
 
   const minOrder = cart[0]?.restaurantMinOrder || 0;
   const belowMinimum = cart.length > 0 && subtotal < minOrder;
@@ -63,16 +65,21 @@ export default function CartPage() {
   );
   const validSavedCards = savedCards.filter(isStoredPaymentMethodValid);
   const selectedCard = validSavedCards[0];
+  const requiresFirebaseAuth = isFirestoreDataSource();
+  const signedInForCheckout = !requiresFirebaseAuth || Boolean(firebaseUid);
   const displayAddress = address.text === 'Current location'
     ? 'Detected location, Tashkent'
     : address.text.replace(/^Tashkent,\s*/i, '') || 'No address selected';
   const placeOrderDisabled = cart.length === 0
     || belowMinimum
     || isSubmitting
+    || !signedInForCheckout
     || (isDelivery && !hasConfirmedAddress)
     || (payment === 'card' && !selectedCard);
   const placeOrderHelper = cart.length === 0
     ? 'Add items to place an order.'
+    : !signedInForCheckout
+      ? 'Sign in before placing your order.'
     : isDelivery && !hasConfirmedAddress
       ? 'Select delivery address.'
       : payment === 'card' && !selectedCard
@@ -103,7 +110,8 @@ export default function CartPage() {
         setCardsLoading(false);
       }
     };
-    const unsubscribeAuth = onAuthStateChanged(auth, () => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
+      setFirebaseUid(firebaseUser?.uid || '');
       setCardsLoading(true);
       refreshCards();
     });
@@ -118,9 +126,13 @@ export default function CartPage() {
   const submit = async () => {
     if (cart.length === 0) return;
     if (isSubmitting) return;
-    if (!user) {
+    if (requiresFirebaseAuth && !auth.currentUser?.uid) {
       setError('Sign in before placing your order.');
       window.dispatchEvent(new Event('marketplace:open-auth'));
+      return;
+    }
+    if (!user) {
+      setError('Enter your customer details before checkout.');
       return;
     }
     if (!name.trim() || !phone.trim()) {

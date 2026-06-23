@@ -33,6 +33,8 @@ export default function MenuItemCard({ id, name, description, price, image, popu
           className="object-cover"
         />
         <button 
+          type="button"
+          aria-label={`Add ${name} to cart`}
           onClick={onAdd}
           className="absolute bottom-2 right-2 w-8 h-8 bg-white text-primary rounded-full shadow-md flex items-center justify-center hover:bg-primary hover:text-white transition-colors"
         >

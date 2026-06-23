@@ -5,7 +5,7 @@ import React from 'react';
 import { View, Text, Pressable, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { formatCurrencyUZS, type Order } from '@repo/shared-types';
-import { formatDistance, estimateDeliveryTime } from '../services/locationService';
+import { calculateDistance, formatDistance, estimateDeliveryTime } from '../services/locationService';
 
 interface DeliveryCardProps {
   order: Order;
@@ -28,7 +28,6 @@ export default function DeliveryCard({
   let timeEstimate = 0;
 
   if (courierLatitude && courierLongitude && order.deliveryLocation) {
-    const { calculateDistance } = require('../services/locationService');
     const dist = calculateDistance(
       courierLatitude,
       courierLongitude,

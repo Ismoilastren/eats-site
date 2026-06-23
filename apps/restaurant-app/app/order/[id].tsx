@@ -69,7 +69,7 @@ export default function OrderDetailsModal() {
   const action = getNextStatusAction();
   const statusColors = getStatusColor(order.status).split(' ');
   const orderItems = getOrderItems(order);
-  const customerComment = order.deliveryInstructions || order.customerComment || (order as any).adminComment || '';
+  const customerComment = order.deliveryInstructions || order.customerComment || order.adminComment || '';
 
   return (
     <SafeAreaView className="flex-1" style={{ backgroundColor: '#0f172a' }}>

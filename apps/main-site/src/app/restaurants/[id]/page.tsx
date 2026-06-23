@@ -5,11 +5,71 @@ import { Star, Clock, MapPin, Info, Search, Heart, Plus, Minus, Trash2 } from "l
 import MenuItemCard from "@/components/ui/MenuItemCard";
 import { db, doc, getDoc, collection, query, where, getDocs, updateDoc, arrayUnion, arrayRemove, auth, onAuthStateChanged } from "@repo/firebase-config";
 import { COLLECTIONS, Restaurant, MenuItem } from "@repo/shared-types";
-import { useCart } from "@/context/CartContext";
+import { useMarketplace } from "@/context/MarketplaceContext";
+import type { Dish as MarketplaceDish, Restaurant as MarketplaceRestaurant } from "@/data/marketplace";
 import toast from "react-hot-toast";
 import { useRouter } from "next/navigation";
 
 const sectionId = (category: string) => `category-${category.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+
+function toMarketplaceRestaurant(restaurant: Restaurant): MarketplaceRestaurant {
+  const lat = Number(restaurant.location?.latitude);
+  const lng = Number(restaurant.location?.longitude);
+  const cuisine = String(restaurant.cuisine || 'Restaurant')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  return {
+    id: restaurant.id,
+    slug: restaurant.id,
+    brandId: restaurant.brandId,
+    brandName: restaurant.brandName || restaurant.name,
+    branchId: restaurant.branchId || restaurant.id,
+    branchName: restaurant.branchName,
+    branchDisplayName: restaurant.branchDisplayName,
+    name: restaurant.name,
+    imageUrl: restaurant.imageUrl,
+    cuisine: cuisine.length > 0 ? cuisine : ['Restaurant'],
+    category: cuisine[0] || 'Restaurant',
+    rating: Number(restaurant.rating || 0),
+    reviews: Number(restaurant.reviewCount || 0),
+    etaMin: Number(restaurant.avgDeliveryTime || 30),
+    etaMax: Number(restaurant.avgDeliveryTime || 45),
+    deliveryFee: Number(restaurant.deliveryFee || 0),
+    minOrder: Number(restaurant.minOrderAmount || 0),
+    isOpen: restaurant.isActive !== false,
+    supportsPickup: true,
+    workingHours: '09:00-23:00',
+    availableZones: ['tashkent'],
+    priceLevel: '$$',
+    address: restaurant.address,
+    location: {
+      lat: Number.isFinite(lat) ? lat : 41.311081,
+      lng: Number.isFinite(lng) ? lng : 69.240562,
+      address: restaurant.address,
+    },
+    locationIsVerified: Number.isFinite(lat) && Number.isFinite(lng),
+    menu: [],
+  };
+}
+
+function toMarketplaceDish(item: MenuItem): MarketplaceDish {
+  return {
+    id: item.id,
+    restaurantId: item.restaurantId,
+    brandId: item.brandId,
+    brandName: item.brandName,
+    branchId: item.branchId || item.restaurantId,
+    branchName: item.branchName,
+    name: item.name,
+    description: item.description || '',
+    category: item.category || 'Mains',
+    imageUrl: item.imageUrl || '',
+    price: Number(item.price || 0),
+    available: item.isAvailable !== false,
+  };
+}
 
 export default function RestaurantDetail({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
@@ -22,7 +82,7 @@ export default function RestaurantDetail({ params }: { params: Promise<{ id: str
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
 
-  const { cart, addToCart, updateQuantity, removeFromCart, cartTotal } = useCart();
+  const { cart, addDish, updateQuantity, removeDish, subtotal } = useMarketplace();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -264,13 +324,7 @@ export default function RestaurantDetail({ params }: { params: Promise<{ id: str
                           popular={false}
                           onAdd={() => {
                             const isSwitchingRestaurant = cart.length > 0 && cart[0].restaurantId !== item.restaurantId;
-                            addToCart(item, 1, {
-                              id: restaurant.id,
-                              name: restaurant.name,
-                              imageUrl: restaurant.imageUrl,
-                              location: restaurant.location,
-                              deliveryFee: restaurant.deliveryFee,
-                            });
+                            addDish(toMarketplaceRestaurant(restaurant), toMarketplaceDish(item));
                             toast.success(`${item.name} added to cart`);
                             if (isSwitchingRestaurant) {
                               toast('Cart switched to this restaurant');
@@ -313,12 +367,12 @@ export default function RestaurantDetail({ params }: { params: Promise<{ id: str
                       </div>
                       <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-1">
                         {item.quantity > 1 ? (
-                          <button onClick={() => updateQuantity(item.id, -1)} className="p-1 hover:bg-white rounded text-gray-500 border-none cursor-pointer"><Minus size={14}/></button>
+                          <button aria-label={`Decrease ${item.name} quantity`} onClick={() => updateQuantity(item.id, -1)} className="p-1 hover:bg-white rounded text-gray-500 border-none cursor-pointer"><Minus size={14}/></button>
                         ) : (
-                          <button onClick={() => removeFromCart(item.id)} className="p-1 hover:bg-white rounded text-red-500 border-none cursor-pointer"><Trash2 size={14}/></button>
+                          <button aria-label={`Remove ${item.name} from cart`} onClick={() => removeDish(item.id)} className="p-1 hover:bg-white rounded text-red-500 border-none cursor-pointer"><Trash2 size={14}/></button>
                         )}
                         <span className="text-xs font-bold w-4 text-center">{item.quantity}</span>
-                        <button onClick={() => updateQuantity(item.id, 1)} className="p-1 hover:bg-white rounded text-gray-500 border-none cursor-pointer"><Plus size={14}/></button>
+                        <button aria-label={`Increase ${item.name} quantity`} onClick={() => updateQuantity(item.id, 1)} className="p-1 hover:bg-white rounded text-gray-500 border-none cursor-pointer"><Plus size={14}/></button>
                       </div>
                     </div>
                   ))}
@@ -328,7 +382,7 @@ export default function RestaurantDetail({ params }: { params: Promise<{ id: str
               <div className="border-t border-gray-100 pt-4 mt-6">
                 <div className="flex justify-between font-bold text-gray-900 mb-4">
                   <span>Total</span>
-                  <span>{new Intl.NumberFormat('ru-RU').format(cartTotal)} UZS</span>
+                  <span>{new Intl.NumberFormat('ru-RU').format(subtotal)} UZS</span>
                 </div>
                 <button 
                   disabled={cart.length === 0}
@@ -351,7 +405,7 @@ export default function RestaurantDetail({ params }: { params: Promise<{ id: str
             className="pointer-events-auto w-full max-w-xl mx-auto flex items-center justify-between rounded-2xl bg-gray-950 text-white px-5 py-4 shadow-2xl border border-white/10"
           >
             <span className="font-bold">{cart.reduce((sum, item) => sum + item.quantity, 0)} items</span>
-            <span className="font-black">{new Intl.NumberFormat('ru-RU').format(cartTotal)} UZS</span>
+            <span className="font-black">{new Intl.NumberFormat('ru-RU').format(subtotal)} UZS</span>
             <span className="bg-primary text-white px-3 py-2 rounded-xl text-sm font-bold">Checkout</span>
           </button>
         </div>

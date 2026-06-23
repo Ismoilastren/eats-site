@@ -11,6 +11,7 @@ export {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
+  signInAnonymously,
   onAuthStateChanged,
   updateProfile,
   sendPasswordResetEmail,

@@ -2,11 +2,14 @@ import { create } from 'zustand';
 import type { Courier } from '@repo/shared-types';
 import { COLLECTIONS } from '@repo/shared-types';
 import {
+  auth,
   db,
   doc,
   getDoc,
   onSnapshot,
   serverTimestamp,
+  signInAnonymously,
+  signOut as firebaseSignOut,
   updateDoc,
 } from '@repo/firebase-config';
 import {
@@ -53,6 +56,12 @@ const getReadableError = (error: unknown) => {
   return error instanceof Error ? error.message : 'Unable to connect courier profile.';
 };
 
+const ensureAnonymousCourierSession = async () => {
+  if (auth.currentUser) return auth.currentUser.uid;
+  const credential = await signInAnonymously(auth);
+  return credential.user.uid;
+};
+
 export const useAuthStore = create<AuthState>()((set, get) => {
   const subscribeToProfile = (courierId: string) => {
     stopProfileSubscription();
@@ -95,6 +104,14 @@ export const useAuthStore = create<AuthState>()((set, get) => {
     const courierRef = doc(db, COLLECTIONS.COURIERS, normalizedId);
     const snapshot = await getDoc(courierRef);
     if (!snapshot.exists()) throw new Error('Courier profile not found.');
+
+    const sessionUid = await ensureAnonymousCourierSession();
+    await updateDoc(courierRef, {
+      sessionUid,
+      authProvider: 'anonymous',
+      lastSeenAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
 
     const courier = mapCourierDocument(snapshot.id, snapshot.data());
     await setCourierIdAsync(snapshot.id);
@@ -163,6 +180,7 @@ export const useAuthStore = create<AuthState>()((set, get) => {
       } finally {
         stopProfileSubscription();
         await clearCourierIdAsync();
+        await firebaseSignOut(auth).catch(() => undefined);
         set({
           courier: null,
           isAuthenticated: false,

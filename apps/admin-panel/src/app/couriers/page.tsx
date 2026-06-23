@@ -55,23 +55,26 @@ const isArchivedCourier = (courier: AdminCourierRecord) => {
 const vehicleFormHints: Record<string, { brandLabel: string; brandPlaceholder: string; plateLabel: string; platePlaceholder: string }> = {
   car: {
     brandLabel: 'Car Brand (Optional)',
-    brandPlaceholder: 'Chevrolet, KIA, BYD...',
+    brandPlaceholder: 'Chevrolet, KIA, BYD…',
     plateLabel: 'License Plate',
     platePlaceholder: '01 A 123 AA',
   },
   motorbike: {
     brandLabel: 'Motorbike Brand (Optional)',
-    brandPlaceholder: 'Yamaha, Lifan, Bajaj...',
+    brandPlaceholder: 'Yamaha, Lifan, Bajaj…',
     plateLabel: 'Motorbike Plate (Optional)',
-    platePlaceholder: '01 A 1234',
+    platePlaceholder: '01 123 AB',
   },
 };
 
-const MOTORBIKE_PLATE_PATTERN = /^\d{2}\s[A-Z]\s\d{4}$/;
+const MOTORBIKE_PLATE_PATTERN = /^\d{2}\s\d{3}\s[A-Z]{2}$/;
 
 const formatMotorbikePlateInput = (value: string) => {
   const raw = value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7);
-  const parts = [raw.slice(0, 2), raw.slice(2, 3), raw.slice(3, 7)].filter(Boolean);
+  const region = raw.slice(0, 2).replace(/\D/g, '');
+  const digits = raw.slice(2, 5).replace(/\D/g, '');
+  const letters = raw.slice(5, 7).replace(/[^A-Z]/g, '');
+  const parts = [region, digits, letters].filter(Boolean);
   return parts.join(' ');
 };
 
@@ -91,7 +94,7 @@ const validateVehiclePlate = (vehicleType: VehicleType, plate: string) => {
   const normalizedVehicleType = normalizeCanonicalVehicleType(vehicleType);
   const normalizedPlate = normalizePlateValue(plate, vehicleType);
   if (normalizedVehicleType === 'motorbike' && normalizedPlate && !MOTORBIKE_PLATE_PATTERN.test(normalizedPlate)) {
-    return 'Motorbike plate must be region + 1 letter + 4 digits, for example 01 A 1234';
+    return 'Motorbike plate must be region code + 3 digits + 2 letters, for example 01 123 AB';
   }
   return '';
 };
@@ -199,7 +202,7 @@ const FormFields = ({
           />
           {vehicleType === 'motorbike' && (
             <p className="mt-1.5 text-xs font-semibold text-gray-500 dark:text-slate-400">
-              Format: region code, 1 letter, 4 digits. Example: 01 A 1234.
+              Format: region code, 3 digits, 2 letters. Example: 01 123 AB.
             </p>
           )}
         </div>
@@ -218,7 +221,7 @@ const FormFields = ({
         disabled={isSubmitting}
         className="rounded-lg bg-orange-500 px-5 py-2 text-sm font-bold text-white hover:bg-orange-600 disabled:opacity-50 transition-colors shadow-sm"
       >
-        {isSubmitting ? 'Saving...' : submitLabel}
+        {isSubmitting ? 'Saving…' : submitLabel}
       </button>
     </div>
     </form>
@@ -593,7 +596,7 @@ export default function CouriersPage() {
         {isLoading ? (
           <div className="flex items-center justify-center py-24 text-gray-500 dark:text-slate-400">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-orange-500 border-t-transparent mr-3" />
-            Loading fleet...
+            Loading fleet…
           </div>
         ) : filtered.length === 0 ? (
           <div className="py-24 text-center">

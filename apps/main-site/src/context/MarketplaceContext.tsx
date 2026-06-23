@@ -340,6 +340,10 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     const restaurant = restaurants.find((item) => item.slug === cart[0]?.restaurantSlug || item.id === cart[0]?.restaurantId);
     const isPickup = deliveryMode === 'pickup';
 
+    if (isFirestoreDataSource() && !firebaseIdentity.uid) {
+      throw new Error('Sign in before placing your order.');
+    }
+
     if (!isPickup && !isReadableAddress(payload.address)) {
       throw new Error('Please select a valid delivery address before checking out.');
     }
@@ -351,7 +355,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
       ? (restaurant?.locationIsVerified ? restaurant.location : undefined)
       : (isValidCoordinates(address.lat, address.lng) ? { lat: address.lat!, lng: address.lng! } : undefined);
     const orderInput: MarketplaceOrderInput = {
-      userId: firebaseIdentity.uid || MOCK_CUSTOMER_ID,
+      userId: firebaseIdentity.uid || (!isFirestoreDataSource() ? MOCK_CUSTOMER_ID : undefined),
       customerEmail: (firebaseIdentity.email || user?.email || '').trim().toLowerCase() || undefined,
       restaurantId: restaurant?.id || cart[0]?.restaurantId || 'unknown',
       restaurantName: restaurant?.name || cart[0]?.restaurantName || 'Restaurant',

@@ -19,7 +19,6 @@ import {
 import {
   formatCurrencyUZS,
   formatFirestoreDate,
-  isTerminalOrderStatus,
   normalizeOrderStatus,
 } from '@repo/shared-types';
 import { useAuthStore } from '../../stores/authStore';

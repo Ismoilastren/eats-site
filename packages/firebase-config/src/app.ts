@@ -17,6 +17,14 @@ const firebaseConfig = {
   appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || process.env.NEXT_PUBLIC_FIREBASE_APP_ID || '',
 };
 
+const missingFirebaseKeys = Object.entries(firebaseConfig)
+  .filter(([, value]) => !value)
+  .map(([key]) => key);
+
+if (missingFirebaseKeys.length > 0) {
+  throw new Error(`Missing Firebase public configuration: ${missingFirebaseKeys.join(', ')}`);
+}
+
 // CRITICAL FIX: Only initialize if no apps exist
 export const app: FirebaseApp = !getApps().length 
   ? initializeApp(firebaseConfig) 

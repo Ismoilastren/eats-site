@@ -78,7 +78,7 @@ export default function ActiveDeliveryScreen() {
     let locationSubscription: Location.LocationSubscription | null = null;
 
     const startTracking = async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
+      const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         setLocationError('Permission to access location was denied');
         return;
@@ -222,7 +222,7 @@ export default function ActiveDeliveryScreen() {
         ? [courierLocation || restaurantLocation, customerLocation]
         : [restaurantLocation, customerLocation];
   const initialRegion = getMapRegion(mapRoute[0], mapRoute[mapRoute.length - 1]);
-  const customerComment = order.deliveryInstructions || order.customerComment || (order as any).adminComment || '';
+  const customerComment = order.deliveryInstructions || order.customerComment || order.adminComment || '';
 
   return (
     <SafeAreaView className="flex-1 bg-gray-50">

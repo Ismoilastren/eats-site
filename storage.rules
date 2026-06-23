@@ -1,9 +1,36 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userRole() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && userRole() in ['admin', 'superadmin', 'super_admin'];
+    }
+
+    function isSafeImageUpload() {
+      return request.resource != null &&
+        request.resource.size < 5 * 1024 * 1024 &&
+        request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+
+    match /restaurant-images/{restaurantId}/{fileName} {
+      allow read: if true;
+      allow write: if isAdmin() && isSafeImageUpload();
+    }
+
+    match /menu-images/{restaurantId}/{fileName} {
+      allow read: if true;
+      allow write: if isAdmin() && isSafeImageUpload();
+    }
+
     match /{allPaths=**} {
-      // Temporarily allow all read and write for debugging
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
     }
   }
 }

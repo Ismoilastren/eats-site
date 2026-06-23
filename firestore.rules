@@ -10,7 +10,13 @@ service cloud.firestore {
     }
 
     function isOwner(uid) {
-      return request.auth.uid == uid;
+      return isAuth() && request.auth.uid == uid;
+    }
+
+    function isBootstrapAdmin() {
+      return isAuth() &&
+        request.auth.token.email_verified == true &&
+        request.auth.token.email in ['admin@2321eats.com', 'mainadmin@demo.com'];
     }
 
     function getUserRole() {
@@ -19,7 +25,7 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isAuth() && getUserRole() in ['admin', 'superadmin', 'super_admin'];
+      return isBootstrapAdmin() || (isAuth() && getUserRole() in ['admin', 'superadmin', 'super_admin']);
     }
 
     function isOpsAdmin() {
@@ -44,6 +50,30 @@ service cloud.firestore {
       return isAuth() && getUserRole() == 'courier';
     }
 
+    function isCourierSessionFor(courierId) {
+      return isAuth() &&
+        courierId is string &&
+        courierId.size() > 0 &&
+        get(/databases/$(database)/documents/couriers/$(courierId)).data.sessionUid == request.auth.uid;
+    }
+
+    function isCourierSessionClaim(courierId) {
+      return isAuth() &&
+        request.resource.data.sessionUid == request.auth.uid &&
+        request.resource.data.authProvider == 'anonymous' &&
+        (
+          resource.data.sessionUid == null ||
+          resource.data.sessionUid == request.auth.uid ||
+          resource.data.currentOrderId == null
+        ) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'sessionUid',
+          'authProvider',
+          'lastSeenAt',
+          'updatedAt'
+        ]);
+    }
+
     function isRestaurantOwner(restaurantId) {
       return isAuth() &&
         get(/databases/$(database)/documents/restaurants/$(restaurantId)).data.ownerId == request.auth.uid;
@@ -57,16 +87,21 @@ service cloud.firestore {
 
     function isAssignedCourier() {
       return isAuth() && (
-        resource.data.courierId == request.auth.uid ||
+        isCourierSessionFor(resource.data.courierId) ||
         (hasAssignedCourierId(resource.data) &&
-          resource.data.assignedCourier.id == request.auth.uid)
+          isCourierSessionFor(resource.data.assignedCourier.id))
       );
     }
 
     function isUnassignedRadarOrder() {
-      return resource.data.status == 'ready_for_pickup' &&
+      return resource.data.status in ['preparing', 'ready_for_pickup'] &&
         resource.data.courierId == null &&
         resource.data.assignedCourier == null;
+    }
+
+    function isAnonymousSession() {
+      return isAuth() &&
+        request.auth.token.firebase.sign_in_provider == 'anonymous';
     }
 
     function isClientCreatedOrder() {
@@ -76,31 +111,8 @@ service cloud.firestore {
         request.resource.data.assignedCourier == null;
     }
 
-    function isPublicDemoOrderCreate() {
-      return request.resource.data.status == 'pending' &&
-        request.resource.data.courierId == null &&
-        request.resource.data.assignedCourier == null &&
-        request.resource.data.restaurantId is string &&
-        request.resource.data.customerName is string &&
-        request.resource.data.customerPhone is string;
-    }
-
-    function isPublicDemoOrderUpdate() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-        'status',
-        'statusHistory',
-        'assignedCourier',
-        'courier',
-        'courierId',
-        'courierName',
-        'courierPhone',
-        'courierLocation',
-        'deliveredAt',
-        'cancelledAt',
-        'cancelReason',
-        'updatedAt'
-      ]) &&
-      request.resource.data.status in [
+    function isValidOrderStatus(status) {
+      return status in [
         'pending',
         'accepted',
         'preparing',
@@ -111,6 +123,22 @@ service cloud.firestore {
         'cancelled',
         'rejected'
       ];
+    }
+
+    function customerOrderIdentityMatches() {
+      return isAuth() && (
+        resource.data.userId == request.auth.uid ||
+        (
+          resource.data.customerEmail is string &&
+          request.auth.token.email is string &&
+          resource.data.customerEmail == request.auth.token.email
+        ) ||
+        (
+          resource.data.customerPhone is string &&
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.phone is string &&
+          resource.data.customerPhone == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.phone
+        )
+      );
     }
 
     function isPublicCourierOperationalUpdate() {
@@ -125,15 +153,19 @@ service cloud.firestore {
       ]) &&
       request.resource.data.status in ['offline', 'online', 'busy'] &&
       request.resource.data.isOnline is bool &&
+      request.resource.data.isAvailable is bool &&
       (
         (request.resource.data.status == 'offline' &&
-          request.resource.data.isOnline == false) ||
-        (request.resource.data.status in ['online', 'busy'] &&
-          request.resource.data.isOnline == true)
-      ) &&
-      (
-        request.resource.data.status != 'busy' ||
-        request.resource.data.currentOrderId is string
+          request.resource.data.isOnline == false &&
+          request.resource.data.isAvailable == false) ||
+        (request.resource.data.status == 'online' &&
+          request.resource.data.isOnline == true &&
+          request.resource.data.isAvailable == true) ||
+        (request.resource.data.status == 'busy' &&
+          request.resource.data.isOnline == true &&
+          request.resource.data.currentOrderId is string &&
+          request.resource.data.isAvailable == false
+        )
       );
     }
 
@@ -165,17 +197,17 @@ service cloud.firestore {
     }
 
     function isCourierAcceptOnly() {
-      return isCourier() &&
+      return isCourierSessionFor(request.resource.data.courierId) &&
         isUnassignedRadarOrder() &&
         request.resource.data.status == resource.data.status &&
-        request.resource.data.courierId == request.auth.uid &&
         hasAssignedCourierId(request.resource.data) &&
-        request.resource.data.assignedCourier.id == request.auth.uid &&
+        request.resource.data.assignedCourier.id == request.resource.data.courierId &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'courierId',
           'courierName',
           'courierPhone',
           'assignedCourier',
+          'courier',
           'updatedAt'
         ]);
     }
@@ -206,6 +238,29 @@ service cloud.firestore {
           'deliveredAt',
           'updatedAt'
         ]);
+    }
+
+    function isValidSelfUserCreate(userId) {
+      return isOwner(userId) &&
+        (
+          !('role' in request.resource.data) ||
+          request.resource.data.role in ['client', 'customer', 'user']
+        ) &&
+        !('isAdmin' in request.resource.data) &&
+        !('permissions' in request.resource.data);
+    }
+
+    function isValidSelfUserUpdate(userId) {
+      return isOwner(userId) &&
+        (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'role',
+            'isAdmin',
+            'permissions',
+            'claims',
+            'adminRole'
+          ])
+        );
     }
 
     function isRestaurantStatusOnly() {
@@ -244,9 +299,9 @@ service cloud.firestore {
       // Users can read their own profile; admins can read all
       allow read: if isAuth() && (isOwner(userId) || isAdmin());
       // Users can create their own profile; admins can create managed accounts
-      allow create: if isAdmin() || (isAuth() && isOwner(userId));
+      allow create: if isAdmin() || (isAuth() && isValidSelfUserCreate(userId));
       // Users can update their own profile; admins can update any
-      allow update: if isAuth() && (isOwner(userId) || isAdmin());
+      allow update: if isAdmin() || (isAuth() && isValidSelfUserUpdate(userId));
       // Only admins can delete users
       allow delete: if isAdmin();
 
@@ -265,10 +320,10 @@ service cloud.firestore {
     match /restaurants/{restaurantId} {
       // Public read — anyone can browse restaurants
       allow read: if true;
-      // Only admins can create restaurants (temporarily relaxed for debugging)
-      allow create: if isAuth();
-      // Authenticated admin-panel/demo tools can update restaurants.
-      allow update: if isAuth();
+      // Only admins can create restaurants.
+      allow create: if isAdmin();
+      // Admins and bound restaurant owners can update restaurants.
+      allow update: if isAdmin() || isRestaurantOwner(restaurantId);
       // Only admins can delete
       allow delete: if isAdmin();
 
@@ -276,24 +331,25 @@ service cloud.firestore {
       match /menuItems/{itemId} {
         // Public read
         allow read: if true;
-        // Authenticated admin-panel/demo tools can write menu items.
-        allow write: if isAuth();
+        allow write: if isAdmin() || isRestaurantOwner(restaurantId);
       }
 
       match /dishes/{dishId} {
         allow read: if true;
-        allow write: if isAuth();
+        allow write: if isAdmin() || isRestaurantOwner(restaurantId);
       }
     }
 
     match /menuItems/{itemId} {
       allow read: if true;
-      allow write: if isAuth();
+      allow create: if isAdmin() || isRestaurantOwner(request.resource.data.restaurantId);
+      allow update: if isAdmin() || isRestaurantOwner(resource.data.restaurantId);
+      allow delete: if isAdmin();
     }
 
     match /promos/{promoId} {
       allow read: if true;
-      allow write: if isAuth();
+      allow write: if isAdmin();
     }
 
     // =============================================
@@ -301,18 +357,22 @@ service cloud.firestore {
     // =============================================
     match /orders/{orderId} {
       // Read: order owner, assigned courier, restaurant owner, or admin
-      allow read: if true;
+      allow read: if customerOrderIdentityMatches() ||
+        isAssignedCourier() ||
+        isRestaurantOwner(resource.data.restaurantId) ||
+        isAdmin() ||
+        (isAnonymousSession() && isUnassignedRadarOrder());
       // Clients must create orders as pending and explicitly unassigned.
-      allow create: if isPublicDemoOrderCreate() || (isAuth() && isClientCreatedOrder());
+      allow create: if isAuth() && isClientCreatedOrder();
       // Update: restaurant owner (status changes), assigned courier, or admin
-      allow update: if isPublicDemoOrderUpdate() || (isAuth() && (
+      allow update: if isAuth() && isValidOrderStatus(request.resource.data.status) && (
         isClientCancelOnly() ||
         isClientReviewOnly() ||
         isRestaurantStatusOnly() ||
         isCourierAcceptOnly() ||
         isAssignedCourierDeliveryUpdate() ||
         isAdmin()
-      ));
+      );
       // Only admins can delete orders
       allow delete: if isAdmin();
     }
@@ -323,15 +383,16 @@ service cloud.firestore {
     match /couriers/{courierId} {
       // Demo app connects by an admin-issued document ID. Profile writes remain restricted.
       allow get: if true;
-      allow list: if isAuth();
-      allow create: if isAdmin() || (isAuth() && isOwner(courierId)) || courierId == 'courier-demo-1';
-      allow update: if (isAuth() && (isOwner(courierId) || isAdmin())) ||
-        isPublicCourierOperationalUpdate();
+      allow list: if isAdmin();
+      allow create: if isAdmin();
+      allow update: if isAdmin() ||
+        isCourierSessionClaim(courierId) ||
+        (isCourierSessionFor(courierId) && isPublicCourierOperationalUpdate());
       allow delete: if isAdmin();
 
       match /earnings/{earningId} {
-        allow read: if isAuth() && (isOwner(courierId) || isAdmin());
-        allow write: if isAuth() && (isOwner(courierId) || isAdmin());
+        allow read: if isCourierSessionFor(courierId) || isAdmin();
+        allow write: if isAdmin();
       }
     }
 
@@ -343,8 +404,10 @@ service cloud.firestore {
       allow read: if isAuth() && (
         isOwner(resource.data.userId) || isAdmin()
       );
-      // Any authenticated user can create a payment
-      allow create: if isAuth();
+      // Payment records must belong to the authenticated customer or be managed by admin.
+      allow create: if isAuth() && (
+        request.resource.data.userId == request.auth.uid || isAdmin()
+      );
       // Only admins can update payments (refunds, etc.)
       allow update: if isAdmin();
       // Payments should never be deleted
@@ -374,6 +437,11 @@ service cloud.firestore {
       allow read: if true;
       allow create, update: if isAdmin();
       allow delete: if false;
+    }
+
+    match /system_categories/{categoryId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
     }
 
     match /rolePermissions/{roleId} {

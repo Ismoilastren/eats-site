@@ -334,6 +334,10 @@ export async function createOrder(orderInput: MarketplaceOrderInput): Promise<Lo
     };
   }
 
+  if (!orderInput.userId) {
+    throw new Error('Sign in before placing an order. Firestore orders must be linked to your account.');
+  }
+
   const orderRef = doc(collection(db, 'orders'));
   const customerLocation = orderInput.customerLocation
     && isValidCoordinates(orderInput.customerLocation.lat, orderInput.customerLocation.lng)
@@ -355,7 +359,7 @@ export async function createOrder(orderInput: MarketplaceOrderInput): Promise<Lo
     : null;
   const payload = {
     id: orderRef.id,
-    userId: orderInput.userId || MOCK_CUSTOMER_ID,
+    userId: orderInput.userId,
     customerEmail: orderInput.customerEmail || null,
     restaurantId: orderInput.restaurantId,
     restaurantName: orderInput.restaurantName,
@@ -409,8 +413,9 @@ export async function createOrder(orderInput: MarketplaceOrderInput): Promise<Lo
 
 export async function getOrdersByUser(userId: string): Promise<LocalOrder[]> {
   if (!isFirestoreDataSource()) return readMockOrders();
+  if (!userId) return [];
 
-  const ordersQuery = query(collection(db, 'orders'), where('userId', '==', userId || MOCK_CUSTOMER_ID));
+  const ordersQuery = query(collection(db, 'orders'), where('userId', '==', userId));
   const snapshot = await getDocs(ordersQuery);
   return sortOrdersByCreatedAt(snapshot.docs.map((orderDoc) => mapFirestoreOrder(orderDoc.data(), orderDoc.id)));
 }
@@ -463,18 +468,6 @@ export async function getOrdersForCustomer(identity: CustomerOrderIdentity): Pro
       records.set(orderDoc.id, mapFirestoreOrder(orderDoc.data(), orderDoc.id));
     });
   });
-
-  if (records.size === 0 && normalizedPhones.length > 0) {
-    // Legacy demo fallback: only retain mock-customer orders matching this customer's phone.
-    const fallbackQuery = query(collection(db, 'orders'), where('userId', '==', MOCK_CUSTOMER_ID));
-    const fallbackSnapshot = await getDocs(fallbackQuery);
-    fallbackSnapshot.docs.forEach((orderDoc) => {
-      const order = mapFirestoreOrder(orderDoc.data(), orderDoc.id);
-      if (normalizedPhones.includes(normalizePhone(order.phone))) {
-        records.set(orderDoc.id, order);
-      }
-    });
-  }
 
   return sortOrdersByCreatedAt([...records.values()]);
 }

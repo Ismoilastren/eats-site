@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { db, collection, auth, doc, setDoc } from '@repo/firebase-config';
+import { db, collection, doc, setDoc } from '@repo/firebase-config';
 import { COLLECTIONS, isReadableAddress } from '@repo/shared-types';
 import toast from 'react-hot-toast';
 import { buildRestaurantPayload } from '@/lib/marketplaceSchema';
@@ -107,11 +107,6 @@ export default function AddRestaurantPage() {
     toast.loading('Adding restaurant...', { id: 'add-restaurant' });
 
     try {
-      const user = auth.currentUser;
-      if (user) {
-        await setDoc(doc(db, COLLECTIONS.USERS, user.uid), { role: 'admin' }, { merge: true });
-      }
-
       const finalImageUrl = imageFile ? await compressImageFile(imageFile) : '';
       const restaurantRef = doc(collection(db, COLLECTIONS.RESTAURANTS));
       const displayName = formData.name.trim()

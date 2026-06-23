@@ -26,14 +26,21 @@ import {
 } from '@repo/shared-types';
 import { useAuthStore } from '../../stores/authStore';
 
+interface OrderLineItem {
+  name?: string;
+  quantity?: number | string | null;
+}
+
 interface OrderDoc {
   id: string;
   status?: string;
   restaurantName?: string;
   deliveryAddress?: string;
+  customerAddress?: string;
   deliveryFee?: number;
-  items?: any[];
-  [key: string]: any;
+  total?: number;
+  totalAmount?: number;
+  items?: OrderLineItem[];
 }
 
 function getCourierVehicleSnapshot(courier: NonNullable<ReturnType<typeof useAuthStore.getState>['courier']>) {
@@ -163,8 +170,8 @@ export default function RadarScreen() {
         });
       });
       Alert.alert('Success', 'Order accepted! Check the Active tab.');
-    } catch (e: any) {
-      Alert.alert('Error', e?.message || 'Failed to accept order.');
+    } catch (error: unknown) {
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to accept order.');
     } finally {
       setClaimingId(null);
     }

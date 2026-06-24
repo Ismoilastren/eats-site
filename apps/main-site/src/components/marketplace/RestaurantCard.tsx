@@ -2,43 +2,48 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { Bike, Heart, Store, Star } from 'lucide-react';
+import { Clock3, Heart, Star } from 'lucide-react';
 import { Restaurant } from '@/data/marketplace';
 import { formatCurrencyUZS } from '@repo/shared-types';
 import { useMarketplace } from '@/context/MarketplaceContext';
 
-export function RestaurantCard({ restaurant }: { restaurant: Restaurant }) {
+export function RestaurantCard({ restaurant, priority = false }: { restaurant: Restaurant; priority?: boolean }) {
   const { favorites, toggleFavorite, address, deliveryMode } = useMarketplace();
   const favorite = favorites.includes(restaurant.id);
   const available = (address.inZone || deliveryMode === 'pickup') && restaurant.isOpen && (deliveryMode === 'delivery' || restaurant.supportsPickup);
 
   return (
-    <article className={`group overflow-hidden rounded-[32px] bg-white shadow-sm ring-1 ring-black/5 transition hover:-translate-y-1 hover:shadow-xl ${available ? '' : 'opacity-75'}`}>
-      <Link href={`/restaurant/${restaurant.slug}`} className="block focus:outline-none focus:ring-4 focus:ring-yellow-300">
-        <div className="relative h-52 overflow-hidden bg-gray-100">
-          <Image src={restaurant.imageUrl} alt={restaurant.name} fill sizes="(max-width: 768px) 100vw, 33vw" className="object-cover transition duration-500 group-hover:scale-105" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-transparent" />
-          {restaurant.promo && <span className="absolute left-4 top-4 rounded-full bg-yellow-300 px-3 py-1 text-sm font-black text-gray-950">{restaurant.promo}</span>}
-          {!available && <span className="absolute bottom-4 left-4 rounded-full bg-gray-950 px-3 py-1 text-sm font-black text-white">{!restaurant.isOpen ? 'Closed' : 'Unavailable here'}</span>}
+    <article className={`group min-w-0 overflow-hidden rounded-2xl bg-[#2b2a29] text-white transition-transform duration-200 hover:-translate-y-1 hover:bg-[#343331] ${available ? '' : 'opacity-60'}`}>
+      <div className="relative">
+        <Link href={`/restaurant/${restaurant.slug}`} className="block">
+        <div className="relative aspect-[1.55] overflow-hidden bg-[#343331]">
+          <Image priority={priority} src={restaurant.imageUrl} alt={restaurant.name} fill sizes="(max-width: 768px) 100vw, 33vw" className="object-cover transition duration-500 group-hover:scale-105" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
+          {restaurant.promo && <span className="absolute bottom-3 left-3 rounded-[8px] bg-[#fce000] px-2.5 py-1 text-xs font-black text-[#111]">{restaurant.promo}</span>}
+          {!available && <span className="absolute bottom-3 left-3 rounded-[8px] bg-[#111] px-2.5 py-1 text-xs font-black text-white">{!restaurant.isOpen ? 'Closed' : 'Unavailable here'}</span>}
+          <span className="absolute bottom-3 right-3 flex items-center gap-1 rounded-full bg-black/65 px-3 py-1.5 text-xs font-bold text-white backdrop-blur">
+            <Clock3 size={12} /> {restaurant.etaMin}-{restaurant.etaMax} min
+          </span>
         </div>
-      </Link>
-      <div className="p-5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <Link href={`/restaurant/${restaurant.slug}`} className="text-2xl font-black text-gray-950 hover:text-yellow-600">{restaurant.name}</Link>
-            <p className="mt-1 font-bold text-gray-500">{restaurant.cuisine.join(' · ')}</p>
-          </div>
-          <button aria-label="Favorite restaurant" onClick={() => toggleFavorite(restaurant.id)} className={`rounded-full p-3 transition hover:scale-105 focus:outline-none focus:ring-4 focus:ring-yellow-200 ${favorite ? 'bg-red-50 text-red-500' : 'bg-gray-100 text-gray-400'}`}>
-            <Heart size={20} fill={favorite ? 'currentColor' : 'none'} />
-          </button>
+        </Link>
+        <button
+          type="button"
+          aria-label={favorite ? `Remove ${restaurant.name} from favorites` : `Add ${restaurant.name} to favorites`}
+          onClick={() => toggleFavorite(restaurant.id)}
+          className={`absolute right-3 top-3 flex h-10 w-10 items-center justify-center rounded-full backdrop-blur transition-transform hover:scale-105 ${favorite ? 'bg-white text-red-500' : 'bg-black/35 text-white'}`}
+        >
+          <Heart size={18} fill={favorite ? 'currentColor' : 'none'} />
+        </button>
+      </div>
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-2">
+          <Link href={`/restaurant/${restaurant.slug}`} className="min-w-0 truncate text-[17px] font-black leading-tight hover:text-[#fce000]">{restaurant.name}</Link>
+          <span className="mt-0.5 flex shrink-0 items-center gap-1 text-[13px] font-black text-white"><Star size={13} className="fill-[#fce000] text-[#fce000]" /> {restaurant.rating}</span>
         </div>
-        <div className="mt-5 flex flex-wrap gap-2">
-          <span className="flex items-center gap-1 rounded-full bg-green-50 px-3 py-2 font-black text-green-700"><Star size={16} fill="currentColor" /> {restaurant.rating} <span className="text-green-500">({restaurant.reviews})</span></span>
-          <span className="rounded-full bg-gray-100 px-3 py-2 font-black text-gray-700">{restaurant.etaMin}-{restaurant.etaMax} min</span>
-          <span className="flex items-center gap-1 rounded-full bg-orange-50 px-3 py-2 font-black text-orange-600"><Bike size={16} /> {restaurant.deliveryFee === 0 ? 'Free' : formatCurrencyUZS(restaurant.deliveryFee)}</span>
-          {restaurant.supportsPickup && <span className="flex items-center gap-1 rounded-full bg-blue-50 px-3 py-2 font-black text-blue-600"><Store size={16} /> Pickup</span>}
-        </div>
-        <p className="mt-3 text-sm font-bold text-gray-500">Min. order {formatCurrencyUZS(restaurant.minOrder)} · {restaurant.priceLevel} · {restaurant.workingHours} · {available ? 'Available' : 'Unavailable'}</p>
+        <p className="mt-1.5 truncate text-[13px] font-semibold text-[#aaa8a0]">{restaurant.category} · {restaurant.cuisine.slice(0, 2).join(', ')}</p>
+        <p className="mt-1.5 text-[13px] font-semibold text-[#aaa8a0]">
+          {restaurant.deliveryFee === 0 ? 'Free delivery' : `${formatCurrencyUZS(restaurant.deliveryFee)} delivery`} · min {formatCurrencyUZS(restaurant.minOrder)}
+        </p>
       </div>
     </article>
   );

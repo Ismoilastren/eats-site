@@ -1,18 +1,57 @@
 'use client';
 
 import Link from 'next/link';
-import { Minus, Plus, Trash2 } from 'lucide-react';
+import { Minus, Plus, ShoppingBag, Trash2, X } from 'lucide-react';
+import { useState } from 'react';
 import { formatCurrencyUZS } from '@repo/shared-types';
 import { useMarketplace } from '@/context/MarketplaceContext';
 
 export function CartDrawer({ compact = false }: { compact?: boolean }) {
+  const marketplace = useMarketplace();
+  const [sheetOpen, setSheetOpen] = useState(false);
+
+  if (compact) {
+    if (marketplace.cart.length === 0) return null;
+
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => setSheetOpen(true)}
+          className="flex w-full items-center justify-between rounded-[18px] bg-[var(--accent)] px-5 py-4 font-black text-[var(--accent-text)] shadow-[0_14px_35px_rgba(0,0,0,.24)]"
+          aria-haspopup="dialog"
+        >
+          <span className="flex items-center gap-2"><ShoppingBag size={19} /> Cart · {marketplace.cartCount}</span>
+          <span className="tabular-nums">{formatCurrencyUZS(marketplace.total)}</span>
+        </button>
+
+        {sheetOpen && (
+          <div className="fixed inset-0 z-[100] flex items-end bg-black/55" role="dialog" aria-modal="true" aria-label="Cart">
+            <button className="absolute inset-0" aria-label="Close cart" onClick={() => setSheetOpen(false)} />
+            <div className="relative max-h-[88dvh] w-full overflow-y-auto overscroll-contain rounded-t-[28px] bg-[var(--surface)] px-4 pb-[max(20px,env(safe-area-inset-bottom))] pt-3 shadow-2xl">
+              <div className="mx-auto mb-3 h-1.5 w-12 rounded-full bg-[var(--surface-strong)]" />
+              <button type="button" aria-label="Close cart" onClick={() => setSheetOpen(false)} className="absolute right-4 top-4 rounded-full bg-[var(--surface-muted)] p-2 text-[var(--text)]">
+                <X size={19} />
+              </button>
+              <CartContents />
+            </div>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  return <CartContents />;
+}
+
+function CartContents() {
   const { cart, subtotal, deliveryFee, serviceFee, discount, total, updateQuantity, removeDish, clearCart } = useMarketplace();
 
   if (cart.length === 0) {
     return (
-      <aside className="rounded-[32px] bg-white p-6 shadow-sm ring-1 ring-black/5">
+      <aside className="rounded-[24px] bg-[var(--surface)] p-5 text-[var(--text)] shadow-[var(--shadow)] ring-1 ring-[var(--line)]">
         <h3 className="text-2xl font-black">Cart</h3>
-        <p className="mt-4 rounded-3xl bg-gray-50 p-8 text-center font-bold text-gray-400">Add dishes to start an order.</p>
+        <p className="mt-4 rounded-[18px] bg-[var(--surface-muted)] p-8 text-center font-bold text-[var(--muted)]">Add dishes to start an order.</p>
       </aside>
     );
   }
@@ -21,44 +60,52 @@ export function CartDrawer({ compact = false }: { compact?: boolean }) {
   const belowMinimum = subtotal < minOrder;
 
   return (
-    <aside className="rounded-[32px] bg-white p-5 shadow-sm ring-1 ring-black/5">
+    <aside className="rounded-[24px] bg-[var(--surface)] p-5 text-[var(--text)] shadow-[var(--shadow)] ring-1 ring-[var(--line)]">
       <div className="flex items-center justify-between">
         <h3 className="text-2xl font-black">Cart</h3>
-        <button onClick={clearCart} className="rounded-full bg-red-50 p-2 text-red-500"><Trash2 size={18} /></button>
+        <button
+          type="button"
+          aria-label="Clear cart"
+          onClick={() => {
+            if (window.confirm('Clear all items from the cart?')) clearCart();
+          }}
+          className="rounded-full bg-[var(--surface-muted)] p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
+        >
+          <Trash2 size={18} />
+        </button>
       </div>
-      <p className="mt-1 font-bold text-gray-500">{cart[0].restaurantName}</p>
+      <p className="mt-1 font-bold text-[var(--muted)]">{cart[0].restaurantName}</p>
       <div className="mt-5 space-y-3">
         {cart.map((item) => (
-          <div key={item.id} className="flex items-center gap-3 rounded-3xl bg-gray-50 p-3">
-            <div className="flex-1">
-              <p className="font-black text-gray-950">{item.name}</p>
-              <p className="font-bold text-gray-500">{formatCurrencyUZS(item.price)}</p>
+          <div key={item.id} className="flex items-center gap-3 rounded-[18px] bg-[var(--surface-muted)] p-3">
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-black">{item.name}</p>
+              <p className="font-bold tabular-nums text-[var(--muted)]">{formatCurrencyUZS(item.price)}</p>
             </div>
-            <div className="flex items-center gap-2 rounded-full bg-white p-1">
-              <button onClick={() => updateQuantity(item.id, -1)} className="rounded-full bg-gray-100 p-2"><Minus size={14} /></button>
-              <span className="min-w-5 text-center font-black">{item.quantity}</span>
-              <button onClick={() => updateQuantity(item.id, 1)} className="rounded-full bg-yellow-300 p-2"><Plus size={14} /></button>
+            <div className="flex items-center gap-2 rounded-full bg-[var(--surface-strong)] p-1">
+              <button type="button" aria-label={`Decrease ${item.name}`} onClick={() => updateQuantity(item.id, -1)} className="rounded-full bg-[var(--surface)] p-2"><Minus size={14} /></button>
+              <span className="min-w-5 text-center font-black tabular-nums">{item.quantity}</span>
+              <button type="button" aria-label={`Increase ${item.name}`} onClick={() => updateQuantity(item.id, 1)} className="rounded-full bg-[var(--accent)] p-2 text-[var(--accent-text)]"><Plus size={14} /></button>
             </div>
-            <button onClick={() => removeDish(item.id)} className="text-gray-400 hover:text-red-500"><Trash2 size={17} /></button>
+            <button type="button" aria-label={`Remove ${item.name}`} onClick={() => removeDish(item.id)} className="text-[var(--muted)] hover:text-red-500"><Trash2 size={17} /></button>
           </div>
         ))}
       </div>
-      <div className="mt-5 space-y-2 border-t border-gray-100 pt-4 text-sm font-bold text-gray-600">
+      <div className="mt-5 space-y-2 border-t border-[var(--line)] pt-4 text-sm font-bold text-[var(--muted)]">
         <Row label="Subtotal" value={formatCurrencyUZS(subtotal)} />
         <Row label="Delivery" value={formatCurrencyUZS(deliveryFee)} />
         <Row label="Service fee" value={formatCurrencyUZS(serviceFee)} />
         {discount > 0 && <Row label="Promo discount" value={`-${formatCurrencyUZS(discount)}`} />}
         <Row label="Total" value={formatCurrencyUZS(total)} strong />
       </div>
-      {belowMinimum && <p className="mt-4 rounded-2xl bg-yellow-50 px-4 py-3 text-sm font-black text-yellow-700">Minimum order: {formatCurrencyUZS(minOrder)}</p>}
-      <Link href="/cart" className={`mt-5 block rounded-2xl px-4 py-4 text-center font-black ${belowMinimum ? 'pointer-events-none bg-gray-200 text-gray-400' : 'bg-gray-950 text-white hover:bg-gray-800'}`}>
-        {compact ? `Checkout · ${formatCurrencyUZS(total)}` : 'Go to checkout'}
+      {belowMinimum && <p className="mt-4 rounded-[14px] bg-[#fff6b8] px-4 py-3 text-sm font-black text-[#5e5200] dark:bg-[#3d3512] dark:text-[var(--accent)]">Minimum order: {formatCurrencyUZS(minOrder)}</p>}
+      <Link href="/cart" className={`mt-5 block rounded-[15px] px-4 py-4 text-center font-black ${belowMinimum ? 'pointer-events-none bg-[var(--surface-strong)] text-[var(--muted)]' : 'bg-[var(--accent)] text-[var(--accent-text)] hover:bg-[var(--accent-hover)]'}`}>
+        Go to checkout
       </Link>
     </aside>
   );
 }
 
 function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
-  return <div className={`flex justify-between ${strong ? 'pt-3 text-xl font-black text-gray-950' : ''}`}><span>{label}</span><span>{value}</span></div>;
+  return <div className={`flex justify-between tabular-nums ${strong ? 'pt-3 text-xl font-black text-[var(--text)]' : ''}`}><span>{label}</span><span>{value}</span></div>;
 }
-

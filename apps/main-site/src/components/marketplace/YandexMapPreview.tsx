@@ -2,6 +2,7 @@
 
 import { YandexMap, type MapPoint } from './YandexMap';
 import { isValidCoordinates } from '@repo/shared-types';
+import { TASHKENT_CENTER } from '@/lib/yandexMaps';
 
 type YandexMapPreviewProps = {
   center: { lat: number; lng: number };
@@ -11,16 +12,10 @@ type YandexMapPreviewProps = {
 };
 
 export function YandexMapPreview({ center, label, className = '', customer }: YandexMapPreviewProps) {
-  if (!isValidCoordinates(center.lat, center.lng)) {
-    return (
-      <div className={`flex min-h-44 items-center justify-center rounded-[32px] bg-gray-100 p-6 text-center text-sm font-bold text-gray-500 ${className}`}>
-        Map preview is unavailable because coordinates are missing.
-      </div>
-    );
-  }
+  const safeCenter = isValidCoordinates(center.lat, center.lng) ? center : TASHKENT_CENTER;
 
   const points: MapPoint[] = [
-    { id: 'restaurant', label, lat: center.lat, lng: center.lng, color: '#f97316' },
+    { id: 'restaurant', label, lat: safeCenter.lat, lng: safeCenter.lng, color: '#f97316' },
     ...(customer && isValidCoordinates(customer.lat, customer.lng)
       ? [{ id: 'customer', label: customer.label || 'Customer', lat: customer.lat, lng: customer.lng, color: '#10b981' }]
       : []),
@@ -29,11 +24,11 @@ export function YandexMapPreview({ center, label, className = '', customer }: Ya
 
   return (
     <YandexMap
-      center={center}
+      center={safeCenter}
       points={points}
-      line={validCustomer ? [center, validCustomer] : undefined}
+      line={validCustomer ? [safeCenter, validCustomer] : undefined}
       heightClassName={`min-h-44 ${className}`}
-      fallbackLabel="Map preview is unavailable. Address details are shown above."
+      fallbackLabel="Location preview"
     />
   );
 }

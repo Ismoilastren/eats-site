@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import type { MouseEvent } from 'react';
 import { LocateFixed, MapPin, Minus, Plus } from 'lucide-react';
 import { toYandexCoords } from '@repo/shared-types';
 import {
-  isYandexMapsKeyConfigured,
   loadYandexMaps,
   TASHKENT_CENTER,
   type YandexMaps3,
@@ -98,7 +98,6 @@ export function YandexMap({
   const dynamicChildrenRef = useRef<unknown[]>([]);
   const onSelectRef = useRef(onSelect);
   const [status, setStatus] = useState<'not_loaded' | 'loading' | 'loaded' | 'error'>('not_loaded');
-  const [loadError, setLoadError] = useState('');
   const [zoom, setZoom] = useState(14);
   const mapCenter = points[0] || center;
   const pointsSignature = JSON.stringify(points);
@@ -119,8 +118,6 @@ export function YandexMap({
     async function init() {
       if (!containerRef.current) return;
       setStatus('loading');
-      setLoadError('');
-
       try {
         const ymaps3 = await loadYandexMaps();
         if (cancelled || !containerRef.current) return;
@@ -161,11 +158,9 @@ export function YandexMap({
         mapsApiRef.current = ymaps3;
         mapRef.current = map;
         setStatus('loaded');
-      } catch (loadError) {
+      } catch {
         if (cancelled) return;
         setStatus('error');
-        setLoadError(loadError instanceof Error ? loadError.message : 'Could not load Yandex Maps.');
-        if (process.env.NODE_ENV !== 'production' && isYandexMapsKeyConfigured()) console.warn('[YandexMap]', loadError);
       }
     }
 
@@ -254,6 +249,17 @@ export function YandexMap({
     setZoom(bounded);
   };
 
+  const selectFromFallback = (event: MouseEvent<HTMLDivElement>) => {
+    if (!interactive || !onSelect) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = (event.clientX - rect.left) / rect.width - 0.5;
+    const y = (event.clientY - rect.top) / rect.height - 0.5;
+    onSelect({
+      lat: mapCenter.lat - y * 0.08,
+      lng: mapCenter.lng + x * 0.12,
+    });
+  };
+
   return (
     // FIX P0: The container must NOT have overflow-hidden while the map needs wheel events.
     // touch-action: none prevents the mobile browser from intercepting pinch gestures.
@@ -269,23 +275,30 @@ export function YandexMap({
         <div className="absolute inset-0 flex items-center justify-center bg-gray-950/80 text-white pointer-events-none">
           <div className="text-center">
             <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-white/20 border-t-orange-500" />
-            <p className="mt-3 font-black">Loading map...</p>
+            <p className="mt-3 font-black">Loading map…</p>
           </div>
         </div>
       )}
 
       {status === 'error' && (
-        <div className="absolute inset-0 flex items-center justify-center bg-gray-950 p-6 text-white pointer-events-none">
-          <div className="max-w-sm text-center">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-500/15 text-orange-400">
-              <MapPin size={26} />
+        <div
+          onClick={selectFromFallback}
+          className={`absolute inset-0 overflow-hidden bg-[#050914] text-white ${interactive ? 'cursor-crosshair' : 'pointer-events-none'}`}
+        >
+          <div className="absolute inset-0 opacity-65 [background-image:linear-gradient(rgba(255,255,255,.06)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.06)_1px,transparent_1px)] [background-size:44px_44px]" />
+          <div className="absolute left-[-10%] top-[22%] h-4 w-[120%] rotate-[12deg] rounded-full bg-[#26313f]" />
+          <div className="absolute left-[20%] top-[-10%] h-[120%] w-4 rotate-[18deg] rounded-full bg-[#26313f]" />
+          <div className="absolute left-[5%] top-[66%] h-3 w-[105%] -rotate-[7deg] rounded-full bg-[#303b4a]" />
+          <div className="absolute left-1/2 top-1/2 z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-500 text-white shadow-[0_18px_45px_rgba(249,115,22,.35)]">
+              <MapPin size={28} />
             </div>
-            <p className="mt-4 text-xl font-black">{fallbackLabel}</p>
-            <p className="mt-2 text-sm font-bold text-gray-400">
-              {loadError.includes('not configured')
-                ? 'Missing NEXT_PUBLIC_YANDEX_MAPS_API_KEY. Manual address entry is still available.'
-                : 'Check the Yandex JavaScript API key, allowed domains, and network connection.'}
-            </p>
+            <div className="mt-4 rounded-2xl bg-black/45 px-5 py-3 text-center backdrop-blur">
+              <p className="text-lg font-black">{interactive ? 'Select a point on the map' : fallbackLabel}</p>
+              <p className="mt-1 text-sm font-bold text-gray-400">
+                {(mapCenter.lat || TASHKENT_CENTER.lat).toFixed(5)}, {(mapCenter.lng || TASHKENT_CENTER.lng).toFixed(5)}
+              </p>
+            </div>
           </div>
         </div>
       )}
@@ -301,9 +314,9 @@ export function YandexMap({
       )}
 
       {/* Zoom controls — these sit on top but have explicit pointer-events:auto */}
-      <div className="absolute right-4 top-4 flex flex-col overflow-hidden rounded-2xl bg-white shadow-xl" style={{ pointerEvents: 'auto' }}>
-        <button aria-label="Zoom in" onClick={() => updateZoom(zoom + 1)} className="p-3 text-gray-950 hover:bg-gray-100"><Plus size={18} /></button>
-        <button aria-label="Zoom out" onClick={() => updateZoom(zoom - 1)} className="border-t border-gray-100 p-3 text-gray-950 hover:bg-gray-100"><Minus size={18} /></button>
+      <div className="absolute right-4 top-4 flex flex-col overflow-hidden rounded-2xl bg-[#2b2a29] shadow-xl ring-1 ring-white/10" style={{ pointerEvents: 'auto' }}>
+        <button aria-label="Zoom in" onClick={() => updateZoom(zoom + 1)} className="p-3 text-white hover:bg-[#3b3a38]"><Plus size={18} /></button>
+        <button aria-label="Zoom out" onClick={() => updateZoom(zoom - 1)} className="border-t border-white/10 p-3 text-white hover:bg-[#3b3a38]"><Minus size={18} /></button>
       </div>
 
       {interactive && showLocateControl && (
@@ -311,7 +324,7 @@ export function YandexMap({
           type="button"
           style={{ pointerEvents: 'auto' }}
           onClick={() => navigator.geolocation?.getCurrentPosition((position) => onSelect?.({ lat: position.coords.latitude, lng: position.coords.longitude }))}
-          className="absolute bottom-4 right-4 flex items-center gap-2 rounded-2xl bg-white px-4 py-3 font-black text-gray-950 shadow-xl hover:bg-gray-100"
+          className="absolute bottom-4 right-4 flex items-center gap-2 rounded-2xl bg-[#fce000] px-4 py-3 font-black text-[#111] shadow-xl hover:bg-[#ffe530]"
         >
           <LocateFixed size={18} /> Locate
         </button>

@@ -1,22 +1,59 @@
 @import "tailwindcss";
 
 @theme {
-  --color-primary: #FF6B35;
-  --color-secondary: #1A1A2E;
-  --color-accent: #12b76a;
+  --color-primary: #fce000;
+  --color-secondary: #191918;
+  --color-accent: #fce000;
 }
 
 :root {
-  --background: #ffffff;
-  --foreground: #1A1A2E;
+  color-scheme: dark;
+  --page: #191918;
+  --surface: #2b2b2e;
+  --surface-muted: #3a3a3c;
+  --surface-strong: #444446;
+  --text: #ffffff;
+  --muted: #a3a3a3;
+  --line: rgba(255, 255, 255, 0.08);
+  --shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --accent: #fce000;
+  --accent-hover: #e5cc00;
+  --accent-text: #000000;
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: 'Inter', sans-serif;
+  color: var(--text);
+  background: var(--page);
+  font-family: Arial, Helvetica, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+a {
+  touch-action: manipulation;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 72%, #111 28%);
+  outline-offset: 3px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --page: #191918; /* Force dark mode for 1:1 clone */
+    --surface: #2b2b2e;
+    --surface-muted: #3a3a3c;
+    --surface-strong: #444446;
+    --text: #ffffff;
+    --muted: #a3a3a3;
+    --line: rgba(255, 255, 255, 0.08);
+    --shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  }
 }
 
 /* Animations */
@@ -26,6 +63,17 @@ body {
   }
   .glass-header {
     @apply bg-white/80 backdrop-blur-md border-b border-gray-100;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
 

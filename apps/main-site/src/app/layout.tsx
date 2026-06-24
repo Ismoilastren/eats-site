@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import 'leaflet/dist/leaflet.css';
 import { CartProvider } from "@/context/CartContext";
@@ -11,6 +11,10 @@ export const metadata: Metadata = {
   description: "Order meals, groceries, coffee, and desserts from local restaurants in Tashkent.",
 };
 
+export const viewport: Viewport = {
+  themeColor: "#21201f",
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -18,7 +22,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="min-h-screen flex flex-col">
+      <body className="flex min-h-screen flex-col">
+        <a
+          href="#main-content"
+          className="fixed left-4 top-4 z-[120] -translate-y-24 rounded-full bg-[var(--accent)] px-5 py-3 font-black text-[var(--accent-text)] transition-transform focus:translate-y-0"
+        >
+          Skip to content
+        </a>
         <SettingsProvider>
           <CartProvider>
             <MarketplaceProvider>

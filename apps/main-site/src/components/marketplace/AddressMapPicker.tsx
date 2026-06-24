@@ -430,24 +430,24 @@ export function AddressMapPicker({
   const confirmDisabled = detectingAddress || confirmingAddress || !hasConfirmableAddress;
 
   return (
-    <div className="fixed inset-0 z-[70] bg-black/65 p-0 md:p-4">
-      <div className="mx-auto flex h-full max-h-none max-w-6xl flex-col overflow-hidden bg-white shadow-2xl md:mt-6 md:h-[calc(100vh-48px)] md:rounded-[36px]">
+    <div className="fixed inset-0 z-[70] bg-black/75 p-0 md:p-4">
+      <div className="mx-auto flex h-full max-h-none max-w-6xl flex-col overflow-hidden bg-[#2b2a29] text-white shadow-2xl md:mt-6 md:h-[calc(100vh-48px)] md:rounded-[28px]">
         {/* Header */}
-        <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-5 py-4 md:px-6">
+        <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-5 py-4 md:px-6">
           <div>
             <p className="text-sm font-black uppercase tracking-widest text-orange-500">Tashkent</p>
-            <h2 className="text-3xl font-black leading-tight text-gray-950 md:text-4xl">Delivery address</h2>
+            <h2 className="text-3xl font-black leading-tight md:text-4xl">Delivery address</h2>
           </div>
-          <button aria-label="Close address picker" onClick={onCancel} className="rounded-full bg-gray-100 p-3 text-gray-700 hover:bg-gray-200"><X size={20} /></button>
+          <button aria-label="Close address picker" onClick={onCancel} className="rounded-full bg-[#3b3a38] p-3 text-[#efeee8] hover:bg-[#3a3935]"><X size={20} /></button>
         </div>
 
-        <div className="grid min-h-0 flex-1 overflow-y-auto md:grid-cols-[390px_1fr] md:overflow-hidden">
+        <div className="min-h-0 flex-1 overflow-y-auto md:grid md:grid-cols-[390px_1fr] md:overflow-hidden">
           {/* Left panel */}
-          <aside className="flex min-h-0 flex-col border-r border-gray-100 bg-white p-4 md:p-5">
+          <aside className="flex flex-col border-r border-white/10 bg-[#2b2a29] p-4 md:min-h-0 md:p-5">
             {/* Search */}
             <div className="grid grid-cols-[1fr_auto] gap-2">
-              <div className="flex items-center gap-3 rounded-[24px] bg-gray-100 px-4 py-3.5 ring-1 ring-transparent focus-within:bg-white focus-within:ring-orange-200">
-                <Search size={20} className="shrink-0 text-gray-500" />
+              <div className="flex items-center gap-3 rounded-[20px] bg-[#3b3a38] px-4 py-3.5 ring-1 ring-transparent focus-within:bg-[#454440] focus-within:ring-[#fce000]/40">
+                <Search size={20} className="shrink-0 text-[#aaa8a0]" />
                 <input
                   value={query}
                   onChange={(event) => {
@@ -456,29 +456,29 @@ export function AddressMapPicker({
                     setSearchHint('');
                   }}
                   placeholder="Where to?"
-                  className="min-w-0 flex-1 bg-transparent font-bold outline-none"
+                  className="min-w-0 flex-1 bg-transparent font-bold outline-none placeholder:text-[#77756e]"
                 />
-                {query && <button onClick={() => setQuery('')} className="rounded-full bg-white p-1 text-gray-500"><X size={16} /></button>}
+                {query && <button onClick={() => setQuery('')} className="rounded-full bg-[#45443f] p-1 text-[#efeee8]"><X size={16} /></button>}
               </div>
               <button
                 onClick={confirm}
                 disabled={confirmDisabled}
-                className="rounded-[22px] bg-yellow-300 px-5 font-black text-gray-950 shadow-sm hover:bg-yellow-200 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400"
+                className="rounded-[20px] bg-[#fce000] px-5 font-black text-[#111] shadow-sm hover:bg-[#ffe530] disabled:cursor-not-allowed disabled:bg-[#454440] disabled:text-[#77756e]"
               >
                 OK
               </button>
             </div>
             {showLookupHelper && (
-              <p className="mt-2 rounded-2xl bg-gray-50 px-4 py-3 text-sm font-bold text-gray-600">
+              <p className="mt-2 rounded-2xl bg-[#343331] px-4 py-3 text-sm font-bold text-[#c8c7c1]">
                 {lookupHelperText}
               </p>
             )}
 
             {/* Error + manual input */}
             {showManualInput ? (
-              <div className="mt-3 rounded-2xl border border-gray-100 bg-white p-3 shadow-sm">
+              <div className="mt-3 rounded-2xl border border-white/10 bg-[#343331] p-3 shadow-sm">
                 <label className="mt-3 block">
-                  <span className="text-xs font-black uppercase tracking-wider text-gray-500">Enter address manually</span>
+                  <span className="text-xs font-black uppercase tracking-wider text-[#aaa8a0]">Enter address manually</span>
                   <input
                     value={manualAddress}
                     onChange={(event) => {
@@ -486,30 +486,30 @@ export function AddressMapPicker({
                       setError('');
                     }}
                     placeholder="Street, building, apartment"
-                    className="mt-1.5 w-full rounded-xl bg-gray-50 px-3 py-3 font-bold text-gray-950 outline-none ring-1 ring-gray-100 focus:bg-white focus:ring-2 focus:ring-orange-300"
+                    className="mt-1.5 w-full rounded-xl bg-[#3b3a38] px-3 py-3 font-bold text-white outline-none ring-1 ring-white/10 placeholder:text-[#77756e] focus:bg-[#454440] focus:ring-2 focus:ring-[#fce000]/40"
                   />
                 </label>
-                <details className="mt-2 text-[11px] font-semibold text-gray-400">
+                <details className="mt-2 text-[11px] font-semibold text-[#77756e]">
                   <summary className="cursor-pointer">Technical detail</summary>
                   <p className="mt-1">{error}</p>
                 </details>
               </div>
             ) : error && !isAddressLookupError ? (
-              <div className="mt-3 rounded-2xl border border-red-100 bg-red-50 px-4 py-3">
-                <p className="text-sm font-bold text-red-700">{error}</p>
+              <div className="mt-3 rounded-2xl border border-red-500/20 bg-[#3a1f1f] px-4 py-3">
+                <p className="text-sm font-bold text-[#ff9c9c]">{error}</p>
               </div>
             ) : null}
 
             {/* Current location */}
-            <button onClick={useCurrentLocation} className="mt-3 flex w-full items-center justify-center gap-2 rounded-[22px] bg-gray-950 px-4 py-3.5 font-black text-white shadow-sm hover:bg-gray-800">
+            <button onClick={useCurrentLocation} className="mt-3 flex w-full items-center justify-center gap-2 rounded-[20px] bg-[#050914] px-4 py-3.5 font-black text-white shadow-sm hover:bg-[#0b1020]">
               <LocateFixed size={18} /> Use current location
             </button>
 
             {/* Suggestions */}
             <div className="mt-4">
               <div className="mb-2 flex items-center justify-between">
-                <p className="text-xs font-black uppercase tracking-widest text-gray-400">Popular addresses</p>
-                <span className="rounded-full bg-orange-50 px-2.5 py-1 text-xs font-black text-orange-600">
+                <p className="text-xs font-black uppercase tracking-widest text-[#aaa8a0]">Popular addresses</p>
+                <span className="rounded-full bg-[#3b3a38] px-2.5 py-1 text-xs font-black text-[#fce000]">
                   {searchingAddress ? 'Searching…' : suggestions.length}
                 </span>
               </div>
@@ -520,22 +520,22 @@ export function AddressMapPicker({
                     <button
                       key={item.label}
                       onClick={() => selectAddress(item)}
-                      className={`block w-full rounded-[22px] px-4 py-3 text-left transition ${active ? 'bg-orange-50 text-orange-700 ring-2 ring-orange-200' : 'bg-gray-50 text-gray-800 hover:bg-yellow-50'}`}
+                      className={`block w-full rounded-[18px] px-4 py-3 text-left transition ${active ? 'bg-[#3d3512] text-[#fce000] ring-2 ring-[#fce000]/35' : 'bg-[#343331] text-[#efeee8] hover:bg-[#3b3a38]'}`}
                     >
                       <span className="flex items-start gap-3">
-                        <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl ${active ? 'bg-orange-500 text-white' : 'bg-white text-orange-500'}`}>
+                        <span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl ${active ? 'bg-[#fce000] text-[#111]' : 'bg-[#3b3a38] text-orange-500'}`}>
                           {active ? <CheckCircle2 size={18} /> : <MapPin size={18} />}
                         </span>
                         <span>
                           <span className="block font-black">{item.label.replace('Tashkent, ', '')}</span>
-                          <span className="mt-0.5 block text-sm font-bold text-gray-500">Tashkent delivery area</span>
+                          <span className="mt-0.5 block text-sm font-bold text-[#9b9a94]">Tashkent delivery area</span>
                         </span>
                       </span>
                     </button>
                   );
                 })}
                 {showEmptySuggestions && (
-                  <div className="rounded-[22px] bg-gray-50 px-4 py-5 text-center font-bold text-gray-500">
+                  <div className="rounded-[18px] bg-[#343331] px-4 py-5 text-center font-bold text-[#9b9a94]">
                     No matching address found. You can confirm the typed address.
                   </div>
                 )}
@@ -543,7 +543,7 @@ export function AddressMapPicker({
             </div>
 
             {/* Selected address card */}
-            <div className="mt-4 rounded-[26px] bg-gray-950 p-4 text-white shadow-sm">
+            <div className="mt-4 rounded-[22px] bg-[#050914] p-4 text-white shadow-sm">
               <div className="flex items-start gap-3">
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-orange-500 text-white">
                   <Navigation size={20} />
@@ -555,14 +555,14 @@ export function AddressMapPicker({
                       ? 'Detecting address…'
                       : selectedDisplayTitle || (resolutionState === 'error' ? 'Type the address above' : 'Choose a point on the map')}
                   </p>
-                  <p className="mt-1 text-sm font-bold text-gray-300">
+                  <p className="mt-1 text-sm font-bold text-[#bdbbb4]">
                     {typedAddress
                       ? 'Typed address, map point selected'
                       : resolutionState === 'error' && !manualAddress.trim()
                         ? 'Use the search field above'
                       : selectedSecondary}
                   </p>
-                  <p className="mt-1 text-xs font-bold text-gray-600">
+                  <p className="mt-1 text-xs font-bold text-[#77756e]">
                     {(selected.lat || TASHKENT_CENTER.lat).toFixed(5)}, {(selected.lng || TASHKENT_CENTER.lng).toFixed(5)}
                   </p>
                 </div>
@@ -570,11 +570,11 @@ export function AddressMapPicker({
             </div>
 
             {/* Confirm button */}
-            <div className="sticky bottom-0 -mx-4 mt-4 bg-white px-4 pb-4 pt-2 md:static md:mx-0 md:mt-auto md:p-0 md:pt-4">
+            <div className="sticky bottom-0 -mx-4 mt-4 bg-[#2b2a29] px-4 pb-4 pt-2 md:static md:mx-0 md:mt-auto md:p-0 md:pt-4">
               <button
                 onClick={confirm}
                 disabled={confirmDisabled}
-                className="w-full rounded-[22px] bg-yellow-300 px-4 py-4 font-black text-gray-950 shadow-sm hover:bg-yellow-200 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400"
+                className="w-full rounded-[20px] bg-[#fce000] px-4 py-4 font-black text-[#111] shadow-sm hover:bg-[#ffe530] disabled:cursor-not-allowed disabled:bg-[#454440] disabled:text-[#77756e]"
               >
                 {confirmingAddress ? 'Resolving address…' : detectingAddress ? 'Detecting…' : 'Confirm address'}
               </button>
@@ -582,7 +582,7 @@ export function AddressMapPicker({
           </aside>
 
           {/* Map panel */}
-          <section className="min-h-[360px] bg-gray-950 p-3 md:min-h-[420px] md:p-5">
+          <section className="relative min-h-[420px] shrink-0 bg-[#050914] p-3 md:min-h-[420px] md:p-5">
             <YandexMap
               center={{ lat: selected.lat || TASHKENT_CENTER.lat, lng: selected.lng || TASHKENT_CENTER.lng }}
               points={[{

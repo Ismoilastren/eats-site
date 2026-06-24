@@ -180,9 +180,9 @@ export const deliveryTimeFilters = [
 
 export const priceLevels: Array<{ label: string; value: PriceLevel | 'any' }> = [
   { label: 'Any price', value: 'any' },
-  { label: '$', value: '$' },
-  { label: '$$', value: '$$' },
-  { label: '$$$', value: '$$$' },
+  { label: 'Budget', value: '$' },
+  { label: 'Standard', value: '$$' },
+  { label: 'Premium', value: '$$$' },
 ];
 
 export const promos: Promo[] = [

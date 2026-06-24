@@ -173,51 +173,61 @@ export default function CartPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f6f6f3] text-gray-950">
+    <div className="min-h-screen bg-[#21201f] text-white">
       <MarketplaceHeader />
       <main className="mx-auto max-w-7xl px-4 pb-20 pt-6 lg:px-8">
-        <Link href="/" className="mb-5 inline-flex items-center gap-2 rounded-full bg-white px-4 py-3 font-black shadow-sm"><ArrowLeft size={18} /> Continue shopping</Link>
+        <Link href="/" className="mb-5 inline-flex items-center gap-2 rounded-full bg-[#2b2a29] px-4 py-3 font-black shadow-sm"><ArrowLeft size={18} /> Continue shopping</Link>
         <div className="grid gap-6 lg:grid-cols-[1fr_420px]">
-          <section className="min-w-0 rounded-[40px] bg-white p-5 shadow-sm ring-1 ring-black/5 md:p-7">
+          <section className="min-w-0 rounded-[24px] bg-[#2b2a29] p-5 shadow-[0_18px_45px_rgba(0,0,0,0.3)] ring-1 ring-white/10 md:p-7">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-black uppercase tracking-widest text-yellow-500">Checkout</p>
+                <p className="text-sm font-black uppercase tracking-widest text-[#fce000]">Checkout</p>
                 <h1 className="text-4xl font-black md:text-6xl">Your cart</h1>
               </div>
-              {cart.length > 0 && <button onClick={clearCart} className="rounded-full bg-red-50 p-3 text-red-500"><Trash2 size={20} /></button>}
+              {cart.length > 0 && (
+                <button
+                  aria-label="Clear cart"
+                  onClick={() => {
+                    if (window.confirm('Clear all items from the cart?')) clearCart();
+                  }}
+                  className="rounded-full bg-[#3b3a38] p-3 text-[#ff6969]"
+                >
+                  <Trash2 size={20} />
+                </button>
+              )}
             </div>
 
             {!storageHydrated ? (
-              <div className="mt-8 min-h-[430px] animate-pulse rounded-[32px] bg-gray-50 p-6">
-                <div className="mx-auto mt-20 h-24 w-24 rounded-[30px] bg-gray-200" />
-                <div className="mx-auto mt-7 h-8 w-56 rounded-xl bg-gray-200" />
-                <div className="mx-auto mt-4 h-5 w-80 max-w-full rounded-lg bg-gray-100" />
+              <div className="mt-8 min-h-[430px] animate-pulse rounded-[22px] bg-[#343331] p-6">
+                <div className="mx-auto mt-20 h-24 w-24 rounded-[24px] bg-[#454440]" />
+                <div className="mx-auto mt-7 h-8 w-56 rounded-xl bg-[#454440]" />
+                <div className="mx-auto mt-4 h-5 w-80 max-w-full rounded-lg bg-[#3b3a38]" />
               </div>
             ) : cart.length === 0 ? (
-              <div className="mt-8 flex min-h-[430px] flex-col items-center justify-center rounded-[32px] bg-[linear-gradient(145deg,#faf9f6,#fff7df)] px-6 py-12 text-center">
-                <div className="flex h-24 w-24 items-center justify-center rounded-[30px] bg-white text-orange-500 shadow-[0_18px_45px_rgba(17,24,39,0.10)]">
+              <div className="mt-8 flex min-h-[430px] flex-col items-center justify-center rounded-[22px] bg-[#343331] px-6 py-12 text-center">
+                <div className="flex h-24 w-24 items-center justify-center rounded-[24px] bg-[#454440] text-[#fce000] shadow-[0_18px_45px_rgba(0,0,0,0.28)]">
                   <ShoppingBasket size={42} />
                 </div>
                 <p className="mt-6 text-3xl font-black">Your cart is empty</p>
-                <p className="mt-3 max-w-md text-base font-bold text-gray-500">Add dishes from restaurants to start your order.</p>
-                <Link href="/" className="mt-7 inline-flex min-h-12 items-center justify-center rounded-2xl bg-yellow-300 px-7 py-4 font-black text-gray-950 shadow-sm transition hover:bg-yellow-200">
+                <p className="mt-3 max-w-md text-base font-bold text-[#9b9a94]">Add dishes from restaurants to start your order.</p>
+                <Link href="/" className="mt-7 inline-flex min-h-12 items-center justify-center rounded-[14px] bg-[#fce000] px-7 py-4 font-black text-[#111] shadow-sm transition hover:bg-[#ffe530]">
                   Browse restaurants
                 </Link>
               </div>
             ) : (
               <div className="mt-6 space-y-3">
                 {cart.map((item) => (
-                  <div key={item.id} className="flex flex-wrap items-center gap-3 rounded-[28px] bg-gray-50 p-4 sm:flex-nowrap sm:gap-4">
+                  <div key={item.id} className="flex flex-wrap items-center gap-3 rounded-[18px] bg-[#343331] p-4 sm:flex-nowrap sm:gap-4">
                     <div className="min-w-0 flex-1 basis-[180px]">
                       <p className="text-xl font-black">{item.name}</p>
-                      <p className="mt-1 font-bold text-gray-500">{formatCurrencyUZS(item.price)} · {item.restaurantName}</p>
+                      <p className="mt-1 font-bold text-[#9b9a94]">{formatCurrencyUZS(item.price)} · {item.restaurantName}</p>
                     </div>
-                    <div className="flex shrink-0 items-center gap-2 rounded-full bg-white p-1">
-                      <button onClick={() => updateQuantity(item.id, -1)} className="rounded-full bg-gray-100 p-3"><Minus size={16} /></button>
+                    <div className="flex shrink-0 items-center gap-2 rounded-full bg-[#454440] p-1">
+                      <button onClick={() => updateQuantity(item.id, -1)} className="rounded-full bg-[#45443f] p-3"><Minus size={16} /></button>
                       <span className="min-w-7 text-center font-black">{item.quantity}</span>
-                      <button onClick={() => updateQuantity(item.id, 1)} className="rounded-full bg-yellow-300 p-3"><Plus size={16} /></button>
+                      <button onClick={() => updateQuantity(item.id, 1)} className="rounded-full bg-[#fce000] p-3 text-[#111]"><Plus size={16} /></button>
                     </div>
-                    <button onClick={() => removeDish(item.id)} className="rounded-full bg-white p-3 text-gray-400 hover:text-red-500"><Trash2 size={18} /></button>
+                    <button onClick={() => removeDish(item.id)} className="rounded-full bg-[#454440] p-3 text-[#77756e] hover:text-[#ff6969]"><Trash2 size={18} /></button>
                   </div>
                 ))}
               </div>
@@ -226,29 +236,29 @@ export default function CartPage() {
             {cart.length > 0 && (
               <div className="mt-8 grid gap-4 md:grid-cols-2">
                 <label className="block">
-                  <span className="font-black text-gray-600">Name</span>
-                  <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none" />
+                  <span className="font-black text-[#c8c7c1]">Name</span>
+                  <input name="customer-name" autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" className="mt-2 w-full rounded-[14px] bg-[#343331] px-4 py-4 font-bold outline-none placeholder:text-[#77756e]" />
                 </label>
                 <label className="block">
-                  <span className="font-black text-gray-600">Phone</span>
-                  <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+998 90 123 45 67" className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none" />
+                  <span className="font-black text-[#c8c7c1]">Phone</span>
+                  <input name="customer-phone" type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+998 90 123 45 67" className="mt-2 w-full rounded-[14px] bg-[#343331] px-4 py-4 font-bold outline-none placeholder:text-[#77756e]" />
                 </label>
                 <label className="block md:col-span-2">
-                  <span className="font-black text-gray-600">Delivery comments</span>
-                  <input value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Leave at door, call before arrival..." className="mt-2 w-full rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none" />
+                  <span className="font-black text-[#c8c7c1]">Delivery comments</span>
+                  <input name="delivery-comment" autoComplete="off" value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Leave at door, call before arrival…" className="mt-2 w-full rounded-[14px] bg-[#343331] px-4 py-4 font-bold outline-none placeholder:text-[#77756e]" />
                 </label>
               </div>
             )}
           </section>
 
-          <aside className="h-fit min-w-0 rounded-[40px] bg-white p-6 shadow-sm ring-1 ring-black/5 lg:sticky lg:top-24">
+          <aside className="h-fit min-w-0 rounded-[24px] bg-[#2b2a29] p-6 shadow-[0_18px_45px_rgba(0,0,0,0.3)] ring-1 ring-white/10 lg:sticky lg:top-24">
             <h2 className="text-3xl font-black">Order summary</h2>
-            <div className="mt-5 rounded-3xl bg-gray-50 p-4">
+            <div className="mt-5 rounded-[18px] bg-[#343331] p-4">
               {isDelivery ? (
                 <>
                   <p className="flex items-center gap-2 font-black"><Truck size={18} /> Delivery address</p>
-                  <p className="mt-2 font-bold text-gray-500">{hasConfirmedAddress ? displayAddress : 'Select and confirm your address'}</p>
-                  {!hasConfirmedAddress && <p className="mt-2 text-sm font-black text-orange-600">Choose the exact delivery point before placing the order.</p>}
+                  <p className="mt-2 font-bold text-[#9b9a94]">{hasConfirmedAddress ? displayAddress : 'Select and confirm your address'}</p>
+                  {!hasConfirmedAddress && <p className="mt-2 text-sm font-black text-[#fce000]">Choose the exact delivery point before placing the order.</p>}
                   <div className="mt-4">
                     <YandexMapPreview
                       center={{ lat: address.lat || TASHKENT_CENTER.lat, lng: address.lng || TASHKENT_CENTER.lng }}
@@ -256,45 +266,45 @@ export default function CartPage() {
                       className="h-48"
                     />
                   </div>
-                  <button onClick={() => setAddressPickerOpen(true)} className="mt-4 w-full rounded-2xl bg-gray-950 px-4 py-3 font-black text-white hover:bg-gray-800">
+                  <button onClick={() => setAddressPickerOpen(true)} className="mt-4 w-full rounded-[14px] bg-[#fce000] px-4 py-3 font-black text-[#111] hover:bg-[#ffe530]">
                     {hasConfirmedAddress ? 'Change address' : 'Select address'}
                   </button>
                 </>
               ) : (
                 <div className="flex items-start gap-3">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-yellow-300 text-gray-950">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] bg-[#fce000] text-[#111]">
                     <Store size={20} />
                   </div>
                   <div>
                     <p className="font-black">Pickup order</p>
-                    <p className="mt-1 text-sm font-bold text-gray-500">Collect your order directly from the restaurant. Delivery address is not required.</p>
+                    <p className="mt-1 text-sm font-bold text-[#9b9a94]">Collect your order directly from the restaurant. Delivery address is not required.</p>
                   </div>
                 </div>
               )}
             </div>
             <div className="mt-4 grid grid-cols-2 gap-2">
-              <button onClick={() => setPayment('cash')} className={`rounded-2xl px-4 py-4 font-black ${payment === 'cash' ? 'bg-yellow-300' : 'bg-gray-100'}`}><Wallet className="mx-auto mb-1" /> Cash</button>
-              <button onClick={() => setPayment('card')} className={`rounded-2xl px-4 py-4 font-black ${payment === 'card' ? 'bg-yellow-300' : 'bg-gray-100'}`}><CreditCard className="mx-auto mb-1" /> Card</button>
+              <button onClick={() => setPayment('cash')} className={`rounded-[14px] px-4 py-4 font-black ${payment === 'cash' ? 'bg-[#fce000] text-[#111]' : 'bg-[#343331]'}`}><Wallet className="mx-auto mb-1" /> Cash</button>
+              <button onClick={() => setPayment('card')} className={`rounded-[14px] px-4 py-4 font-black ${payment === 'card' ? 'bg-[#fce000] text-[#111]' : 'bg-[#343331]'}`}><CreditCard className="mx-auto mb-1" /> Card</button>
             </div>
             {payment === 'card' && (
-              <div className={`mt-3 rounded-2xl px-4 py-3 ${selectedCard ? 'bg-emerald-50' : 'bg-orange-50'}`}>
+              <div className={`mt-3 rounded-[14px] px-4 py-3 ${selectedCard ? 'bg-[#193327]' : 'bg-[#3d3512]'}`}>
                 {cardsLoading ? (
-                  <p className="text-sm font-black text-gray-500">Loading saved cards...</p>
+                  <p className="text-sm font-black text-[#9b9a94]">Loading saved cards…</p>
                 ) : selectedCard ? (
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="font-black text-gray-950">{selectedCard.brand} {selectedCard.maskedNumber}</p>
-                      <p className="mt-1 text-xs font-bold text-gray-500">{selectedCard.cardholderName} · {selectedCard.expiry}</p>
+                      <p className="font-black">{selectedCard.brand} {selectedCard.maskedNumber}</p>
+                      <p className="mt-1 text-xs font-bold text-[#9b9a94]">{selectedCard.cardholderName} · {selectedCard.expiry}</p>
                     </div>
                     <CreditCard className="shrink-0 text-emerald-600" size={22} />
                   </div>
                 ) : (
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="font-black text-gray-950">No valid card saved</p>
-                      <p className="mt-1 text-xs font-bold text-gray-500">Add a card before using card payment.</p>
+                      <p className="font-black">No valid card saved</p>
+                      <p className="mt-1 text-xs font-bold text-[#9b9a94]">Add a card before using card payment.</p>
                     </div>
-                    <Link href="/profile" className="shrink-0 rounded-xl bg-gray-950 px-3 py-2 text-sm font-black text-white">
+                    <Link href="/profile" className="shrink-0 rounded-xl bg-[#fce000] px-3 py-2 text-sm font-black text-[#111]">
                       Add card
                     </Link>
                   </div>
@@ -302,26 +312,26 @@ export default function CartPage() {
               </div>
             )}
             <div className="mt-4 flex gap-2">
-              <input value={promoInput} onChange={(event) => setPromoInput(event.target.value)} placeholder="Promo code" className="min-w-0 flex-1 rounded-2xl bg-gray-100 px-4 py-4 font-bold outline-none" />
-              <button onClick={() => { if (!applyPromo(promoInput)) setError('Promo code not found. Try FIRST21.'); else setError(''); }} className="flex items-center gap-2 rounded-2xl bg-gray-950 px-4 font-black text-white"><Ticket size={18} /> Apply</button>
+              <input name="promo-code" autoComplete="off" spellCheck={false} value={promoInput} onChange={(event) => setPromoInput(event.target.value)} placeholder="Promo code" className="min-w-0 flex-1 rounded-[14px] bg-[#343331] px-4 py-4 font-bold outline-none placeholder:text-[#77756e]" />
+              <button onClick={() => { if (!applyPromo(promoInput)) setError('Promo code not found. Try FIRST21.'); else setError(''); }} className="flex items-center gap-2 rounded-[14px] bg-[#fce000] px-4 font-black text-[#111]"><Ticket size={18} /> Apply</button>
             </div>
             {promo && (
-              <div className="mt-2 flex items-center justify-between rounded-2xl bg-green-50 px-4 py-3 text-sm font-black text-green-700">
+              <div className="mt-2 flex items-center justify-between rounded-[14px] bg-[#193327] px-4 py-3 text-sm font-black text-[#5fe483]">
                 <span>Applied: {promo.code}</span>
                 <button onClick={() => { removePromo(); setPromoInput(''); }} className="text-green-900 underline">Remove</button>
               </div>
             )}
-            {error && <p className="mt-3 rounded-2xl bg-red-50 px-4 py-3 text-sm font-black text-red-600">{error}</p>}
-            <div className="mt-6 space-y-3 border-t border-gray-100 pt-5 font-bold text-gray-600">
+            {error && <p className="mt-3 rounded-[14px] bg-[#3a1f1f] px-4 py-3 text-sm font-black text-[#ff9c9c]">{error}</p>}
+            <div className="mt-6 space-y-3 border-t border-white/10 pt-5 font-bold text-[#bdbbb4]">
               <Row label="Subtotal" value={formatCurrencyUZS(subtotal)} />
               <Row label="Delivery" value={formatCurrencyUZS(deliveryFee)} />
               <Row label="Service fee" value={formatCurrencyUZS(serviceFee)} />
               {discount > 0 && <Row label="Discount" value={`-${formatCurrencyUZS(discount)}`} />}
               <Row label="Total" value={formatCurrencyUZS(total)} strong />
             </div>
-            {belowMinimum && <p className="mt-4 rounded-2xl bg-yellow-50 px-4 py-3 text-sm font-black text-yellow-700">Minimum order: {formatCurrencyUZS(minOrder)}</p>}
-            <button onClick={submit} disabled={placeOrderDisabled} className="mt-6 w-full rounded-2xl bg-yellow-300 px-4 py-5 text-lg font-black text-gray-950 disabled:bg-gray-200 disabled:text-gray-400">{isSubmitting ? 'Placing order...' : 'Place order'}</button>
-            {placeOrderHelper && <p className="mt-3 text-center text-sm font-bold text-gray-500">{placeOrderHelper}</p>}
+            {belowMinimum && <p className="mt-4 rounded-[14px] bg-[#3d3512] px-4 py-3 text-sm font-black text-[#fce000]">Minimum order: {formatCurrencyUZS(minOrder)}</p>}
+            <button onClick={submit} disabled={placeOrderDisabled} className="mt-6 w-full rounded-[14px] bg-[#fce000] px-4 py-5 text-lg font-black text-[#111] disabled:bg-[#454440] disabled:text-[#77756e]">{isSubmitting ? 'Placing order…' : 'Place order'}</button>
+            {placeOrderHelper && <p className="mt-3 text-center text-sm font-bold text-[#9b9a94]">{placeOrderHelper}</p>}
           </aside>
         </div>
       </main>
@@ -340,5 +350,5 @@ export default function CartPage() {
 }
 
 function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
-  return <div className={`flex justify-between ${strong ? 'pt-3 text-2xl font-black text-gray-950' : ''}`}><span>{label}</span><span>{value}</span></div>;
+  return <div className={`flex justify-between ${strong ? 'pt-3 text-2xl font-black text-white' : ''}`}><span>{label}</span><span>{value}</span></div>;
 }

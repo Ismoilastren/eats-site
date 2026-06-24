@@ -43,25 +43,26 @@ type YandexMapProps = {
 function markerElement(point: MapPoint) {
   const element = document.createElement('div');
   element.className = 'ymaps-custom-marker';
-  element.style.cssText = 'transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center;';
+  element.style.cssText = 'transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center;';
   const marker = document.createElement('div');
+  const color = point.color || '#ff6b00';
   marker.style.cssText = `
-    width: 34px;
-    height: 34px;
-    border-radius: 999px;
-    background: ${point.color || '#f97316'};
-    border: 4px solid white;
-    box-shadow: 0 14px 28px rgba(15, 23, 42, .28);
+    width: 42px;
+    height: 50px;
+    filter: drop-shadow(0 14px 22px rgba(0,0,0,.38));
     display: flex;
     align-items: center;
     justify-content: center;
-    color: white;
-    font: 900 14px system-ui;
   `;
-  marker.textContent = point.label.slice(0, 1).toUpperCase();
+  marker.innerHTML = `
+    <svg width="42" height="50" viewBox="0 0 42 50" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M21 49C21 49 39 29.9 39 18.6C39 8.9 30.94 1 21 1C11.06 1 3 8.9 3 18.6C3 29.9 21 49 21 49Z" fill="${color}" stroke="white" stroke-width="4"/>
+      <circle cx="21" cy="18.5" r="6.5" fill="white"/>
+    </svg>
+  `;
   const label = document.createElement('div');
   label.style.cssText = `
-    margin-top: 7px;
+    margin-top: -2px;
     max-width: 150px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -70,7 +71,7 @@ function markerElement(point: MapPoint) {
     background: rgba(255,255,255,.96);
     padding: 6px 10px;
     color: #111827;
-    box-shadow: 0 8px 22px rgba(15,23,42,.2);
+    box-shadow: 0 8px 22px rgba(15,23,42,.24);
     font: 800 12px system-ui;
   `;
   label.textContent = point.label;
@@ -289,9 +290,9 @@ export function YandexMap({
           <div className="absolute left-[-10%] top-[22%] h-4 w-[120%] rotate-[12deg] rounded-full bg-[#26313f]" />
           <div className="absolute left-[20%] top-[-10%] h-[120%] w-4 rotate-[18deg] rounded-full bg-[#26313f]" />
           <div className="absolute left-[5%] top-[66%] h-3 w-[105%] -rotate-[7deg] rounded-full bg-[#303b4a]" />
-          <div className="absolute left-1/2 top-1/2 z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-500 text-white shadow-[0_18px_45px_rgba(249,115,22,.35)]">
-              <MapPin size={28} />
+          <div className="absolute left-1/2 top-1/2 z-10 flex -translate-x-1/2 -translate-y-full flex-col items-center">
+            <div className="text-orange-500 drop-shadow-[0_18px_30px_rgba(0,0,0,.45)]">
+              <MapPin size={52} className="fill-orange-500 text-white" />
             </div>
             <div className="mt-4 rounded-2xl bg-black/45 px-5 py-3 text-center backdrop-blur">
               <p className="text-lg font-black">{interactive ? 'Select a point on the map' : fallbackLabel}</p>
@@ -306,9 +307,8 @@ export function YandexMap({
       {/* Center crosshair pin — pointer-events:none so wheel events pass through to map */}
       {interactive && status === 'loaded' && points.length === 0 && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="address-picker-pin -mt-8 flex flex-col items-center">
-            <div className="h-8 w-8 rounded-full bg-orange-500 shadow-xl ring-[3px] ring-white" />
-            <div className="h-6 w-1 rounded-b-full bg-orange-500" />
+          <div className="address-picker-pin -mt-6 flex flex-col items-center">
+            <MapPin size={58} className="fill-orange-500 text-white drop-shadow-[0_18px_30px_rgba(0,0,0,.45)]" />
           </div>
         </div>
       )}

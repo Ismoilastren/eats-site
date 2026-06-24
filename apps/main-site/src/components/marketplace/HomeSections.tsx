@@ -1,8 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { ArrowLeft, ArrowRight, SlidersHorizontal } from 'lucide-react';
-import { useRef } from 'react';
+import { SlidersHorizontal } from 'lucide-react';
 import type { Promo, Restaurant } from '@/data/marketplace';
 import { RestaurantCard } from './RestaurantCard';
 
@@ -13,25 +12,20 @@ type PromoBannersProps = {
 };
 
 export function PromoBanners({ promos, restaurants, onSelect }: PromoBannersProps) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const cards = promos.slice(0, 4);
-
-  const scroll = (direction: number) => {
-    scrollRef.current?.scrollBy({ left: direction * 420, behavior: 'smooth' });
-  };
+  const cards = promos.slice(0, 3);
 
   return (
     <section aria-label="Promotions" className="relative">
-      <div ref={scrollRef} className="-mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto px-4 pb-2 [scrollbar-width:none] sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden">
+      <div className="grid gap-4 md:grid-cols-3">
         {cards.map((promo, index) => (
           <button
             key={promo.code}
             type="button"
             onClick={() => onSelect(promo)}
-            className="group relative h-[180px] w-[310px] shrink-0 snap-start overflow-hidden rounded-2xl text-left shadow-[0_12px_28px_rgba(0,0,0,.24)] transition-transform hover:scale-[1.015] sm:w-[390px]"
+            className="group relative h-[176px] overflow-hidden rounded-[22px] text-left shadow-[0_12px_28px_rgba(0,0,0,.24)] transition-transform hover:scale-[1.015]"
           >
             <Image
-              src={restaurants[index % Math.max(restaurants.length, 1)]?.imageUrl || 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?q=80&w=1000&auto=format&fit=crop'}
+              src={restaurants[index % Math.max(restaurants.length, 1)]?.imageUrl || 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?q=80&w=1200&auto=format&fit=crop'}
               alt=""
               fill
               loading="eager"
@@ -50,16 +44,6 @@ export function PromoBanners({ promos, restaurants, onSelect }: PromoBannersProp
           </button>
         ))}
       </div>
-      {cards.length > 1 && (
-        <>
-          <button type="button" aria-label="Previous promotion" onClick={() => scroll(-1)} className="absolute -left-5 top-1/2 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-[#343331] text-white shadow-xl hover:bg-[#454440] lg:flex">
-            <ArrowLeft size={19} />
-          </button>
-          <button type="button" aria-label="Next promotion" onClick={() => scroll(1)} className="absolute -right-5 top-1/2 hidden h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-[#343331] text-white shadow-xl hover:bg-[#454440] lg:flex">
-            <ArrowRight size={19} />
-          </button>
-        </>
-      )}
     </section>
   );
 }
@@ -73,16 +57,23 @@ export function ShopsSection({
   onSelect: (restaurant: Restaurant) => void;
   onShowAll: () => void;
 }) {
-  const palette = ['bg-sky-400', 'bg-amber-200', 'bg-emerald-500', 'bg-orange-400', 'bg-rose-300'];
-
   return (
     <section>
       <SectionHeading title="Shops" onAll={onShowAll} />
       <div className="-mx-4 flex gap-4 overflow-x-auto px-4 pb-2 [scrollbar-width:none] sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden">
         {restaurants.slice(0, 6).map((restaurant, index) => (
           <button key={restaurant.id} type="button" onClick={() => onSelect(restaurant)} className="w-[220px] shrink-0 text-left sm:w-[250px]">
-            <span className={`flex h-[155px] items-end overflow-hidden rounded-2xl p-5 transition-transform hover:scale-[1.015] ${palette[index % palette.length]}`}>
-              <span className="text-2xl font-black leading-tight text-black/85">{restaurant.name}</span>
+            <span className="relative flex h-[155px] items-end overflow-hidden rounded-2xl p-5 transition-transform hover:scale-[1.015]">
+              <Image
+                src={restaurant.imageUrl}
+                alt=""
+                fill
+                priority={index < 3}
+                sizes="250px"
+                className="object-cover"
+              />
+              <span className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/15 to-transparent" />
+              <span className="relative text-2xl font-black leading-tight text-white">{restaurant.name}</span>
             </span>
             <span className="mt-3 block truncate text-base font-black text-white">{restaurant.name}</span>
             <span className="mt-1 block text-sm font-semibold text-[#aaa8a0]">{restaurant.etaMin}-{restaurant.etaMax} min</span>
@@ -131,16 +122,18 @@ export function CategoryBar({
 }
 
 export function RestaurantGridSection({
+  id,
   title,
   restaurants,
   loading = false,
 }: {
+  id?: string;
   title: string;
   restaurants: Restaurant[];
   loading?: boolean;
 }) {
   return (
-    <section>
+    <section id={id}>
       <SectionHeading title={title} />
       {loading ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">

@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import toast from 'react-hot-toast';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { MarketplaceHeader } from '@/components/marketplace/MarketplaceHeader';
 import { CategoryBar, PromoBanners, RestaurantGridSection, ShopsSection } from '@/components/marketplace/HomeSections';
-import { categories as marketplaceCategories, promos as fallbackPromos, type Restaurant } from '@/data/marketplace';
+import { categories as marketplaceCategories, promos as fallbackPromos, type Promo, type Restaurant } from '@/data/marketplace';
 import { useMarketplace } from '@/context/MarketplaceContext';
 
 const ALL_CATEGORY = 'All';
@@ -36,7 +37,15 @@ function matchesSearch(restaurant: Restaurant, query: string) {
   ].join(' ').toLowerCase().includes(target);
 }
 
+function matchesPromo(restaurant: Restaurant, promo: Promo | null) {
+  if (!promo) return true;
+  if (promo.type === 'freeDelivery') return restaurant.deliveryFee === 0 || restaurant.isFreeDelivery;
+  if (promo.type === 'percent') return Boolean(restaurant.hasDiscount || restaurant.promo === promo.code);
+  return restaurant.category === 'Desserts' || restaurant.cuisine.includes('Desserts') || restaurant.menu.some((dish) => dish.category === 'Desserts');
+}
+
 export default function HomeClient() {
+  const router = useRouter();
   const {
     address,
     deliveryMode,
@@ -44,11 +53,11 @@ export default function HomeClient() {
     marketplacePromos,
     dataLoading,
     dataError,
-    applyPromo,
   } = useMarketplace();
   const [selectedCategory, setSelectedCategory] = useState(ALL_CATEGORY);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOpen, setSortOpen] = useState(false);
+  const [activePromo, setActivePromo] = useState<Promo | null>(null);
   const [sortBy, setSortBy] = useState<'recommended' | 'rating' | 'fastest' | 'delivery'>('recommended');
 
   useEffect(() => {
@@ -74,7 +83,8 @@ export default function HomeClient() {
 
   const filtered = useMemo(() => {
     const result = available.filter((restaurant) => (
-      matchesCategory(restaurant, selectedCategory)
+      matchesPromo(restaurant, activePromo)
+      && matchesCategory(restaurant, selectedCategory)
       && matchesSearch(restaurant, searchQuery)
     ));
 
@@ -84,7 +94,7 @@ export default function HomeClient() {
       if (sortBy === 'delivery') return a.deliveryFee - b.deliveryFee || b.rating - a.rating;
       return Number(b.hasDiscount) - Number(a.hasDiscount) || b.rating - a.rating;
     });
-  }, [available, searchQuery, selectedCategory, sortBy]);
+  }, [activePromo, available, searchQuery, selectedCategory, sortBy]);
 
   const promos = marketplacePromos.length ? marketplacePromos : fallbackPromos;
   const shops = available.slice(0, 6);
@@ -98,8 +108,9 @@ export default function HomeClient() {
           promos={promos}
           restaurants={available}
           onSelect={(promo) => {
-            const applied = applyPromo(promo.code);
-            toast(applied ? `${promo.code} added to your cart` : `${promo.code} will be available at checkout`);
+            setActivePromo(promo);
+            setSelectedCategory(ALL_CATEGORY);
+            requestAnimationFrame(() => document.getElementById('restaurant-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
           }}
         />
 
@@ -109,10 +120,21 @@ export default function HomeClient() {
           </div>
         )}
 
+        {deliveryMode === 'pickup' && (
+          <div className="rounded-2xl bg-[#2b2a29] px-5 py-4 ring-1 ring-white/10">
+            <p className="font-black text-white">Pickup mode is on</p>
+            <p className="mt-1 text-sm font-bold text-[#aaa8a0]">Showing restaurants where you can collect the order yourself. Delivery fee is removed at checkout.</p>
+          </div>
+        )}
+
         <ShopsSection
           restaurants={shops}
-          onSelect={(restaurant) => setSelectedCategory(restaurant.category)}
-          onShowAll={() => setSelectedCategory(ALL_CATEGORY)}
+          onSelect={(restaurant) => router.push(`/restaurant/${restaurant.slug}`)}
+          onShowAll={() => {
+            setActivePromo(null);
+            setSelectedCategory(ALL_CATEGORY);
+            requestAnimationFrame(() => document.getElementById('restaurant-results')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+          }}
         />
 
         <section>
@@ -131,7 +153,24 @@ export default function HomeClient() {
           </div>
         )}
 
+        {activePromo && (
+          <div id="restaurant-results" className="rounded-[24px] bg-[#2b2a29] p-5 ring-1 ring-white/10">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-[#fce000]">Promotion</p>
+                <h2 className="mt-1 text-2xl font-black">{activePromo.title}</h2>
+                <p className="mt-1 font-bold text-[#aaa8a0]">{activePromo.description}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => setActivePromo(null)} className="rounded-full bg-[#3a3937] px-5 py-3 font-black hover:bg-[#454440]">Show all</button>
+                <Link href="/cart" className="rounded-full bg-[#fce000] px-5 py-3 font-black text-black hover:bg-[#ffe530]">Use at checkout</Link>
+              </div>
+            </div>
+          </div>
+        )}
+
         <RestaurantGridSection
+          id={!activePromo ? 'restaurant-results' : undefined}
           title={searchQuery ? `Results for "${searchQuery}"` : selectedCategory === ALL_CATEGORY ? 'Popular near you' : selectedCategory}
           restaurants={popular}
           loading={dataLoading}
@@ -141,15 +180,21 @@ export default function HomeClient() {
       {sortOpen && (
         <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/65 p-4 sm:items-center" role="dialog" aria-modal="true" aria-label="Sort restaurants">
           <button type="button" aria-label="Close sorting" className="absolute inset-0" onClick={() => setSortOpen(false)} />
-          <div className="relative w-full max-w-sm rounded-3xl bg-[#2b2a29] p-5 text-white shadow-2xl">
-            <h2 className="text-2xl font-black">Sort restaurants</h2>
-            <div className="mt-4 space-y-2">
+          <div className="relative w-full max-w-lg rounded-3xl bg-[#2b2a29] p-5 text-white shadow-2xl ring-1 ring-white/10">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-[#fce000]">Sort</p>
+                <h2 className="text-2xl font-black">Sort restaurants</h2>
+              </div>
+              <button type="button" onClick={() => setSortOpen(false)} className="rounded-full bg-[#3a3937] px-3 py-2 font-black hover:bg-[#454440]">Close</button>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
               {[
-                ['recommended', 'Recommended'],
-                ['rating', 'Highest rating'],
-                ['fastest', 'Fastest delivery'],
-                ['delivery', 'Lowest delivery fee'],
-              ].map(([value, label]) => (
+                ['recommended', 'Recommended', 'Best match with discounts and rating.'],
+                ['rating', 'Highest rating', 'Places with the strongest customer rating first.'],
+                ['fastest', 'Fastest delivery', 'Shortest estimated delivery time first.'],
+                ['delivery', 'Lowest delivery fee', 'Free and lower delivery fee restaurants first.'],
+              ].map(([value, label, description]) => (
                 <button
                   key={value}
                   type="button"
@@ -157,11 +202,12 @@ export default function HomeClient() {
                     setSortBy(value as typeof sortBy);
                     setSortOpen(false);
                   }}
-                  className={`w-full rounded-2xl px-4 py-3 text-left font-bold ${
+                  className={`min-h-24 rounded-2xl px-4 py-3 text-left font-bold ${
                     sortBy === value ? 'bg-[#fce000] text-black' : 'bg-[#383735] text-white hover:bg-[#454440]'
                   }`}
                 >
-                  {label}
+                  <span className="block font-black">{label}</span>
+                  <span className={`mt-1 block text-sm ${sortBy === value ? 'text-black/60' : 'text-[#aaa8a0]'}`}>{description}</span>
                 </button>
               ))}
             </div>

@@ -46,6 +46,7 @@ export function CartDrawer({ compact = false }: { compact?: boolean }) {
 
 function CartContents() {
   const { cart, subtotal, deliveryFee, serviceFee, discount, total, updateQuantity, removeDish, clearCart } = useMarketplace();
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
 
   if (cart.length === 0) {
     return (
@@ -66,9 +67,7 @@ function CartContents() {
         <button
           type="button"
           aria-label="Clear cart"
-          onClick={() => {
-            if (window.confirm('Clear all items from the cart?')) clearCart();
-          }}
+          onClick={() => setConfirmClearOpen(true)}
           className="rounded-full bg-[var(--surface-muted)] p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
         >
           <Trash2 size={18} />
@@ -102,6 +101,19 @@ function CartContents() {
       <Link href="/cart" className={`mt-5 block rounded-[15px] px-4 py-4 text-center font-black ${belowMinimum ? 'pointer-events-none bg-[var(--surface-strong)] text-[var(--muted)]' : 'bg-[var(--accent)] text-[var(--accent-text)] hover:bg-[var(--accent-hover)]'}`}>
         Go to checkout
       </Link>
+      {confirmClearOpen && (
+        <div className="fixed inset-0 z-[110] flex items-end justify-center bg-black/65 p-4 sm:items-center" role="dialog" aria-modal="true" aria-label="Clear cart confirmation">
+          <button type="button" aria-label="Cancel clear cart" className="absolute inset-0" onClick={() => setConfirmClearOpen(false)} />
+          <div className="relative w-full max-w-sm rounded-[26px] bg-[#2b2a29] p-5 text-white shadow-2xl ring-1 ring-white/10">
+            <h3 className="text-2xl font-black">Clear cart?</h3>
+            <p className="mt-2 font-bold text-[#aaa8a0]">All dishes from this restaurant will be removed.</p>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button type="button" onClick={() => setConfirmClearOpen(false)} className="rounded-[16px] bg-[#3a3937] px-4 py-4 font-black hover:bg-[#454440]">Cancel</button>
+              <button type="button" onClick={() => { clearCart(); setConfirmClearOpen(false); }} className="rounded-[16px] bg-[#fce000] px-4 py-4 font-black text-black hover:bg-[#ffe530]">Clear</button>
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

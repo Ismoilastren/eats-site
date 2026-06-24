@@ -12,6 +12,7 @@ import {
 import { LogOut, User as UserIcon, Mail, Phone, Package, Clock, ChevronRight, Edit2, Check, X, Loader2, CreditCard, Plus, Trash2, MapPin, CheckCircle2, Home } from "lucide-react";
 import toast from 'react-hot-toast';
 import Link from 'next/link';
+import { MarketplaceHeader } from '@/components/marketplace/MarketplaceHeader';
 import { useMarketplace, type LocalOrder } from '@/context/MarketplaceContext';
 import { getOrdersForCustomer } from '@/services/marketplace';
 import {
@@ -177,6 +178,16 @@ export default function ProfilePage() {
       if (storedProfile) setProfileData(storedProfile);
     });
   }, [user]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (window.location.hash !== '#payment-methods') return;
+    const timeout = window.setTimeout(() => {
+      document.getElementById('payment-methods')?.scrollIntoView({ block: 'center' });
+      setIsCardModalOpen(true);
+    }, 150);
+    return () => window.clearTimeout(timeout);
+  }, []);
 
   const recentOrders = useMemo(
     () => orders.filter((order) => isValidRecentOrderTotal(order.total)).slice(0, 3),
@@ -453,17 +464,18 @@ export default function ProfilePage() {
 
   if (isAuthLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#f7f4ee] pt-28 pb-20">
+      <div className="flex min-h-screen items-center justify-center bg-[#21201f] pb-20 pt-28">
         <div className="h-12 w-12 animate-spin rounded-full border-4 border-orange-100 border-t-primary"></div>
       </div>
     );
   }
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#f7f4ee] pb-20 pt-28">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-[520px] bg-[radial-gradient(circle_at_12%_18%,rgba(255,190,92,0.28),transparent_38%),radial-gradient(circle_at_88%_8%,rgba(255,107,53,0.18),transparent_34%)]" />
+    <div className="marketplace-profile relative min-h-screen overflow-hidden bg-[#21201f] pb-20 text-white">
+      <MarketplaceHeader />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[520px] bg-[radial-gradient(circle_at_12%_18%,rgba(252,224,0,0.12),transparent_38%)]" />
 
-      <main className="relative mx-auto max-w-6xl px-4 lg:px-8">
+      <main id="main-content" className="relative mx-auto max-w-6xl px-4 pt-10 lg:px-8">
         <div className="mb-6">
           <Link href="/" className="mb-5 inline-flex min-h-11 items-center gap-2 rounded-full bg-white/80 px-4 py-2.5 text-sm font-bold text-gray-700 shadow-sm ring-1 ring-black/5 transition hover:bg-white hover:text-primary">
             <Home size={17} />
@@ -476,7 +488,7 @@ export default function ProfilePage() {
           </p>
         </div>
 
-        <section className="overflow-hidden rounded-[36px] bg-[#111827] text-white shadow-[0_24px_70px_rgba(17,24,39,0.22)]">
+        <section className="overflow-hidden rounded-[36px] bg-[#111827] text-white shadow-[0_24px_70px_rgba(0,0,0,0.35)]">
           <div className="grid lg:grid-cols-[1.35fr_1fr]">
             <div className="relative p-6 md:p-9">
               <div className="relative flex flex-col gap-6 sm:flex-row sm:items-center">
@@ -626,7 +638,7 @@ export default function ProfilePage() {
               </button>
             </section>
 
-            <section className="rounded-[28px] bg-white p-6 shadow-[0_14px_45px_rgba(17,24,39,0.07)]">
+            <section id="payment-methods" className="scroll-mt-24 rounded-[28px] bg-white p-6 shadow-[0_14px_45px_rgba(17,24,39,0.07)]">
               <div className="mb-5 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-50 text-primary">

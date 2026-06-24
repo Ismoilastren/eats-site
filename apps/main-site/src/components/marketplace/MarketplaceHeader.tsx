@@ -2,17 +2,19 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { type FormEvent, useEffect, useState } from 'react';
+import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { AtSign, Clock3, MapPin, Search, ShoppingBag, Store, Truck, UserRound, X } from 'lucide-react';
 import { useMarketplace } from '@/context/MarketplaceContext';
 import { AddressMapPicker } from './AddressMapPicker';
 
 export function MarketplaceHeader() {
   const router = useRouter();
-  const { address, setAddress, cartCount, user, deliveryMode, setDeliveryMode } = useMarketplace();
+  const { address, setAddress, cartCount, user, deliveryMode, setDeliveryMode, restaurants, dataLoading } = useMarketplace();
   const [addressOpen, setAddressOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchActive, setSearchActive] = useState(false);
+  const [timeOpen, setTimeOpen] = useState(false);
+  const [deliveryTime, setDeliveryTime] = useState('Now');
 
   useEffect(() => {
     const openAuth = () => router.push('/auth/login');
@@ -27,6 +29,11 @@ export function MarketplaceHeader() {
   const submitSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     dispatchSearch(searchQuery);
+    const first = searchResults[0];
+    if (first) {
+      router.push(first.href);
+      setSearchActive(false);
+    }
   };
 
   const clearSearch = () => {
@@ -38,6 +45,47 @@ export function MarketplaceHeader() {
   const displayAddress = address.text === 'Current location'
     ? 'Detected location'
     : address.text.replace(/^Tashkent,\s*/i, '') || 'Select address';
+
+  const searchResults = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return restaurants.slice(0, 5).map((restaurant) => ({
+      id: restaurant.id,
+      title: restaurant.name,
+      subtitle: `${restaurant.etaMin}-${restaurant.etaMax} min · ${restaurant.cuisine.slice(0, 2).join(', ')}`,
+      href: `/restaurant/${restaurant.slug}`,
+    }));
+    const matches = restaurants.flatMap((restaurant) => {
+      const restaurantMatch = [
+        restaurant.name,
+        restaurant.category,
+        restaurant.cuisine.join(' '),
+      ].join(' ').toLowerCase().includes(query);
+      const dishMatches = restaurant.menu
+        .filter((dish) => [dish.name, dish.description, dish.category].join(' ').toLowerCase().includes(query))
+        .slice(0, 2)
+        .map((dish) => ({
+          id: `${restaurant.id}-${dish.id}`,
+          title: dish.name,
+          subtitle: `${restaurant.name} · ${dish.category}`,
+          href: `/restaurant/${restaurant.slug}?dish=${encodeURIComponent(dish.id)}`,
+        }));
+      return [
+        ...(restaurantMatch ? [{
+          id: restaurant.id,
+          title: restaurant.name,
+          subtitle: `${restaurant.etaMin}-${restaurant.etaMax} min · ${restaurant.cuisine.slice(0, 2).join(', ')}`,
+          href: `/restaurant/${restaurant.slug}`,
+        }] : []),
+        ...dishMatches,
+      ];
+    });
+    return matches.slice(0, 6);
+  }, [restaurants, searchQuery]);
+
+  const chooseSearchResult = (href: string) => {
+    router.push(href);
+    setSearchActive(false);
+  };
 
   return (
     <>
@@ -74,31 +122,55 @@ export function MarketplaceHeader() {
             </div>
           </div>
 
-          <form
-            role="search"
-            onSubmit={submitSearch}
-            className="order-3 flex h-11 min-w-0 flex-[1_1_100%] items-center gap-3 rounded-full bg-[#2b2a29] px-4 text-[#777570] focus-within:bg-[#353432] focus-within:ring-2 focus-within:ring-[#fce000] sm:order-none sm:flex-[1_1_320px] lg:max-w-xl"
-          >
-            <Search size={20} className="shrink-0" />
-            <input
-              aria-label="Search restaurants and dishes"
-              name="marketplace-search"
-              autoComplete="off"
-              value={searchQuery}
-              onFocus={() => setSearchActive(true)}
-              onChange={(event) => {
-                setSearchQuery(event.target.value);
-                dispatchSearch(event.target.value);
-              }}
-              placeholder="Search in Eats"
-              className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-white outline-none placeholder:text-[#777570]"
-            />
-            {searchActive && searchQuery && (
-              <button type="button" onClick={clearSearch} aria-label="Clear search" className="rounded-full p-1 text-[#aaa8a0] hover:bg-white/10">
-                <X size={16} />
-              </button>
+          <div className="relative order-3 min-w-0 flex-[1_1_100%] sm:order-none sm:flex-[1_1_320px] lg:max-w-xl">
+            <form
+              role="search"
+              onSubmit={submitSearch}
+              className="flex h-11 items-center gap-3 rounded-full bg-[#2b2a29] px-4 text-[#777570] focus-within:bg-[#353432] focus-within:ring-2 focus-within:ring-[#fce000]"
+            >
+              <Search size={20} className="shrink-0" />
+              <input
+                aria-label="Search restaurants and dishes"
+                name="marketplace-search"
+                autoComplete="off"
+                value={searchQuery}
+                onFocus={() => setSearchActive(true)}
+                onChange={(event) => {
+                  setSearchQuery(event.target.value);
+                  dispatchSearch(event.target.value);
+                }}
+                placeholder="Search in Eats"
+                className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-white outline-none placeholder:text-[#777570]"
+              />
+              {searchActive && searchQuery && (
+                <button type="button" onClick={clearSearch} aria-label="Clear search" className="rounded-full p-1 text-[#aaa8a0] hover:bg-white/10">
+                  <X size={16} />
+                </button>
+              )}
+            </form>
+            {searchActive && (
+              <div className="absolute left-0 right-0 top-[calc(100%+10px)] z-[70] overflow-hidden rounded-[22px] bg-[#2b2a29] p-2 shadow-[0_22px_65px_rgba(0,0,0,.42)] ring-1 ring-white/10">
+                {dataLoading ? (
+                  <div className="px-4 py-5 text-sm font-bold text-[#aaa8a0]">Loading restaurants and dishes…</div>
+                ) : searchResults.length === 0 ? (
+                  <div className="px-4 py-5 text-sm font-bold text-[#aaa8a0]">Nothing found. Try pizza, burgers, sushi, or a restaurant name.</div>
+                ) : (
+                  searchResults.map((result) => (
+                    <button
+                      key={result.id}
+                      type="button"
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => chooseSearchResult(result.href)}
+                      className="block w-full rounded-[16px] px-4 py-3 text-left hover:bg-[#3a3937]"
+                    >
+                      <span className="block font-black text-white">{result.title}</span>
+                      <span className="mt-1 block text-sm font-bold text-[#aaa8a0]">{result.subtitle}</span>
+                    </button>
+                  ))
+                )}
+              </div>
             )}
-          </form>
+          </div>
 
           <div className="ml-auto flex shrink-0 items-center gap-2">
             <button
@@ -118,9 +190,13 @@ export function MarketplaceHeader() {
               <span className="truncate">{displayAddress}</span>
             </button>
 
-            <div className="hidden h-11 items-center gap-2 rounded-full px-3 text-sm font-semibold text-white lg:flex">
-              <Clock3 size={17} className="text-[#aaa8a0]" /> Now
-            </div>
+            <button
+              type="button"
+              onClick={() => setTimeOpen(true)}
+              className="hidden h-11 items-center gap-2 rounded-full px-3 text-sm font-semibold text-white hover:bg-[#2b2a29] lg:flex"
+            >
+              <Clock3 size={17} className="text-[#aaa8a0]" /> {deliveryTime}
+            </button>
 
             <Link
               href="/cart"
@@ -172,6 +248,32 @@ export function MarketplaceHeader() {
             setAddressOpen(false);
           }}
         />
+      )}
+      {timeOpen && (
+        <div className="fixed inset-0 z-[85] flex items-end justify-center bg-black/60 p-4 sm:items-center" role="dialog" aria-modal="true" aria-label="Delivery time">
+          <button type="button" aria-label="Close delivery time" className="absolute inset-0" onClick={() => setTimeOpen(false)} />
+          <div className="relative w-full max-w-sm rounded-[28px] bg-[#2b2a29] p-5 text-white shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-black">Delivery time</h2>
+              <button type="button" aria-label="Close" onClick={() => setTimeOpen(false)} className="rounded-full bg-[#3a3937] p-2"><X size={18} /></button>
+            </div>
+            <div className="mt-4 space-y-2">
+              {['Now', 'In 30 minutes', 'In 1 hour', 'Tonight 19:00'].map((label) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => {
+                    setDeliveryTime(label);
+                    setTimeOpen(false);
+                  }}
+                  className={`w-full rounded-[18px] px-4 py-4 text-left font-black ${deliveryTime === label ? 'bg-[#fce000] text-black' : 'bg-[#3a3937] hover:bg-[#454440]'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

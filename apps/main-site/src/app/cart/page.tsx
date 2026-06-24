@@ -53,6 +53,7 @@ export default function CartPage() {
   const [savedCards, setSavedCards] = useState<PaymentMethod[]>([]);
   const [cardsLoading, setCardsLoading] = useState(true);
   const [firebaseUid, setFirebaseUid] = useState(auth.currentUser?.uid || '');
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
 
   const minOrder = cart[0]?.restaurantMinOrder || 0;
   const belowMinimum = cart.length > 0 && subtotal < minOrder;
@@ -187,9 +188,7 @@ export default function CartPage() {
               {cart.length > 0 && (
                 <button
                   aria-label="Clear cart"
-                  onClick={() => {
-                    if (window.confirm('Clear all items from the cart?')) clearCart();
-                  }}
+                  onClick={() => setClearConfirmOpen(true)}
                   className="rounded-full bg-[#3b3a38] p-3 text-[#ff6969]"
                 >
                   <Trash2 size={20} />
@@ -296,7 +295,10 @@ export default function CartPage() {
                       <p className="font-black">{selectedCard.brand} {selectedCard.maskedNumber}</p>
                       <p className="mt-1 text-xs font-bold text-[#9b9a94]">{selectedCard.cardholderName} · {selectedCard.expiry}</p>
                     </div>
-                    <CreditCard className="shrink-0 text-emerald-600" size={22} />
+                    <div className="flex shrink-0 items-center gap-2">
+                      <Link href="/profile#payment-methods" className="rounded-xl bg-[#fce000] px-3 py-2 text-sm font-black text-[#111]">Add card</Link>
+                      <CreditCard className="text-emerald-600" size={22} />
+                    </div>
                   </div>
                 ) : (
                   <div className="flex items-center justify-between gap-3">
@@ -304,7 +306,7 @@ export default function CartPage() {
                       <p className="font-black">No valid card saved</p>
                       <p className="mt-1 text-xs font-bold text-[#9b9a94]">Add a card before using card payment.</p>
                     </div>
-                    <Link href="/profile" className="shrink-0 rounded-xl bg-[#fce000] px-3 py-2 text-sm font-black text-[#111]">
+                    <Link href="/profile#payment-methods" className="shrink-0 rounded-xl bg-[#fce000] px-3 py-2 text-sm font-black text-[#111]">
                       Add card
                     </Link>
                   </div>
@@ -344,6 +346,19 @@ export default function CartPage() {
             setAddressPickerOpen(false);
           }}
         />
+      )}
+      {clearConfirmOpen && (
+        <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/65 p-4 sm:items-center" role="dialog" aria-modal="true" aria-label="Clear cart confirmation">
+          <button type="button" aria-label="Cancel clear cart" className="absolute inset-0" onClick={() => setClearConfirmOpen(false)} />
+          <div className="relative w-full max-w-sm rounded-[26px] bg-[#2b2a29] p-5 text-white shadow-2xl ring-1 ring-white/10">
+            <h3 className="text-2xl font-black">Clear cart?</h3>
+            <p className="mt-2 font-bold text-[#aaa8a0]">All dishes will be removed from checkout.</p>
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              <button type="button" onClick={() => setClearConfirmOpen(false)} className="rounded-[16px] bg-[#3a3937] px-4 py-4 font-black hover:bg-[#454440]">Cancel</button>
+              <button type="button" onClick={() => { clearCart(); setClearConfirmOpen(false); }} className="rounded-[16px] bg-[#fce000] px-4 py-4 font-black text-black hover:bg-[#ffe530]">Clear</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

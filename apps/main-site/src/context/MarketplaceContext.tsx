@@ -259,8 +259,6 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     setCart((current) => {
       if (!dish.available) return current;
       if (current.length > 0 && current[0].restaurantSlug !== restaurant.slug) {
-        const replace = window.confirm('Your cart has items from another restaurant. Replace it?');
-        if (!replace) return current;
         return [{
           ...dish,
           quantity,

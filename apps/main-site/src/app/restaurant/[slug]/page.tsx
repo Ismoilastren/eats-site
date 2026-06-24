@@ -223,28 +223,36 @@ function DishCard({
   onUpdate: (delta: number) => void;
 }) {
   return (
-    <article className={`group relative grid min-h-[190px] grid-cols-[minmax(0,1fr)_150px] overflow-hidden rounded-[24px] bg-[var(--surface)] text-[var(--text)] shadow-[var(--shadow)] ring-1 ring-[var(--line)] transition-transform duration-200 hover:-translate-y-0.5 sm:grid-cols-[minmax(0,1fr)_180px] ${dish.available ? '' : 'opacity-65'}`}>
+    <article
+      onClick={onOpen}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') onOpen();
+      }}
+      className={`group relative grid min-h-[190px] cursor-pointer grid-cols-[minmax(0,1fr)_150px] overflow-hidden rounded-[24px] bg-[var(--surface)] text-[var(--text)] shadow-[var(--shadow)] ring-1 ring-[var(--line)] transition-transform duration-200 hover:-translate-y-0.5 sm:grid-cols-[minmax(0,1fr)_180px] ${dish.available ? '' : 'opacity-65'}`}
+    >
       <div className="flex min-w-0 flex-col p-5">
-        <button onClick={onOpen} className="text-left text-xl font-black hover:opacity-65">{dish.name}</button>
+        <h3 className="text-left text-xl font-black group-hover:opacity-80">{dish.name}</h3>
         <p className="mt-2 line-clamp-3 text-sm font-semibold text-[var(--muted)]">{dish.description}</p>
         {dish.popular && <span className="mt-3 w-fit rounded-full bg-[#fff6a8] px-3 py-1 text-xs font-black text-[#5f5200] dark:bg-[#3d3512] dark:text-[var(--accent)]">Popular</span>}
         <div className="mt-auto flex items-end justify-between gap-3 pt-4">
           <p className="text-lg font-black tabular-nums">{formatCurrencyUZS(dish.price)}</p>
           {inCartQuantity > 0 ? (
             <div className="flex items-center gap-1 rounded-full bg-[var(--surface-muted)] p-1">
-              <button aria-label={`Decrease ${dish.name}`} onClick={() => onUpdate(-1)} className="rounded-full bg-[var(--surface)] p-2"><Minus size={15} /></button>
+              <button aria-label={`Decrease ${dish.name}`} onClick={(event) => { event.stopPropagation(); onUpdate(-1); }} className="rounded-full bg-[var(--surface)] p-2"><Minus size={15} /></button>
               <span className="min-w-7 text-center font-black tabular-nums">{inCartQuantity}</span>
-              <button aria-label={`Increase ${dish.name}`} onClick={() => onUpdate(1)} className="rounded-full bg-[var(--accent)] p-2 text-[var(--accent-text)]"><Plus size={15} /></button>
+              <button aria-label={`Increase ${dish.name}`} onClick={(event) => { event.stopPropagation(); onUpdate(1); }} className="rounded-full bg-[var(--accent)] p-2 text-[var(--accent-text)]"><Plus size={15} /></button>
             </div>
           ) : (
-            <button aria-label={`Add ${dish.name} to cart`} disabled={!dish.available} onClick={onAdd} className="rounded-full bg-[var(--surface-muted)] p-3 text-[var(--text)] hover:bg-[var(--accent)] hover:text-[var(--accent-text)] disabled:text-[var(--muted)]"><Plus size={19} /></button>
+            <button aria-label={`Add ${dish.name} to cart`} disabled={!dish.available} onClick={(event) => { event.stopPropagation(); onAdd(); }} className="rounded-full bg-[var(--surface-muted)] p-3 text-[var(--text)] hover:bg-[var(--accent)] hover:text-[var(--accent-text)] disabled:text-[var(--muted)]"><Plus size={19} /></button>
           )}
         </div>
       </div>
-      <button onClick={onOpen} className="relative block h-full min-h-[190px] w-full overflow-hidden text-left" aria-label={`Open ${dish.name} details`}>
+      <div className="relative block h-full min-h-[190px] w-full overflow-hidden text-left" aria-label={`Open ${dish.name} details`}>
         <Image src={dish.imageUrl} alt={dish.name} fill sizes="180px" className="object-cover transition-transform duration-300 group-hover:scale-105" />
         {!dish.available && <span className="absolute bottom-3 left-3 rounded-full bg-[#111] px-3 py-1 text-xs font-black text-white">Unavailable</span>}
-      </button>
+      </div>
     </article>
   );
 }

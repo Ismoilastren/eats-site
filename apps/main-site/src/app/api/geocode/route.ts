@@ -10,6 +10,12 @@ type YandexGeoObject = {
   metaDataProperty?: { GeocoderMetaData?: { text?: string } };
 };
 
+type OpenStreetMapReverseResponse = {
+  display_name?: string;
+  lat?: string;
+  lon?: string;
+};
+
 function geocoderErrorMessage(code: string) {
   switch (code) {
     case 'YANDEX_GEOCODER_API_KEY_MISSING':
@@ -133,12 +139,39 @@ async function requestYandex(params: URLSearchParams) {
   };
 }
 
+async function requestOpenStreetMapReverse(lat: number, lng: number) {
+  const params = new URLSearchParams({
+    format: 'jsonv2',
+    lat: String(lat),
+    lon: String(lng),
+    zoom: '18',
+    addressdetails: '1',
+    'accept-language': 'en',
+  });
+  const response = await fetch(`https://nominatim.openstreetmap.org/reverse?${params.toString()}`, {
+    cache: 'no-store',
+    headers: {
+      Accept: 'application/json',
+      'User-Agent': 'ExpressEats/1.0 (https://eats-site-main-site.vercel.app)',
+    },
+    signal: AbortSignal.timeout(7000),
+  });
+
+  if (!response.ok) return null;
+  const data = await response.json() as OpenStreetMapReverseResponse;
+  const address = cleanAddress(data.display_name);
+  if (!address) return null;
+
+  return {
+    address,
+    lat,
+    lng,
+    source: 'openstreetmap-fallback',
+  };
+}
+
 export async function GET(request: NextRequest) {
   const apiKey = process.env.YANDEX_GEOCODER_API_KEY;
-  if (!apiKey) {
-    return errorResponse('YANDEX_GEOCODER_API_KEY_MISSING', 503);
-  }
-
   const query = (
     request.nextUrl.searchParams.get('q') ||
     request.nextUrl.searchParams.get('query') ||
@@ -163,6 +196,19 @@ export async function GET(request: NextRequest) {
     }, { status: 400 });
   }
 
+  if (!apiKey) {
+    if (isReverse) {
+      const fallbackResult = await requestOpenStreetMapReverse(lat, lng).catch(() => null);
+      if (fallbackResult) {
+        return NextResponse.json({
+          ok: true,
+          ...fallbackResult,
+        });
+      }
+    }
+    return errorResponse('YANDEX_GEOCODER_API_KEY_MISSING', 503);
+  }
+
   try {
     if (isReverse) {
       let rejectedStatus: number | null = null;
@@ -185,6 +231,14 @@ export async function GET(request: NextRequest) {
             source: result.source,
           });
         }
+      }
+
+      const fallbackResult = await requestOpenStreetMapReverse(lat, lng).catch(() => null);
+      if (fallbackResult) {
+        return NextResponse.json({
+          ok: true,
+          ...fallbackResult,
+        });
       }
 
       if (rejectedStatus !== null) {

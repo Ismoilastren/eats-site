@@ -79,6 +79,48 @@ function uniqueById<T extends { id: string }>(remote: T[], local: T[]) {
   return Array.from(records.values());
 }
 
+function paymentMethodFingerprint(method: Pick<PaymentMethod, 'brand' | 'last4' | 'expiry'>) {
+  return [
+    method.brand.trim().toLowerCase(),
+    method.last4.replace(/\D/g, '').slice(-4),
+    method.expiry.trim(),
+  ].join('|');
+}
+
+function dedupePaymentMethods(methods: PaymentMethod[]) {
+  const records = new Map<string, PaymentMethod>();
+  methods.forEach((method) => {
+    const key = paymentMethodFingerprint(method);
+    if (!records.has(key)) records.set(key, method);
+  });
+  return Array.from(records.values());
+}
+
+function paymentSummary(uid: string, methods: PaymentMethod[]) {
+  return methods.map((method, index) => ({
+    userId: uid,
+    customerId: uid,
+    id: method.id,
+    brand: method.brand,
+    cardBrand: method.brand,
+    last4: method.last4,
+    maskedNumber: method.maskedNumber,
+    expiry: method.expiry,
+    cardholderName: method.cardholderName,
+    holderName: method.cardholderName,
+    isDefault: index === 0,
+    createdAt: method.createdAt,
+  }));
+}
+
+function syncPaymentSummary(uid: string, methods: PaymentMethod[]) {
+  if (!isFirestoreDataSource()) return;
+  void setDoc(doc(db, COLLECTIONS.USERS, uid), {
+    paymentMethods: paymentSummary(uid, methods),
+    updatedAt: new Date().toISOString(),
+  }, { merge: true }).catch(() => undefined);
+}
+
 function isPresent<T>(value: T | null | undefined): value is T {
   return value != null;
 }
@@ -240,10 +282,15 @@ export async function saveCustomerProfile(uid: string, profile: CustomerProfile)
 
 export function readStoredPaymentMethods(uid: string) {
   const deleted = new Set(readStorage<string[]>(deletedPaymentKey(uid), []));
-  return readStorage<PaymentMethod[]>(paymentKey(uid), [])
+  const normalized = readStorage<PaymentMethod[]>(paymentKey(uid), [])
     .map((item) => normalizePaymentMethod(item.id, item as unknown as Record<string, unknown>))
     .filter(isPresent)
     .filter((item) => !deleted.has(item.id));
+  const deduped = dedupePaymentMethods(normalized);
+  if (typeof window !== 'undefined' && deduped.length !== normalized.length) {
+    writeStorage(paymentKey(uid), deduped);
+  }
+  return deduped;
 }
 
 export async function loadPaymentMethods(uid: string) {
@@ -258,8 +305,17 @@ export async function loadPaymentMethods(uid: string) {
       .filter(isPresent)
       .filter((item) => !deleted.has(item.id));
     const merged = uniqueById(remote, local);
-    writeStorage(paymentKey(uid), merged);
-    return merged;
+    const deduped = dedupePaymentMethods(merged);
+    writeStorage(paymentKey(uid), deduped);
+
+    const retainedIds = new Set(deduped.map((method) => method.id));
+    snapshot.docs
+      .filter((paymentDoc) => !retainedIds.has(paymentDoc.id))
+      .forEach((paymentDoc) => {
+        void deleteDoc(paymentDoc.ref).catch(() => undefined);
+      });
+    syncPaymentSummary(uid, deduped);
+    return deduped;
   } catch {
     return local;
   }
@@ -268,7 +324,15 @@ export async function loadPaymentMethods(uid: string) {
 export async function savePaymentMethod(uid: string, method: PaymentMethod) {
   const safeMethod = normalizePaymentMethod(method.id, method as unknown as Record<string, unknown>);
   if (!safeMethod) throw new Error('Payment method data is invalid.');
-  const next = uniqueById(readStoredPaymentMethods(uid), [safeMethod]);
+  const current = await loadPaymentMethods(uid);
+  const duplicate = current.find(
+    (item) => paymentMethodFingerprint(item) === paymentMethodFingerprint(safeMethod),
+  );
+  if (duplicate) {
+    return { value: duplicate, duplicate: true };
+  }
+
+  const next = dedupePaymentMethods(uniqueById(current, [safeMethod]));
   writeStorage(paymentKey(uid), next);
   writeStorage(deletedPaymentKey(uid), readStorage<string[]>(deletedPaymentKey(uid), []).filter((id) => id !== method.id));
   notify(uid, 'paymentMethods');
@@ -290,29 +354,14 @@ export async function savePaymentMethod(uid: string, method: PaymentMethod) {
       isDefault: next.length === 1,
       createdAt: safeMethod.createdAt,
     }).catch(() => undefined);
-    void setDoc(doc(db, COLLECTIONS.USERS, uid), {
-      paymentMethods: next.map((method, index) => ({
-        userId: uid,
-        customerId: uid,
-        id: method.id,
-        brand: method.brand,
-        cardBrand: method.brand,
-        last4: method.last4,
-        maskedNumber: method.maskedNumber,
-        expiry: method.expiry,
-        cardholderName: method.cardholderName,
-        holderName: method.cardholderName,
-        isDefault: index === 0,
-        createdAt: method.createdAt,
-      })),
-      updatedAt: new Date().toISOString(),
-    }, { merge: true }).catch(() => undefined);
+    syncPaymentSummary(uid, next);
   }
-  return { value: safeMethod };
+  return { value: safeMethod, duplicate: false };
 }
 
 export async function removePaymentMethod(uid: string, id: string) {
-  writeStorage(paymentKey(uid), readStoredPaymentMethods(uid).filter((item) => item.id !== id));
+  const next = readStoredPaymentMethods(uid).filter((item) => item.id !== id);
+  writeStorage(paymentKey(uid), next);
   writeStorage(deletedPaymentKey(uid), Array.from(new Set([
     ...readStorage<string[]>(deletedPaymentKey(uid), []),
     id,
@@ -320,6 +369,7 @@ export async function removePaymentMethod(uid: string, id: string) {
   notify(uid, 'paymentMethods');
   if (isFirestoreDataSource()) {
     void deleteDoc(doc(db, COLLECTIONS.USERS, uid, 'paymentMethods', id)).catch(() => undefined);
+    syncPaymentSummary(uid, next);
   }
 }
 

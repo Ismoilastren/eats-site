@@ -1,9 +1,10 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
-import { ArrowLeft, CreditCard, Minus, Plus, ShoppingBasket, Store, Ticket, Trash2, Truck, Wallet, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, Check, CreditCard, Minus, Plus, ShoppingBasket, Store, Ticket, Trash2, Truck, Wallet, X } from 'lucide-react';
 import { formatCurrencyUZS, isReadableAddress } from '@repo/shared-types';
 import { auth, onAuthStateChanged } from '@repo/firebase-config';
 import { AddressMapPicker } from '@/components/marketplace/AddressMapPicker';
@@ -48,6 +49,8 @@ export default function CartPage() {
     setAddress,
     deliveryMode,
     storageHydrated,
+    restaurants,
+    addDish,
   } = useMarketplace();
   const [name, setName] = useState(user?.name || '');
   const [phone, setPhone] = useState(user?.phone || '+998');
@@ -58,12 +61,14 @@ export default function CartPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [addressPickerOpen, setAddressPickerOpen] = useState(false);
   const [savedCards, setSavedCards] = useState<PaymentMethod[]>([]);
+  const [selectedCardId, setSelectedCardId] = useState('');
   const [cardsLoading, setCardsLoading] = useState(true);
   const [firebaseUid, setFirebaseUid] = useState(auth.currentUser?.uid || '');
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const [cardModalOpen, setCardModalOpen] = useState(false);
   const [cardSaving, setCardSaving] = useState(false);
   const [cardError, setCardError] = useState('');
+  const [cardNotice, setCardNotice] = useState('');
   const [cardForm, setCardForm] = useState({
     number: '',
     expiry: '',
@@ -79,7 +84,20 @@ export default function CartPage() {
     && isReadableAddress(address.text)
   );
   const validSavedCards = savedCards.filter(isStoredPaymentMethodValid);
-  const selectedCard = validSavedCards[0];
+  const selectedCard = validSavedCards.find((card) => card.id === selectedCardId) || validSavedCards[0];
+  const cartRestaurant = useMemo(
+    () => restaurants.find((restaurant) => (
+      restaurant.id === cart[0]?.restaurantId || restaurant.slug === cart[0]?.restaurantSlug
+    )),
+    [cart, restaurants],
+  );
+  const upsellDishes = useMemo(() => {
+    if (!cartRestaurant) return [];
+    const cartDishIds = new Set(cart.map((item) => item.id));
+    return cartRestaurant.menu
+      .filter((dish) => dish.available && !cartDishIds.has(dish.id))
+      .slice(0, 3);
+  }, [cart, cartRestaurant]);
   const requiresFirebaseAuth = isFirestoreDataSource();
   const signedInForCheckout = !requiresFirebaseAuth || Boolean(firebaseUid);
   const displayAddress = address.text === 'Current location'
@@ -105,6 +123,14 @@ export default function CartPage() {
     setName(user.name || '');
     setPhone(user.phone || '+998');
   }, [user]);
+
+  useEffect(() => {
+    setSelectedCardId((current) => (
+      validSavedCards.some((card) => card.id === current)
+        ? current
+        : validSavedCards[0]?.id || ''
+    ));
+  }, [savedCards]);
 
   useEffect(() => {
     let cancelled = false;
@@ -141,10 +167,12 @@ export default function CartPage() {
     const uid = auth.currentUser?.uid;
     if (!uid) {
       setSavedCards([]);
-      return;
+      return [];
     }
     setSavedCards(readStoredPaymentMethods(uid));
-    setSavedCards(await loadPaymentMethods(uid));
+    const loadedCards = await loadPaymentMethods(uid);
+    setSavedCards(loadedCards);
+    return loadedCards;
   };
 
   const handleSaveCard = async () => {
@@ -176,8 +204,9 @@ export default function CartPage() {
 
     setCardSaving(true);
     setCardError('');
+    setCardNotice('');
     try {
-      await savePaymentMethod(uid, {
+      const result = await savePaymentMethod(uid, {
         id: createCustomerRecordId('card'),
         brand: getCardBrand(number),
         last4: number.slice(-4),
@@ -187,9 +216,13 @@ export default function CartPage() {
         createdAt: new Date().toISOString(),
       });
       await refreshCards();
+      setSelectedCardId(result.value.id);
       setPayment('card');
       setCardModalOpen(false);
       setCardForm({ number: '', expiry: '', cvv: '', cardholderName: '' });
+      setCardNotice(result.duplicate
+        ? 'This card was already saved and is now selected.'
+        : 'Card saved and selected for this order.');
     } catch (saveError) {
       setCardError(saveError instanceof Error ? saveError.message : 'Could not save payment card.');
     } finally {
@@ -302,20 +335,54 @@ export default function CartPage() {
             )}
 
             {cart.length > 0 && (
-              <div className="mt-8 grid gap-4 md:grid-cols-2">
-                <label className="block">
-                  <span className="font-black text-[#c8c7c1]">Name</span>
-                  <input name="customer-name" autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" className="mt-2 w-full rounded-[14px] bg-[#343331] px-4 py-4 font-bold outline-none placeholder:text-[#77756e]" />
-                </label>
-                <label className="block">
-                  <span className="font-black text-[#c8c7c1]">Phone</span>
-                  <input name="customer-phone" type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+998 90 123 45 67" className="mt-2 w-full rounded-[14px] bg-[#343331] px-4 py-4 font-bold outline-none placeholder:text-[#77756e]" />
-                </label>
-                <label className="block md:col-span-2">
-                  <span className="font-black text-[#c8c7c1]">Delivery comments</span>
-                  <input name="delivery-comment" autoComplete="off" value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Leave at door, call before arrival…" className="mt-2 w-full rounded-[14px] bg-[#343331] px-4 py-4 font-bold outline-none placeholder:text-[#77756e]" />
-                </label>
-              </div>
+              <>
+                {cartRestaurant && upsellDishes.length > 0 && (
+                  <section className="mt-8 border-t border-white/10 pt-7">
+                    <div>
+                      <p className="text-sm font-black uppercase tracking-widest text-[#fce000]">{cartRestaurant.name}</p>
+                      <h2 className="mt-1 text-3xl font-black">Anything else?</h2>
+                    </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                      {upsellDishes.map((dish) => (
+                        <article key={dish.id} className="overflow-hidden rounded-[18px] bg-[#343331] ring-1 ring-white/10">
+                          <div className="relative aspect-[4/3]">
+                            <Image src={dish.imageUrl} alt={dish.name} fill sizes="(max-width: 640px) 100vw, 220px" className="object-cover" />
+                          </div>
+                          <div className="p-3">
+                            <p className="line-clamp-2 min-h-12 font-black">{dish.name}</p>
+                            <div className="mt-3 flex items-center justify-between gap-2">
+                              <p className="text-sm font-black text-[#d6d4cd]">{formatCurrencyUZS(dish.price)}</p>
+                              <button
+                                type="button"
+                                aria-label={`Add ${dish.name}`}
+                                onClick={() => addDish(cartRestaurant, dish)}
+                                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#fce000] text-[#111] hover:bg-[#ffe530]"
+                              >
+                                <Plus size={18} />
+                              </button>
+                            </div>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                <div className="mt-8 grid gap-4 md:grid-cols-2">
+                  <label className="block">
+                    <span className="font-black text-[#c8c7c1]">Name</span>
+                    <input name="customer-name" autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" className="mt-2 w-full rounded-[14px] bg-[#343331] px-4 py-4 font-bold outline-none ring-1 ring-transparent placeholder:text-[#77756e] focus:ring-white/15" />
+                  </label>
+                  <label className="block">
+                    <span className="font-black text-[#c8c7c1]">Phone</span>
+                    <input name="customer-phone" type="tel" inputMode="tel" autoComplete="tel" value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="+998 90 123 45 67" className="mt-2 w-full rounded-[14px] bg-[#343331] px-4 py-4 font-bold outline-none ring-1 ring-transparent placeholder:text-[#77756e] focus:ring-white/15" />
+                  </label>
+                  <label className="block md:col-span-2">
+                    <span className="font-black text-[#c8c7c1]">Delivery comments</span>
+                    <input name="delivery-comment" autoComplete="off" value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Leave at door, call before arrival…" className="mt-2 w-full rounded-[14px] bg-[#343331] px-4 py-4 font-bold outline-none ring-1 ring-transparent placeholder:text-[#77756e] focus:ring-white/15" />
+                  </label>
+                </div>
+              </>
             )}
           </section>
 
@@ -355,32 +422,64 @@ export default function CartPage() {
               <button onClick={() => setPayment('card')} className={`rounded-[14px] px-4 py-4 font-black ${payment === 'card' ? 'bg-[#fce000] text-[#111]' : 'bg-[#343331]'}`}><CreditCard className="mx-auto mb-1" /> Card</button>
             </div>
             {payment === 'card' && (
-              <div className={`mt-3 rounded-[14px] px-4 py-3 ${selectedCard ? 'bg-[#193327]' : 'bg-[#3d3512]'}`}>
+              <div className="mt-3 rounded-[18px] bg-[#343331] p-3">
                 {cardsLoading ? (
-                  <p className="text-sm font-black text-[#9b9a94]">Loading saved cards…</p>
-                ) : selectedCard ? (
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="font-black">{selectedCard.brand} {selectedCard.maskedNumber}</p>
-                      <p className="mt-1 text-xs font-bold text-[#9b9a94]">{selectedCard.cardholderName} · {selectedCard.expiry}</p>
+                  <p className="px-1 py-2 text-sm font-black text-[#9b9a94]">Loading saved cards…</p>
+                ) : validSavedCards.length > 0 ? (
+                  <>
+                    <div className="mb-3 flex items-center justify-between gap-3 px-1">
+                      <div>
+                        <p className="font-black">Saved cards</p>
+                        <p className="text-xs font-bold text-[#9b9a94]">Choose a card for this order.</p>
+                      </div>
+                      <button type="button" onClick={() => { setCardError(''); setCardModalOpen(true); }} className="shrink-0 rounded-xl bg-[#fce000] px-3 py-2 text-sm font-black text-[#111]">
+                        Add card
+                      </button>
                     </div>
-                    <div className="flex shrink-0 items-center gap-2">
-                      <button type="button" onClick={() => setCardModalOpen(true)} className="rounded-xl bg-[#fce000] px-3 py-2 text-sm font-black text-[#111]">Add card</button>
-                      <CreditCard className="text-emerald-600" size={22} />
+                    <div className="space-y-2">
+                      {validSavedCards.map((card) => {
+                        const active = card.id === selectedCard?.id;
+                        return (
+                          <button
+                            key={card.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedCardId(card.id);
+                              setCardNotice('');
+                            }}
+                            className={`flex w-full items-center gap-3 rounded-[14px] p-3 text-left ring-1 transition ${
+                              active
+                                ? 'bg-[#193327] ring-emerald-500/40'
+                                : 'bg-[#2b2a29] ring-white/10 hover:bg-[#3b3a38]'
+                            }`}
+                          >
+                            <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${active ? 'bg-emerald-500 text-[#10251b]' : 'bg-[#454440] text-[#d6d4cd]'}`}>
+                              {active ? <Check size={20} strokeWidth={3} /> : <CreditCard size={20} />}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-black">{card.brand} {card.maskedNumber}</span>
+                              <span className="mt-0.5 block truncate text-xs font-bold text-[#9b9a94]">{card.cardholderName} · {card.expiry}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
                     </div>
-                  </div>
+                  </>
                 ) : (
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="font-black">No valid card saved</p>
                       <p className="mt-1 text-xs font-bold text-[#9b9a94]">Add a card before using card payment.</p>
                     </div>
-                    <button type="button" onClick={() => setCardModalOpen(true)} className="shrink-0 rounded-xl bg-[#fce000] px-3 py-2 text-sm font-black text-[#111]">
+                    <button type="button" onClick={() => { setCardError(''); setCardModalOpen(true); }} className="shrink-0 rounded-xl bg-[#fce000] px-3 py-2 text-sm font-black text-[#111]">
                       Add card
                     </button>
                   </div>
                 )}
               </div>
+            )}
+            {cardNotice && payment === 'card' && (
+              <p className="mt-2 rounded-[14px] bg-[#193327] px-4 py-3 text-sm font-black text-[#6ee7a0]">{cardNotice}</p>
             )}
             <div className="mt-4 flex gap-2">
               <input name="promo-code" autoComplete="off" spellCheck={false} value={promoInput} onChange={(event) => setPromoInput(event.target.value)} placeholder="Promo code" className="min-w-0 flex-1 rounded-[14px] bg-[#343331] px-4 py-4 font-bold outline-none placeholder:text-[#77756e]" />
@@ -434,7 +533,7 @@ export default function CartPage() {
                   value={cardForm.number}
                   onChange={(event) => setCardForm((current) => ({ ...current, number: event.target.value.replace(/[^\d\s]/g, '').replace(/(.{4})/g, '$1 ').trim().slice(0, 23) }))}
                   placeholder="0000 0000 0000 0000"
-                  className="mt-2 w-full rounded-[14px] border border-white/10 bg-[#343331] px-4 py-4 font-bold outline-none focus:border-[#fce000]"
+                  className="mt-2 w-full rounded-[14px] border border-white/10 bg-[#343331] px-4 py-4 font-bold outline-none focus:border-white/30"
                 />
               </label>
               <div className="grid grid-cols-2 gap-3">
@@ -449,7 +548,7 @@ export default function CartPage() {
                       setCardForm((current) => ({ ...current, expiry: digits.length > 2 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits }));
                     }}
                     placeholder="MM/YY"
-                    className="mt-2 w-full rounded-[14px] border border-white/10 bg-[#343331] px-4 py-4 font-bold outline-none focus:border-[#fce000]"
+                    className="mt-2 w-full rounded-[14px] border border-white/10 bg-[#343331] px-4 py-4 font-bold outline-none focus:border-white/30"
                   />
                 </label>
                 <label className="block">
@@ -460,7 +559,7 @@ export default function CartPage() {
                     value={cardForm.cvv}
                     onChange={(event) => setCardForm((current) => ({ ...current, cvv: event.target.value.replace(/\D/g, '').slice(0, 4) }))}
                     placeholder="123"
-                    className="mt-2 w-full rounded-[14px] border border-white/10 bg-[#343331] px-4 py-4 font-bold outline-none focus:border-[#fce000]"
+                    className="mt-2 w-full rounded-[14px] border border-white/10 bg-[#343331] px-4 py-4 font-bold outline-none focus:border-white/30"
                   />
                 </label>
               </div>
@@ -471,7 +570,7 @@ export default function CartPage() {
                   value={cardForm.cardholderName}
                   onChange={(event) => setCardForm((current) => ({ ...current, cardholderName: event.target.value.toUpperCase() }))}
                   placeholder="JOHN DOE"
-                  className="mt-2 w-full rounded-[14px] border border-white/10 bg-[#343331] px-4 py-4 font-bold outline-none focus:border-[#fce000]"
+                  className="mt-2 w-full rounded-[14px] border border-white/10 bg-[#343331] px-4 py-4 font-bold outline-none focus:border-white/30"
                 />
               </label>
             </div>

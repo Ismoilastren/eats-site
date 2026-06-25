@@ -10,34 +10,18 @@ import { CartDrawer } from '@/components/marketplace/CartDrawer';
 import { MarketplaceHeader } from '@/components/marketplace/MarketplaceHeader';
 import { YandexMapPreview } from '@/components/marketplace/YandexMapPreview';
 import { useMarketplace } from '@/context/MarketplaceContext';
-import { haversineDistanceKm, TASHKENT_CENTER } from '@/lib/yandexMaps';
-import { formatCurrencyUZS, isValidCoordinates } from '@repo/shared-types';
+import { formatCurrencyUZS } from '@repo/shared-types';
 
 export default function RestaurantPage() {
   const params = useParams<{ slug: string }>();
   const searchParams = useSearchParams();
-  const { addDish, cart, updateQuantity, restaurants, dataLoading, dataError, address } = useMarketplace();
+  const { addDish, cart, updateQuantity, restaurants, dataLoading, dataError } = useMarketplace();
   const restaurant = useMemo(() => restaurants.find((item) => item.slug === params.slug || item.id === params.slug), [params.slug, restaurants]);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [infoOpen, setInfoOpen] = useState(false);
   const [menuSearch, setMenuSearch] = useState('');
   const [selectedDish, setSelectedDish] = useState<Dish | null>(null);
   const menu = restaurant?.menu || [];
-  const customerLocation = { lat: address.lat || TASHKENT_CENTER.lat, lng: address.lng || TASHKENT_CENTER.lng };
-  const routeAvailable = Boolean(
-    restaurant?.locationIsVerified
-    && isValidCoordinates(customerLocation.lat, customerLocation.lng),
-  );
-  const routeDistanceKm = restaurant && routeAvailable
-    ? haversineDistanceKm(restaurant.location, customerLocation)
-    : null;
-  const routeEtaMinutes = restaurant && routeDistanceKm !== null
-    ? Math.max(restaurant.etaMin, Math.round(routeDistanceKm * 4 + 12))
-    : null;
-  const displayAddress = address.text === 'Current location'
-    ? 'Detected location, Tashkent'
-    : address.text.replace(/^Tashkent,\s*/i, '') || 'Delivery address';
-
   useEffect(() => {
     if (!restaurant) return;
     const dishId = searchParams.get('dish');
@@ -125,7 +109,7 @@ export default function RestaurantPage() {
                   <button key={category} onClick={() => scrollToCategory(category)} className={`shrink-0 rounded-full px-5 py-3 font-black ${selectedCategory === category ? 'bg-[var(--text)] text-[var(--page)]' : 'bg-[var(--surface-strong)] text-[var(--text)] hover:bg-[var(--surface-muted)]'}`}>{category}</button>
                 ))}
               </div>
-              <div className="mt-3 flex items-center gap-3 rounded-full bg-[var(--surface-muted)] px-5 py-4 ring-1 ring-[var(--line)] focus-within:ring-2 focus-within:ring-[var(--accent)]">
+              <div className="mt-3 flex items-center gap-3 rounded-full bg-[var(--surface-muted)] px-5 py-4 ring-1 ring-[var(--line)] focus-within:ring-2 focus-within:ring-white/15">
                 <Search size={20} className="text-[var(--muted)]" />
                 <input aria-label="Search restaurant menu" name="menu-search" autoComplete="off" value={menuSearch} onChange={(event) => setMenuSearch(event.target.value)} placeholder="Search inside menu…" className="w-full bg-transparent font-bold outline-none placeholder:text-[var(--muted)]" />
                 {menuSearch && <button aria-label="Clear menu search" onClick={() => setMenuSearch('')}><X size={18} /></button>}
@@ -174,15 +158,11 @@ export default function RestaurantPage() {
               <p>Delivery time: {restaurant.etaMin}-{restaurant.etaMax} minutes</p>
               <p>Rating: {restaurant.rating} from {restaurant.reviews} reviews</p>
               <p>Restaurant address: {restaurant.address || 'Tashkent'}</p>
-              <p>Delivery address: {displayAddress}</p>
-              <p>Distance: {routeDistanceKm === null ? 'Not calculated' : `${routeDistanceKm.toFixed(1)} km`}</p>
-              <p>Estimated delivery time: {routeEtaMinutes === null ? 'Use the restaurant ETA shown above' : `${routeEtaMinutes} minutes`}</p>
             </div>
             <div className="mt-4">
               <YandexMapPreview
                 center={restaurant.location}
                 label={restaurant.address || restaurant.name}
-                customer={{ ...customerLocation, label: 'Delivery address' }}
                 className="h-64 min-h-64"
                 dark
               />

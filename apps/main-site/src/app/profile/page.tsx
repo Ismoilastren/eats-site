@@ -430,17 +430,14 @@ export default function ProfilePage() {
     };
     try {
       const result = await savePaymentMethod(user.uid, safeCard);
-      setPaymentMethods((current) => [
-        ...current.filter((item) => item.id !== result.value.id),
-        result.value,
-      ]);
+      setPaymentMethods(await loadPaymentMethods(user.uid));
 
       setCardForm({ number: '', expiry: '', cvv: '', holder: '' });
       setErrors({});
       setIsCardModalOpen(false);
-      toast.success('Card added');
-    } catch {
-      toast.error('Could not save this card on this device.');
+      toast.success(result.duplicate ? 'This card is already saved' : 'Card added');
+    } catch (saveError) {
+      toast.error(saveError instanceof Error ? saveError.message : 'Could not save this card on this device.');
     } finally {
       setIsAddingCard(false);
     }

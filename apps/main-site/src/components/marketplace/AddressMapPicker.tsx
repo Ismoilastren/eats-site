@@ -446,7 +446,7 @@ export function AddressMapPicker({
           <aside className="flex flex-col border-r border-white/10 bg-[#2b2a29] p-4 md:min-h-0 md:p-5">
             {/* Search */}
             <div className="grid grid-cols-[1fr_auto] gap-2">
-              <div className="flex items-center gap-3 rounded-[20px] bg-[#3b3a38] px-4 py-3.5 ring-1 ring-transparent focus-within:bg-[#454440] focus-within:ring-[#fce000]/40">
+              <div className="flex items-center gap-3 rounded-[20px] bg-[#3b3a38] px-4 py-3.5 ring-1 ring-transparent focus-within:bg-[#454440] focus-within:ring-white/15">
                 <Search size={20} className="shrink-0 text-[#aaa8a0]" />
                 <input
                   value={query}
@@ -486,7 +486,7 @@ export function AddressMapPicker({
                       setError('');
                     }}
                     placeholder="Street, building, apartment"
-                    className="mt-1.5 w-full rounded-xl bg-[#3b3a38] px-3 py-3 font-bold text-white outline-none ring-1 ring-white/10 placeholder:text-[#77756e] focus:bg-[#454440] focus:ring-2 focus:ring-[#fce000]/40"
+                    className="mt-1.5 w-full rounded-xl bg-[#3b3a38] px-3 py-3 font-bold text-white outline-none ring-1 ring-white/10 placeholder:text-[#77756e] focus:bg-[#454440] focus:ring-2 focus:ring-white/15"
                   />
                 </label>
                 <details className="mt-2 text-[11px] font-semibold text-[#77756e]">

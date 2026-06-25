@@ -98,6 +98,7 @@ export function YandexMap({
   const mapsApiRef = useRef<YandexMaps3 | null>(null);
   const dynamicChildrenRef = useRef<unknown[]>([]);
   const onSelectRef = useRef(onSelect);
+  const skipNextCenterUpdateRef = useRef(false);
   const [status, setStatus] = useState<'not_loaded' | 'loading' | 'loaded' | 'error'>('not_loaded');
   const [zoom, setZoom] = useState(14);
   const mapCenter = points[0] || center;
@@ -151,6 +152,10 @@ export function YandexMap({
               const coordinates = event.coordinates;
               if (!coordinates) return;
               const [lng, lat] = coordinates;
+              // The map is already centered exactly where the user clicked.
+              // Keep the current pan/zoom instead of snapping back to the
+              // controlled default zoom when the selected marker is updated.
+              skipNextCenterUpdateRef.current = true;
               onSelectRef.current?.({ lng, lat });
             },
           } as Record<string, unknown>));
@@ -195,10 +200,14 @@ export function YandexMap({
       });
       return;
     }
+    if (interactive && skipNextCenterUpdateRef.current) {
+      skipNextCenterUpdateRef.current = false;
+      return;
+    }
     mapRef.current.update({
       location: { center: toYandexCoords(mapCenter), zoom, duration: 250 },
     });
-  }, [mapCenter.lat, mapCenter.lng, points.length, pointsSignature, status, zoom]);
+  }, [interactive, mapCenter.lat, mapCenter.lng, points.length, pointsSignature, status, zoom]);
 
   // Update markers/lines without remounting
   useEffect(() => {

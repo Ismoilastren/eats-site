@@ -37,10 +37,16 @@ a {
 }
 
 button:focus-visible,
-a:focus-visible,
-input:focus-visible {
+a:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--accent) 72%, #111 28%);
   outline-offset: 3px;
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.2);
+  outline-offset: 2px;
 }
 
 @media (prefers-color-scheme: light) {

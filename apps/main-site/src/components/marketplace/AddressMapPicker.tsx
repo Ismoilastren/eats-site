@@ -456,7 +456,7 @@ export function AddressMapPicker({
                     setSearchHint('');
                   }}
                   placeholder="Where to?"
-                  className="min-w-0 flex-1 bg-transparent font-bold outline-none placeholder:text-[#77756e]"
+                  className="min-w-0 flex-1 appearance-none border-0 bg-transparent font-bold outline-none ring-0 placeholder:text-[#77756e] focus:border-0 focus:outline-none focus:ring-0"
                 />
                 {query && <button onClick={() => setQuery('')} className="rounded-full bg-[#45443f] p-1 text-[#efeee8]"><X size={16} /></button>}
               </div>

@@ -15,7 +15,7 @@ import {
 } from '@/services/marketplace';
 import { readStoredCustomerProfile } from '@/services/customerProfile';
 import { TASHKENT_CENTER } from '@/lib/yandexMaps';
-import { DEFAULT_DELIVERY_TIME, type DeliveryTimeSelection } from '@/lib/marketplaceAvailability';
+import { DEFAULT_DELIVERY_TIME, normalizeDeliveryTimeSelection, type DeliveryTimeSelection } from '@/lib/marketplaceAvailability';
 import { isReadableAddress, isValidCoordinates, type AppAddress } from '@repo/shared-types';
 import type { CoordinateLike } from '@repo/shared-types';
 import { findMatchingGeozone } from '@/services/marketplace/geozones';
@@ -181,7 +181,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     }
     setPromo(readStorage<Promo | null>('marketplace_promo', null));
     setDeliveryModeState(readStorage<DeliveryMode>('marketplace_delivery_mode', 'delivery'));
-    setDeliveryTimeState(readStorage<DeliveryTimeSelection>('marketplace_delivery_time', DEFAULT_DELIVERY_TIME));
+    setDeliveryTimeState(normalizeDeliveryTimeSelection(readStorage<DeliveryTimeSelection>('marketplace_delivery_time', DEFAULT_DELIVERY_TIME)));
     setLoaded(true);
   }, []);
 

@@ -83,7 +83,16 @@ export default function OrderTrackingPage() {
     };
   }, [order?.restaurantId]);
 
-  const eta = useMemo(() => Math.max(4, Number(order?.etaMinutes || 24) - step * 4), [order?.etaMinutes, step]);
+  const isPickupOrder = order?.fulfillmentType === 'pickup';
+  const trackingStatuses = useMemo(
+    () => (isPickupOrder
+      ? CUSTOMER_TRACKING_STATUSES.filter((status) => status !== 'on_the_way')
+      : CUSTOMER_TRACKING_STATUSES),
+    [isPickupOrder],
+  );
+  const currentStatusIndex = order ? trackingStatuses.indexOf(order.status) : -1;
+  const visualStep = currentStatusIndex >= 0 ? currentStatusIndex : step;
+  const eta = useMemo(() => Math.max(4, Number(order?.etaMinutes || 24) - visualStep * 4), [order?.etaMinutes, visualStep]);
   const courier = useMemo(() => {
     const orderCourier = order?.assignedCourier || order?.courier || null;
     if (!orderCourier && !courierSnapshot) return null;
@@ -97,6 +106,18 @@ export default function OrderTrackingPage() {
   }, [courierSnapshot, order?.assignedCourier, order?.courier]);
   const hasCourier = Boolean(activeCourierId);
   const restaurant = trackingRestaurant || restaurants.find((item) => item.id === order?.restaurantId);
+  const orderHeading = order
+    ? order.status === 'delivered'
+      ? isPickupOrder ? 'Picked up' : 'Delivered'
+      : order.status === 'ready_for_pickup' && isPickupOrder
+        ? 'Ready for pickup'
+        : isPickupOrder
+          ? `Ready in ${eta} min`
+          : `Arrives in ${eta} min`
+    : '';
+  const destinationCopy = order
+    ? isPickupOrder ? `Pickup from ${order.restaurantName}` : `To ${order.address}`
+    : '';
 
   return (
     <div className="min-h-screen bg-[#181817] text-white">
@@ -119,23 +140,23 @@ export default function OrderTrackingPage() {
               <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
                 <div>
                   <p className="text-sm font-black uppercase tracking-widest text-[#fce000]">Order {formatOrderCode(order.id)}</p>
-                  <h1 className="mt-2 text-4xl font-black md:text-5xl">{order.status === 'delivered' ? 'Delivered' : `Arrives in ${eta} min`}</h1>
-                  <p className="mt-3 font-bold text-[#aaa8a0]">To {order.address}</p>
+                  <h1 className="mt-2 text-4xl font-black md:text-5xl">{orderHeading}</h1>
+                  <p className="mt-3 font-bold text-[#aaa8a0]">{destinationCopy}</p>
                 </div>
                 <p className="inline-flex w-fit rounded-full bg-[#fce000] px-4 py-2 font-black text-black">{ORDER_STATUS_LABELS[order.status]}</p>
               </div>
               <div className="mt-7 overflow-x-auto pb-2">
                 <div className="flex min-w-[760px] items-start">
-                  {CUSTOMER_TRACKING_STATUSES.map((status, index) => {
-                    const completed = index <= step;
+                  {trackingStatuses.map((status, index) => {
+                    const completed = index <= visualStep;
                     return (
                       <div key={status} className="relative flex flex-1 flex-col items-center text-center">
-                        {index > 0 && <div className={`absolute right-1/2 top-4 h-1 w-full ${index <= step ? 'bg-[#fce000]' : 'bg-[#454440]'}`} />}
+                        {index > 0 && <div className={`absolute right-1/2 top-4 h-1 w-full ${index <= visualStep ? 'bg-[#fce000]' : 'bg-[#454440]'}`} />}
                         <div className={`relative z-10 flex h-9 w-9 items-center justify-center rounded-full ring-4 ring-[#2b2a29] ${completed ? 'bg-[#fce000] text-black' : 'bg-[#454440] text-[#aaa8a0]'}`}>
                           {completed ? <CheckCircle2 size={20} /> : <Circle size={20} />}
                         </div>
                         <p className="mt-3 max-w-28 text-sm font-black">{ORDER_STATUS_LABELS[status]}</p>
-                        <p className="mt-1 text-xs font-bold text-[#aaa8a0]">{index === step ? 'Current' : index < step ? 'Done' : 'Waiting'}</p>
+                        <p className="mt-1 text-xs font-bold text-[#aaa8a0]">{index === visualStep ? 'Current' : index < visualStep ? 'Done' : 'Waiting'}</p>
                       </div>
                     );
                   })}
@@ -152,7 +173,7 @@ export default function OrderTrackingPage() {
             <aside className="h-fit rounded-[32px] bg-[#2b2a29] p-6 shadow-[0_18px_55px_rgba(0,0,0,.32)] ring-1 ring-white/10 lg:sticky lg:top-28">
               <Clock className="text-[#fce000]" size={28} />
               <h2 className="mt-3 text-3xl font-black">{order.restaurantName}</h2>
-              <p className="mt-2 font-bold text-[#aaa8a0]">{order.address}</p>
+              <p className="mt-2 font-bold text-[#aaa8a0]">{isPickupOrder ? `Pickup from ${order.restaurantName}` : order.address}</p>
               {hasCourier && (
                 <div className="mt-5 rounded-3xl bg-gray-950 p-4 text-white">
                   <p className="text-sm font-black uppercase tracking-widest text-yellow-300">Courier</p>

@@ -15,14 +15,22 @@ export const DEFAULT_DELIVERY_TIME: DeliveryTimeSelection = {
   label: 'Now',
 };
 
-export function buildTimeSlots() {
+export function buildTimeSlots(options?: { day?: DeliveryDateKey; now?: Date; leadMinutes?: number }) {
   const slots: string[] = [];
   for (let hour = 0; hour < 24; hour += 1) {
     for (const minute of [0, 30]) {
       slots.push(`${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`);
     }
   }
-  return slots;
+  if (options?.day !== 'today') return slots;
+
+  const now = options.now || new Date();
+  const leadMinutes = options.leadMinutes ?? 30;
+  const nextBookableMinute = Math.ceil((now.getHours() * 60 + now.getMinutes() + leadMinutes) / 30) * 30;
+  return slots.filter((slot) => {
+    const minutes = parseMinutes(slot);
+    return minutes !== null && minutes >= nextBookableMinute && minutes < 24 * 60;
+  });
 }
 
 export function formatDeliveryTimeLabel(selection: DeliveryTimeSelection) {
@@ -43,6 +51,13 @@ function parseMinutes(value: string) {
 function targetMinutes(selection: DeliveryTimeSelection, now = new Date()) {
   if (selection.mode === 'now') return now.getHours() * 60 + now.getMinutes();
   return parseMinutes(selection.time || '') ?? now.getHours() * 60 + now.getMinutes();
+}
+
+export function normalizeDeliveryTimeSelection(selection: DeliveryTimeSelection, now = new Date()): DeliveryTimeSelection {
+  if (selection.mode !== 'scheduled' || selection.day !== 'today') return selection;
+  const time = selection.time || '';
+  if (buildTimeSlots({ day: 'today', now, leadMinutes: 0 }).includes(time)) return selection;
+  return DEFAULT_DELIVERY_TIME;
 }
 
 export function isRestaurantAvailableAt(restaurant: Restaurant, selection: DeliveryTimeSelection, now = new Date()) {

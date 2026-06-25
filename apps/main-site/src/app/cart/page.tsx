@@ -193,8 +193,8 @@ export default function CartPage() {
       setCardError('Enter a valid expiry date in MM/YY format.');
       return;
     }
-    if (!/^\d{3,4}$/.test(cardForm.cvv.trim())) {
-      setCardError('Enter a valid CVV. It is checked only and never saved.');
+    if (!/^\d{3}$/.test(cardForm.cvv.trim())) {
+      setCardError('CVV must contain exactly 3 digits. It is checked only and never saved.');
       return;
     }
     if (!cardholderName) {
@@ -554,10 +554,13 @@ export default function CartPage() {
                 <label className="block">
                   <span className="text-xs font-black uppercase tracking-[0.14em] text-[#aaa8a0]">CVV</span>
                   <input
+                    type="password"
                     inputMode="numeric"
                     autoComplete="cc-csc"
+                    maxLength={3}
+                    pattern="\d{3}"
                     value={cardForm.cvv}
-                    onChange={(event) => setCardForm((current) => ({ ...current, cvv: event.target.value.replace(/\D/g, '').slice(0, 4) }))}
+                    onChange={(event) => setCardForm((current) => ({ ...current, cvv: event.target.value.replace(/\D/g, '').slice(0, 3) }))}
                     placeholder="123"
                     className="mt-2 w-full rounded-[14px] border border-white/10 bg-[#343331] px-4 py-4 font-bold outline-none focus:border-white/30"
                   />

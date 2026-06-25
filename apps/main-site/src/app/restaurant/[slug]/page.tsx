@@ -111,7 +111,7 @@ export default function RestaurantPage() {
               </div>
               <div className="mt-3 flex items-center gap-3 rounded-full bg-[var(--surface-muted)] px-5 py-4 ring-1 ring-[var(--line)] focus-within:ring-2 focus-within:ring-white/15">
                 <Search size={20} className="text-[var(--muted)]" />
-                <input aria-label="Search restaurant menu" name="menu-search" autoComplete="off" value={menuSearch} onChange={(event) => setMenuSearch(event.target.value)} placeholder="Search inside menu…" className="w-full bg-transparent font-bold outline-none placeholder:text-[var(--muted)]" />
+                <input aria-label="Search restaurant menu" name="menu-search" autoComplete="off" value={menuSearch} onChange={(event) => setMenuSearch(event.target.value)} placeholder="Search inside menu…" className="w-full appearance-none border-0 bg-transparent font-bold outline-none ring-0 placeholder:text-[var(--muted)] focus:border-0 focus:outline-none focus:ring-0" />
                 {menuSearch && <button aria-label="Clear menu search" onClick={() => setMenuSearch('')}><X size={18} /></button>}
               </div>
             </div>
@@ -147,27 +147,35 @@ export default function RestaurantPage() {
       </main>
       {cart.length > 0 && <div className="fixed bottom-4 left-4 right-4 z-40 lg:hidden"><CartDrawer compact /></div>}
       {infoOpen && (
-        <div className="fixed inset-0 z-[80] overflow-y-auto bg-black/55 p-4" role="dialog" aria-modal="true" aria-label={`${restaurant.name} information`}>
-          <div className="mx-auto mt-24 max-w-lg rounded-[24px] bg-[var(--surface)] p-6 text-[var(--text)] shadow-2xl">
-            <h2 className="text-3xl font-black">{restaurant.name}</h2>
-            <p className="mt-3 font-bold text-[var(--muted)]">{restaurant.cuisine.join(' · ')}</p>
-            <div className="mt-4 space-y-2 rounded-2xl bg-[var(--surface-muted)] p-4 font-semibold">
-              <p>Schedule: {restaurant.workingHours}</p>
-              <p>Delivery: {restaurant.deliveryFee === 0 ? 'Free' : formatCurrencyUZS(restaurant.deliveryFee)}</p>
-              <p>Service fee: {restaurant.serviceFee === 0 ? 'No service fee' : formatCurrencyUZS(restaurant.serviceFee)}</p>
-              <p>Delivery time: {restaurant.etaMin}-{restaurant.etaMax} minutes</p>
-              <p>Rating: {restaurant.rating} from {restaurant.reviews} reviews</p>
-              <p>Restaurant address: {restaurant.address || 'Tashkent'}</p>
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/55 p-4" role="dialog" aria-modal="true" aria-label={`${restaurant.name} information`}>
+          <button type="button" aria-label="Close restaurant information" className="absolute inset-0 cursor-default" onClick={() => setInfoOpen(false)} />
+          <div className="relative flex max-h-[calc(100dvh-32px)] w-full max-w-lg flex-col overflow-hidden rounded-[24px] bg-[var(--surface)] text-[var(--text)] shadow-2xl ring-1 ring-white/10">
+            <button type="button" aria-label="Close restaurant information" onClick={() => setInfoOpen(false)} className="absolute right-4 top-4 z-10 rounded-full bg-white/10 p-2 text-[var(--text)] hover:bg-white/15">
+              <X size={18} />
+            </button>
+            <div className="min-h-0 flex-1 overflow-y-auto p-6 pb-4">
+              <h2 className="pr-10 text-3xl font-black">{restaurant.name}</h2>
+              <p className="mt-3 font-bold text-[var(--muted)]">{restaurant.cuisine.join(' · ')}</p>
+              <div className="mt-4 space-y-2 rounded-2xl bg-[var(--surface-muted)] p-4 font-semibold">
+                <p>Schedule: {restaurant.workingHours}</p>
+                <p>Delivery: {restaurant.deliveryFee === 0 ? 'Free' : formatCurrencyUZS(restaurant.deliveryFee)}</p>
+                <p>Service fee: {restaurant.serviceFee === 0 ? 'No service fee' : formatCurrencyUZS(restaurant.serviceFee)}</p>
+                <p>Delivery time: {restaurant.etaMin}-{restaurant.etaMax} minutes</p>
+                <p>Rating: {restaurant.rating} from {restaurant.reviews} reviews</p>
+                <p>Restaurant address: {restaurant.address || 'Tashkent'}</p>
+              </div>
+              <div className="mt-4">
+                <YandexMapPreview
+                  center={restaurant.location}
+                  label={restaurant.address || restaurant.name}
+                  className="h-56 min-h-56 sm:h-64 sm:min-h-64"
+                  dark
+                />
+              </div>
             </div>
-            <div className="mt-4">
-              <YandexMapPreview
-                center={restaurant.location}
-                label={restaurant.address || restaurant.name}
-                className="h-64 min-h-64"
-                dark
-              />
+            <div className="shrink-0 border-t border-white/10 bg-[var(--surface)] p-4">
+              <button type="button" onClick={() => setInfoOpen(false)} className="w-full rounded-[14px] bg-[var(--accent)] px-4 py-4 font-black text-[var(--accent-text)]">Close</button>
             </div>
-            <button onClick={() => setInfoOpen(false)} className="mt-5 w-full rounded-[14px] bg-[var(--accent)] px-4 py-4 font-black text-[var(--accent-text)]">Close</button>
           </div>
         </div>
       )}

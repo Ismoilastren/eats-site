@@ -167,7 +167,7 @@ export function MarketplaceHeader() {
                   dispatchSearch(event.target.value);
                 }}
                 placeholder="Search in Eats"
-                className="min-w-0 flex-1 bg-transparent text-sm font-semibold text-white outline-none placeholder:text-[#777570]"
+                className="min-w-0 flex-1 appearance-none border-0 bg-transparent text-sm font-semibold text-white outline-none ring-0 placeholder:text-[#777570] focus:border-0 focus:outline-none focus:ring-0"
               />
               {searchActive && searchQuery && (
                 <button type="button" onClick={clearSearch} aria-label="Clear search" className="rounded-full p-1 text-[#aaa8a0] hover:bg-white/10">
@@ -312,7 +312,7 @@ export function MarketplaceHeader() {
                   {deliveryTime.mode === 'now' && <span className="text-xl">✓</span>}
                 </button>
               )}
-              {buildTimeSlots().map((slot) => {
+              {buildTimeSlots({ day: timeDay }).map((slot) => {
                 const selected = deliveryTime.mode === 'scheduled' && deliveryTime.day === timeDay && deliveryTime.time === slot;
                 return (
                   <button
@@ -329,6 +329,11 @@ export function MarketplaceHeader() {
                   </button>
                 );
               })}
+              {timeDay === 'today' && buildTimeSlots({ day: 'today' }).length === 0 && (
+                <p className="rounded-[16px] bg-[#33322f] px-4 py-4 text-sm font-bold text-[#ddd9cf]">
+                  No more scheduled slots today. Choose Now or Tomorrow.
+                </p>
+              )}
             </div>
           </div>
         </div>

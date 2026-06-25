@@ -409,8 +409,8 @@ export default function ProfilePage() {
     if (!validateExpiry(cardForm.expiry)) {
       nextErrors.expiry = 'Enter a future date in MM/YY format.';
     }
-    if (!/^\d{3,4}$/.test(cardForm.cvv)) {
-      nextErrors.cvv = 'CVV must contain 3 or 4 digits.';
+    if (!/^\d{3}$/.test(cardForm.cvv)) {
+      nextErrors.cvv = 'CVV must contain exactly 3 digits.';
     }
     if (!cardForm.holder.trim()) {
       nextErrors.holder = 'Cardholder name is required.';
@@ -870,10 +870,13 @@ export default function ProfilePage() {
                   <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">CVV</label>
                   <input 
                     type="password" 
-                    maxLength={4}
+                    inputMode="numeric"
+                    autoComplete="cc-csc"
+                    maxLength={3}
+                    pattern="\d{3}"
                     value={cardForm.cvv}
                     onChange={(e) => {
-                      setCardForm({...cardForm, cvv: e.target.value.replace(/\D/g, '')});
+                      setCardForm({...cardForm, cvv: e.target.value.replace(/\D/g, '').slice(0, 3)});
                       if (errors.cvv) setErrors({...errors, cvv: ''});
                     }}
                     className={`w-full px-3 py-2 border rounded-xl focus:ring-2 focus:ring-primary/20 transition-all outline-none text-center ${errors.cvv ? 'border-red-500 bg-red-50 focus:border-red-500' : 'border-gray-300 focus:border-primary'}`}

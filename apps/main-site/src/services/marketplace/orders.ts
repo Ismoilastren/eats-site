@@ -561,7 +561,11 @@ export async function updateOrderStatus(orderId: string, status: MarketplaceOrde
   });
 }
 
-export function subscribeToOrder(orderId: string, onChange: (order: LocalOrder | null) => void): Unsubscribe {
+export function subscribeToOrder(
+  orderId: string,
+  onChange: (order: LocalOrder | null) => void,
+  onError?: (error: Error) => void,
+): Unsubscribe {
   if (!isFirestoreDataSource()) {
     const refresh = () => {
       onChange(readMockOrders().find((order) => order.id === orderId) || null);
@@ -575,14 +579,19 @@ export function subscribeToOrder(orderId: string, onChange: (order: LocalOrder |
     };
   }
 
-  return onSnapshot(doc(db, 'orders', orderId), (snapshot) => {
-    onChange(snapshot.exists() ? mapFirestoreOrder(snapshot.data(), snapshot.id) : null);
-  });
+  return onSnapshot(
+    doc(db, 'orders', orderId),
+    (snapshot) => {
+      onChange(snapshot.exists() ? mapFirestoreOrder(snapshot.data(), snapshot.id) : null);
+    },
+    (error) => onError?.(error),
+  );
 }
 
 export function subscribeToCourierTracking(
   courierId: string,
   onChange: (courier: CourierTrackingSnapshot | null) => void,
+  onError?: (error: Error) => void,
 ): Unsubscribe {
   if (!courierId || !isFirestoreDataSource()) {
     onChange(null);
@@ -609,7 +618,10 @@ export function subscribeToCourierTracking(
         vehicleType: courier.vehicleType ? String(courier.vehicleType) : undefined,
       });
     },
-    () => onChange(null),
+    (error) => {
+      onChange(null);
+      onError?.(error);
+    },
   );
 }
 

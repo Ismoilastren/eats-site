@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, Dimensions, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { db, collection, query, where, onSnapshot } from '@repo/firebase-config';
-import { COLLECTIONS, formatCurrencyUZS, formatFirestoreDate, normalizeOrderStatus, Order } from '@repo/shared-types';
+import { COLLECTIONS, formatCurrencyUZS, formatFirestoreDate, formatOrderCode, normalizeOrderStatus, Order } from '@repo/shared-types';
 import { useAuthStore } from '../../stores/authStore';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -97,7 +97,7 @@ export default function HistoryScreen() {
           renderItem={({ item }) => (
             <View className="bg-gray-900 p-5 rounded-2xl mb-4 shadow-lg border border-gray-700 flex-row justify-between items-center">
               <View className="flex-1">
-                <Text className="font-extrabold text-white text-lg tracking-wider mb-1">#{item.id.slice(0, 6).toUpperCase()}</Text>
+                <Text className="font-extrabold text-white text-lg tracking-wider mb-1">{formatOrderCode(item.id)}</Text>
                 <Text className="text-gray-400 font-medium text-sm mb-2">{item.customerName || item.userId || 'Guest Customer'}</Text>
                 <Text className="text-gray-500 text-xs font-bold tracking-widest">{formatFirestoreDate(item.createdAt)}</Text>
               </View>

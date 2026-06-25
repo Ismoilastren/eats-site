@@ -14,6 +14,7 @@ import {
 } from '@repo/firebase-config';
 import {
   COLLECTIONS,
+  formatOrderCode,
   isTerminalOrderStatus,
   normalizeCoordinate,
   normalizeOrderStatus,
@@ -232,7 +233,7 @@ export default function ActiveDeliveryScreen() {
         </TouchableOpacity>
         <View>
           <Text className="text-2xl font-black text-gray-900 tracking-wide">ACTIVE DELIVERY</Text>
-          <Text className="text-gray-500 font-bold text-lg mt-1">#{order.id.substring(0, 5).toUpperCase()}</Text>
+          <Text className="text-gray-500 font-bold text-lg mt-1">{formatOrderCode(order.id)}</Text>
         </View>
       </View>
 

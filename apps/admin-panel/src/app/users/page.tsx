@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { DataTable, type ColumnDef } from '@/components/tables/DataTable';
 import { Badge } from '@/components/ui/Badge';
 import { db, collection, query, limit, getDocs, doc, updateDoc, where, onSnapshot, orderBy } from '@repo/firebase-config';
-import { COLLECTIONS, PAGE_SIZE, User } from '@repo/shared-types';
+import { COLLECTIONS, formatOrderCode, PAGE_SIZE, User } from '@repo/shared-types';
 import toast from 'react-hot-toast';
 
 const getBrandColor = (brand: string) => {
@@ -538,7 +538,7 @@ export default function UsersPage() {
                         {userOrders.map(order => (
                           <Link key={order.id} href={`/orders/${order.id}`} onClick={() => setModalMode(null)} className="flex justify-between items-center bg-gray-50 dark:bg-gray-700/50 p-3 rounded-xl border border-gray-100 transition hover:border-brand-200 hover:bg-brand-50/60 dark:border-gray-600 dark:hover:border-brand-500/40 dark:hover:bg-brand-500/10">
                             <div className="flex flex-col">
-                              <span className="text-xs font-bold text-gray-900 dark:text-white">#{order.id.slice(0, 6).toUpperCase()}</span>
+                              <span className="text-xs font-bold text-gray-900 dark:text-white">{formatOrderCode(order.id)}</span>
                               <span className="text-[10px] text-gray-500">{order.restaurantName || order.branchName || 'Restaurant'} • {formatDate(order.createdAt)}</span>
                               {order.source && <span className="text-[10px] text-gray-400">{order.source}</span>}
                             </div>

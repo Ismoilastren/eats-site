@@ -22,6 +22,7 @@ import {
 import {
   COURIER_RADAR_STATUSES,
   formatCurrencyUZS,
+  formatOrderCode,
   normalizeOrderStatus,
 } from '@repo/shared-types';
 import { useAuthStore } from '../../stores/authStore';
@@ -265,7 +266,7 @@ export default function RadarScreen() {
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                     {/* STRICT ID BINDING */}
                     <Text style={{ color: 'white', fontWeight: '900', fontSize: 24, letterSpacing: 2 }}>
-                        #{item.id.slice(0, 6).toUpperCase()}
+                        {formatOrderCode(item.id)}
                     </Text>
                     <View style={{ backgroundColor: 'rgba(249,115,22,0.2)', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 999, borderWidth: 1, borderColor: 'rgba(249,115,22,0.3)' }}>
                         <Text style={{ color: '#f97316', fontWeight: '800', textTransform: 'uppercase', fontSize: 11, letterSpacing: 1 }}>

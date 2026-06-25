@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
-import { formatCurrencyUZS, Order } from '@repo/shared-types';
+import { formatCurrencyUZS, formatOrderCode, Order } from '@repo/shared-types';
 import StatusButton from './StatusButton';
 
 interface OrderCardProps {
@@ -26,7 +26,7 @@ export default function OrderCard({ order }: OrderCardProps) {
     >
       <View className="flex-row justify-between items-center mb-3">
         <Text className="font-bold text-lg text-gray-900">
-          Order #{order.id.slice(-6).toUpperCase()}
+          Order {formatOrderCode(order.id)}
         </Text>
         <Text className="text-gray-500 text-sm">{timeElapsed()}</Text>
       </View>

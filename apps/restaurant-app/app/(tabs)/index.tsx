@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { db, collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp } from '@repo/firebase-config';
-import { COLLECTIONS, Order, OrderStatus, ORDER_STATUS_LABELS } from '@repo/shared-types';
+import { COLLECTIONS, formatOrderCode, Order, OrderStatus, ORDER_STATUS_LABELS } from '@repo/shared-types';
 import { useAuthStore } from '../../stores/authStore';
 import { getOrderItems } from '../../utils/orderItems';
 
@@ -138,7 +138,7 @@ export default function KitchenDisplayDashboard() {
                   {/* Card Header */}
                   <View className="p-4 bg-gray-800 border-b border-gray-700 flex-row justify-between items-center">
                     <View>
-                      <Text className="text-2xl font-black text-white tracking-wider">#{order.id.slice(0, 6).toUpperCase()}</Text>
+                      <Text className="text-2xl font-black text-white tracking-wider">{formatOrderCode(order.id)}</Text>
                       <Text className="text-gray-400 font-semibold text-xs mt-1 uppercase tracking-wider">{orderItems.length} ITEMS</Text>
                     </View>
                     <View className={`px-3 py-1.5 rounded-lg border ${statusCfg.bg} ${statusCfg.border}`}>

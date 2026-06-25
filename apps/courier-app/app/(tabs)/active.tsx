@@ -28,6 +28,7 @@ import {
 import {
   ACTIVE_COURIER_STATUSES,
   formatCurrencyUZS,
+  formatOrderCode,
   getVehicleLabel,
   isTerminalOrderStatus,
   normalizeCoordinate,
@@ -548,7 +549,7 @@ export default function ActiveScreen() {
                 <View style={styles.orderHeader}>
                   <View>
                     <Text style={styles.orderId}>
-                      #{order.id.slice(-6).toUpperCase()}
+                      {formatOrderCode(order.id)}
                     </Text>
                     <View style={styles.vehicleRow}>
                       <Ionicons name={getVehicleIcon(vehicleType)} size={16} color="#f97316" />

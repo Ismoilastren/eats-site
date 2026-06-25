@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { db, doc, onSnapshot, updateDoc, serverTimestamp } from '@repo/firebase-config';
-import { COLLECTIONS, formatCurrencyUZS, Order, OrderStatus, ORDER_STATUS_LABELS } from '@repo/shared-types';
+import { COLLECTIONS, formatCurrencyUZS, formatOrderCode, Order, OrderStatus, ORDER_STATUS_LABELS } from '@repo/shared-types';
 import { getOrderItems, getOrderTotal } from '../../utils/orderItems';
 
 export default function OrderDetailsModal() {
@@ -79,7 +79,7 @@ export default function OrderDetailsModal() {
             <Ionicons name="close" size={28} color="#9CA3AF" />
           </TouchableOpacity>
           <Text className="text-3xl font-black text-white tracking-wide flex-1" numberOfLines={1}>
-            ORDER #{order.id.slice(0, 6).toUpperCase()}
+            ORDER {formatOrderCode(order.id)}
           </Text>
         </View>
         <View className={`shrink-0 max-w-[34%] px-3 py-2 rounded-xl border-2 ml-2 ${statusColors[1]} ${statusColors[2]}`}>

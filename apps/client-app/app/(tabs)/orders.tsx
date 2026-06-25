@@ -12,6 +12,7 @@ import {
   COLLECTIONS,
   formatCurrencyUZS,
   formatFirestoreDate,
+  formatOrderCode,
   isTerminalOrderStatus,
   normalizeOrderStatus,
   Order,
@@ -226,7 +227,7 @@ export default function OrdersScreen() {
                   <View className="flex-row items-start justify-between">
                     <View className="flex-1 pr-4">
                       <Text className="text-xs font-black uppercase tracking-widest text-orange-400">
-                        Order #{item.id.slice(0, 8).toUpperCase()}
+                        Order {formatOrderCode(item.id)}
                       </Text>
                       <Text className="mt-2 text-xl font-black text-white" numberOfLines={1}>
                         {item.restaurantName || 'Restaurant'}

@@ -121,3 +121,8 @@ export const ORDER_STATUS_COLORS: Record<OrderStatus, string> = {
   cancelled: '#f04438',
   rejected: '#b42318',
 };
+
+export function formatOrderCode(orderId: string, length = 6) {
+  const compact = String(orderId || '').replace(/[^a-z0-9]/gi, '').toUpperCase();
+  return compact ? `#${compact.slice(0, length)}` : '#ORDER';
+}

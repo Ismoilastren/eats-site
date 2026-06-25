@@ -9,9 +9,10 @@ type YandexMapPreviewProps = {
   label: string;
   className?: string;
   customer?: { lat: number; lng: number; label?: string };
+  dark?: boolean;
 };
 
-export function YandexMapPreview({ center, label, className = '', customer }: YandexMapPreviewProps) {
+export function YandexMapPreview({ center, label, className = '', customer, dark = false }: YandexMapPreviewProps) {
   const safeCenter = isValidCoordinates(center.lat, center.lng) ? center : TASHKENT_CENTER;
 
   const points: MapPoint[] = [
@@ -29,6 +30,7 @@ export function YandexMapPreview({ center, label, className = '', customer }: Ya
       line={validCustomer ? [safeCenter, validCustomer] : undefined}
       heightClassName={`min-h-44 ${className}`}
       fallbackLabel="Location preview"
+      dark={dark}
     />
   );
 }

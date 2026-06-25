@@ -34,7 +34,9 @@ export type Restaurant = {
   etaMin: number;
   etaMax: number;
   deliveryFee: number;
+  serviceFee: number;
   minOrder: number;
+  description?: string;
   promo?: string;
   isOpen: boolean;
   isFreeDelivery?: boolean;
@@ -141,7 +143,9 @@ export const restaurants: Restaurant[] = specs.map((spec, index) => ({
   etaMin: 18 + (index % 5) * 4,
   etaMax: 30 + (index % 5) * 5,
   deliveryFee: index % 4 === 0 ? 0 : 7000 + (index % 3) * 3000,
+  serviceFee: 3000,
   minOrder: 35000 + (index % 4) * 10000,
+  description: `${spec[2]} serves ${spec[3].slice(0, 2).join(' and ').toLowerCase()} favorites with reliable Tashkent delivery.`,
   promo: index % 3 === 0 ? 'FIRST21' : index % 5 === 0 ? 'Free dessert' : undefined,
   isOpen: index % 6 !== 0,
   isFreeDelivery: index % 4 === 0,

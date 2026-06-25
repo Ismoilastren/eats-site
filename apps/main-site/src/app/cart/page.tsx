@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { ArrowLeft, CreditCard, MapPin, Minus, Plus, ShoppingBasket, Store, Ticket, Trash2, Truck, Wallet } from 'lucide-react';
+import { ArrowLeft, CreditCard, Minus, Plus, ShoppingBasket, Store, Ticket, Trash2, Truck, Wallet, X } from 'lucide-react';
 import { formatCurrencyUZS, isReadableAddress } from '@repo/shared-types';
 import { auth, onAuthStateChanged } from '@repo/firebase-config';
 import { AddressMapPicker } from '@/components/marketplace/AddressMapPicker';
@@ -12,10 +12,17 @@ import { YandexMapPreview } from '@/components/marketplace/YandexMapPreview';
 import { useMarketplace } from '@/context/MarketplaceContext';
 import { TASHKENT_CENTER } from '@/lib/yandexMaps';
 import {
+  createCustomerRecordId,
+  getCardBrand,
   isStoredPaymentMethodValid,
   loadPaymentMethods,
+  maskCardNumber,
+  normalizeCardNumber,
   readStoredPaymentMethods,
+  savePaymentMethod,
   subscribeCustomerProfileStorage,
+  validateCardNumber,
+  validateExpiry,
   type PaymentMethod,
 } from '@/services/customerProfile';
 import { isFirestoreDataSource } from '@/services/marketplace/config';
@@ -54,9 +61,16 @@ export default function CartPage() {
   const [cardsLoading, setCardsLoading] = useState(true);
   const [firebaseUid, setFirebaseUid] = useState(auth.currentUser?.uid || '');
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
+  const [cardModalOpen, setCardModalOpen] = useState(false);
+  const [cardSaving, setCardSaving] = useState(false);
+  const [cardError, setCardError] = useState('');
+  const [cardForm, setCardForm] = useState({
+    number: '',
+    expiry: '',
+    cvv: '',
+    cardholderName: '',
+  });
 
-  const minOrder = cart[0]?.restaurantMinOrder || 0;
-  const belowMinimum = cart.length > 0 && subtotal < minOrder;
   const phoneValid = /^\+?998\d{9}$/.test(phone.replace(/\s/g, ''));
   const isDelivery = deliveryMode === 'delivery';
   const hasConfirmedAddress = Boolean(
@@ -72,7 +86,6 @@ export default function CartPage() {
     ? 'Detected location, Tashkent'
     : address.text.replace(/^Tashkent,\s*/i, '') || 'No address selected';
   const placeOrderDisabled = cart.length === 0
-    || belowMinimum
     || isSubmitting
     || !signedInForCheckout
     || (isDelivery && !hasConfirmedAddress)
@@ -124,6 +137,66 @@ export default function CartPage() {
     };
   }, []);
 
+  const refreshCards = async () => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) {
+      setSavedCards([]);
+      return;
+    }
+    setSavedCards(readStoredPaymentMethods(uid));
+    setSavedCards(await loadPaymentMethods(uid));
+  };
+
+  const handleSaveCard = async () => {
+    const uid = auth.currentUser?.uid;
+    if (!uid) {
+      setCardError('Sign in before adding a payment card.');
+      window.dispatchEvent(new Event('marketplace:open-auth'));
+      return;
+    }
+    const number = normalizeCardNumber(cardForm.number);
+    const expiry = cardForm.expiry.trim();
+    const cardholderName = cardForm.cardholderName.trim().toUpperCase();
+    if (!validateCardNumber(number)) {
+      setCardError('Enter a valid card number.');
+      return;
+    }
+    if (!validateExpiry(expiry)) {
+      setCardError('Enter a valid expiry date in MM/YY format.');
+      return;
+    }
+    if (!/^\d{3,4}$/.test(cardForm.cvv.trim())) {
+      setCardError('Enter a valid CVV. It is checked only and never saved.');
+      return;
+    }
+    if (!cardholderName) {
+      setCardError('Enter the cardholder name.');
+      return;
+    }
+
+    setCardSaving(true);
+    setCardError('');
+    try {
+      await savePaymentMethod(uid, {
+        id: createCustomerRecordId('card'),
+        brand: getCardBrand(number),
+        last4: number.slice(-4),
+        maskedNumber: maskCardNumber(number),
+        expiry,
+        cardholderName,
+        createdAt: new Date().toISOString(),
+      });
+      await refreshCards();
+      setPayment('card');
+      setCardModalOpen(false);
+      setCardForm({ number: '', expiry: '', cvv: '', cardholderName: '' });
+    } catch (saveError) {
+      setCardError(saveError instanceof Error ? saveError.message : 'Could not save payment card.');
+    } finally {
+      setCardSaving(false);
+    }
+  };
+
   const submit = async () => {
     if (cart.length === 0) return;
     if (isSubmitting) return;
@@ -150,10 +223,6 @@ export default function CartPage() {
     }
     if (!phoneValid) {
       setError('Enter a valid Uzbekistan phone number, for example +998901234567.');
-      return;
-    }
-    if (belowMinimum) {
-      setError(`Minimum order is ${formatCurrencyUZS(minOrder)}.`);
       return;
     }
     setIsSubmitting(true);
@@ -296,7 +365,7 @@ export default function CartPage() {
                       <p className="mt-1 text-xs font-bold text-[#9b9a94]">{selectedCard.cardholderName} · {selectedCard.expiry}</p>
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
-                      <Link href="/profile#payment-methods" className="rounded-xl bg-[#fce000] px-3 py-2 text-sm font-black text-[#111]">Add card</Link>
+                      <button type="button" onClick={() => setCardModalOpen(true)} className="rounded-xl bg-[#fce000] px-3 py-2 text-sm font-black text-[#111]">Add card</button>
                       <CreditCard className="text-emerald-600" size={22} />
                     </div>
                   </div>
@@ -306,9 +375,9 @@ export default function CartPage() {
                       <p className="font-black">No valid card saved</p>
                       <p className="mt-1 text-xs font-bold text-[#9b9a94]">Add a card before using card payment.</p>
                     </div>
-                    <Link href="/profile#payment-methods" className="shrink-0 rounded-xl bg-[#fce000] px-3 py-2 text-sm font-black text-[#111]">
+                    <button type="button" onClick={() => setCardModalOpen(true)} className="shrink-0 rounded-xl bg-[#fce000] px-3 py-2 text-sm font-black text-[#111]">
                       Add card
-                    </Link>
+                    </button>
                   </div>
                 )}
               </div>
@@ -331,7 +400,6 @@ export default function CartPage() {
               {discount > 0 && <Row label="Discount" value={`-${formatCurrencyUZS(discount)}`} />}
               <Row label="Total" value={formatCurrencyUZS(total)} strong />
             </div>
-            {belowMinimum && <p className="mt-4 rounded-[14px] bg-[#3d3512] px-4 py-3 text-sm font-black text-[#fce000]">Minimum order: {formatCurrencyUZS(minOrder)}</p>}
             <button onClick={submit} disabled={placeOrderDisabled} className="mt-6 w-full rounded-[14px] bg-[#fce000] px-4 py-5 text-lg font-black text-[#111] disabled:bg-[#454440] disabled:text-[#77756e]">{isSubmitting ? 'Placing order…' : 'Place order'}</button>
             {placeOrderHelper && <p className="mt-3 text-center text-sm font-bold text-[#9b9a94]">{placeOrderHelper}</p>}
           </aside>
@@ -346,6 +414,78 @@ export default function CartPage() {
             setAddressPickerOpen(false);
           }}
         />
+      )}
+      {cardModalOpen && (
+        <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/70 p-4 sm:items-center" role="dialog" aria-modal="true" aria-label="Add payment card">
+          <button type="button" aria-label="Close add card" className="absolute inset-0" onClick={() => setCardModalOpen(false)} />
+          <div className="relative w-full max-w-md rounded-[26px] bg-[#2b2a29] p-5 text-white shadow-2xl ring-1 ring-white/10">
+            <div className="flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-2xl font-black"><CreditCard className="text-[#fce000]" /> Add New Card</h3>
+              <button type="button" aria-label="Close" onClick={() => setCardModalOpen(false)} className="rounded-full bg-[#3a3937] p-2 text-[#aaa8a0] hover:text-white">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="mt-5 space-y-4">
+              <label className="block">
+                <span className="text-xs font-black uppercase tracking-[0.14em] text-[#aaa8a0]">Card number</span>
+                <input
+                  inputMode="numeric"
+                  autoComplete="cc-number"
+                  value={cardForm.number}
+                  onChange={(event) => setCardForm((current) => ({ ...current, number: event.target.value.replace(/[^\d\s]/g, '').replace(/(.{4})/g, '$1 ').trim().slice(0, 23) }))}
+                  placeholder="0000 0000 0000 0000"
+                  className="mt-2 w-full rounded-[14px] border border-white/10 bg-[#343331] px-4 py-4 font-bold outline-none focus:border-[#fce000]"
+                />
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="text-xs font-black uppercase tracking-[0.14em] text-[#aaa8a0]">Expiry</span>
+                  <input
+                    inputMode="numeric"
+                    autoComplete="cc-exp"
+                    value={cardForm.expiry}
+                    onChange={(event) => {
+                      const digits = event.target.value.replace(/\D/g, '').slice(0, 4);
+                      setCardForm((current) => ({ ...current, expiry: digits.length > 2 ? `${digits.slice(0, 2)}/${digits.slice(2)}` : digits }));
+                    }}
+                    placeholder="MM/YY"
+                    className="mt-2 w-full rounded-[14px] border border-white/10 bg-[#343331] px-4 py-4 font-bold outline-none focus:border-[#fce000]"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-black uppercase tracking-[0.14em] text-[#aaa8a0]">CVV</span>
+                  <input
+                    inputMode="numeric"
+                    autoComplete="cc-csc"
+                    value={cardForm.cvv}
+                    onChange={(event) => setCardForm((current) => ({ ...current, cvv: event.target.value.replace(/\D/g, '').slice(0, 4) }))}
+                    placeholder="123"
+                    className="mt-2 w-full rounded-[14px] border border-white/10 bg-[#343331] px-4 py-4 font-bold outline-none focus:border-[#fce000]"
+                  />
+                </label>
+              </div>
+              <label className="block">
+                <span className="text-xs font-black uppercase tracking-[0.14em] text-[#aaa8a0]">Cardholder name</span>
+                <input
+                  autoComplete="cc-name"
+                  value={cardForm.cardholderName}
+                  onChange={(event) => setCardForm((current) => ({ ...current, cardholderName: event.target.value.toUpperCase() }))}
+                  placeholder="JOHN DOE"
+                  className="mt-2 w-full rounded-[14px] border border-white/10 bg-[#343331] px-4 py-4 font-bold outline-none focus:border-[#fce000]"
+                />
+              </label>
+            </div>
+            {cardError && <p className="mt-4 rounded-[14px] bg-[#3a1f1f] px-4 py-3 text-sm font-black text-[#ff9c9c]">{cardError}</p>}
+            <button
+              type="button"
+              onClick={handleSaveCard}
+              disabled={cardSaving}
+              className="mt-5 w-full rounded-[16px] bg-[#fce000] px-4 py-4 text-lg font-black text-black hover:bg-[#ffe530] disabled:opacity-60"
+            >
+              {cardSaving ? 'Saving…' : 'Save Card'}
+            </button>
+          </div>
+        </div>
       )}
       {clearConfirmOpen && (
         <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/65 p-4 sm:items-center" role="dialog" aria-modal="true" aria-label="Clear cart confirmation">

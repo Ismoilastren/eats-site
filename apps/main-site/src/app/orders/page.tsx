@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, ChevronRight, Home, Package, Search } from 'lucide-react';
 import { auth, db, doc, getDoc, onAuthStateChanged } from '@repo/firebase-config';
-import { COLLECTIONS } from '@repo/shared-types';
+import { COLLECTIONS, formatOrderCode } from '@repo/shared-types';
 import { MarketplaceHeader } from '@/components/marketplace/MarketplaceHeader';
 import { useMarketplace, type LocalOrder } from '@/context/MarketplaceContext';
 import { getOrdersForCustomer } from '@/services/marketplace';
@@ -181,7 +181,7 @@ export default function OrdersPage() {
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h2 className="text-xl font-black">Order #{order.id.slice(0, 8).toUpperCase()}</h2>
+                        <h2 className="text-xl font-black">Order {formatOrderCode(order.id)}</h2>
                         <span className={`rounded-full px-3 py-1 text-xs font-bold ${orderStatus.className}`}>
                           {orderStatus.label}
                         </span>

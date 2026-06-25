@@ -19,6 +19,7 @@ export type {
   OrderStatus,
 } from './order';
 export {
+  formatOrderCode,
   ORDER_STATUS_FLOW,
   ORDER_STATUS_LABELS,
   ORDER_STATUS_COLORS,

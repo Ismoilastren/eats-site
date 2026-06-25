@@ -169,8 +169,8 @@ export default function RestaurantPage() {
             <p className="mt-3 font-bold text-[var(--muted)]">{restaurant.cuisine.join(' · ')}</p>
             <div className="mt-4 space-y-2 rounded-2xl bg-[var(--surface-muted)] p-4 font-semibold">
               <p>Schedule: {restaurant.workingHours}</p>
-              <p>Min order: {formatCurrencyUZS(restaurant.minOrder)}</p>
               <p>Delivery: {restaurant.deliveryFee === 0 ? 'Free' : formatCurrencyUZS(restaurant.deliveryFee)}</p>
+              <p>Service fee: {restaurant.serviceFee === 0 ? 'No service fee' : formatCurrencyUZS(restaurant.serviceFee)}</p>
               <p>Delivery time: {restaurant.etaMin}-{restaurant.etaMax} minutes</p>
               <p>Rating: {restaurant.rating} from {restaurant.reviews} reviews</p>
               <p>Restaurant address: {restaurant.address || 'Tashkent'}</p>
@@ -179,7 +179,13 @@ export default function RestaurantPage() {
               <p>Estimated delivery time: {routeEtaMinutes === null ? 'Use the restaurant ETA shown above' : `${routeEtaMinutes} minutes`}</p>
             </div>
             <div className="mt-4">
-              <YandexMapPreview center={restaurant.location} label={restaurant.address || restaurant.name} customer={{ ...customerLocation, label: 'Delivery address' }} />
+              <YandexMapPreview
+                center={restaurant.location}
+                label={restaurant.address || restaurant.name}
+                customer={{ ...customerLocation, label: 'Delivery address' }}
+                className="h-64 min-h-64"
+                dark
+              />
             </div>
             <button onClick={() => setInfoOpen(false)} className="mt-5 w-full rounded-[14px] bg-[var(--accent)] px-4 py-4 font-black text-[var(--accent-text)]">Close</button>
           </div>

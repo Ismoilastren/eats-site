@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { db, collection, query, orderBy, limit, onSnapshot } from '@repo/firebase-config';
-import { COLLECTIONS, Order } from '@repo/shared-types';
+import { COLLECTIONS, formatOrderCode, Order } from '@repo/shared-types';
 
 export function RecentOrders() {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -103,7 +103,7 @@ export function RecentOrders() {
                               {allUsers[order.userId]?.fullName || allUsers[order.userId]?.displayName || order.customerName || 'Unknown User'}
                           </span>
                           <span className="text-xs text-gray-500 uppercase font-mono tracking-wider">
-                              #{order.id.slice(0, 6)}
+                              {formatOrderCode(order.id)}
                           </span>
                       </div>
                   </td>

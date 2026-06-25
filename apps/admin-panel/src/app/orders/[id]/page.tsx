@@ -9,6 +9,7 @@ import {
   OrderStatus,
   formatCurrencyUZS,
   formatFirestoreDate,
+  formatOrderCode,
   getVehicleLabel,
   normalizeOrderStatus,
   normalizeVehicleType,
@@ -319,7 +320,7 @@ export default function AdminOrderDetailPage({ params }: { params: Promise<{ id:
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
             Order Details 
-            <span className="text-brand-600 text-xl font-black font-mono bg-brand-50 px-3 py-1 rounded-lg border border-brand-200 tracking-wider">#{order.id.slice(0, 6).toUpperCase()}</span>
+            <span className="text-brand-600 text-xl font-black font-mono bg-brand-50 px-3 py-1 rounded-lg border border-brand-200 tracking-wider">{formatOrderCode(order.id)}</span>
           </h1>
           <p className="text-sm text-gray-500 mt-1 flex items-center gap-2">
             <Clock size={14} /> {isMounted ? orderDate : 'Loading...'}

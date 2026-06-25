@@ -9,6 +9,7 @@ import {
   ORDER_STATUS_LABELS,
   OrderStatus,
   formatCurrencyUZS,
+  formatOrderCode,
   hasAssignedCourier,
   normalizeCoordinate,
   normalizeOrderStatus,
@@ -273,7 +274,7 @@ export default function DispatchMapPage() {
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.2em] text-gray-500">Selected delivery</p>
                 <h2 className="mt-1 text-2xl font-black text-gray-900 dark:text-white">
-                  {selectedOrder ? `#${selectedOrder.id.slice(-6).toUpperCase()}` : 'No active order selected'}
+                  {selectedOrder ? formatOrderCode(selectedOrder.id) : 'No active order selected'}
                 </h2>
                 {selectedOrder ? (
                   <p className="mt-1 text-sm font-bold text-gray-500">
@@ -354,7 +355,7 @@ export default function DispatchMapPage() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="font-mono text-sm font-black text-gray-900 dark:text-white">#{order.id.slice(-6).toUpperCase()}</p>
+                        <p className="font-mono text-sm font-black text-gray-900 dark:text-white">{formatOrderCode(order.id)}</p>
                         <p className="mt-1 text-sm font-bold text-gray-700 dark:text-gray-200">{getBranchLabel(order)}</p>
                         <p className="mt-1 text-xs font-semibold text-gray-500">{order.deliveryAddress || 'Address missing'}</p>
                       </div>

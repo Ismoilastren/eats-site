@@ -12,6 +12,7 @@ import {
 } from '@repo/firebase-config';
 import {
   COLLECTIONS,
+  formatOrderCode,
   Order,
   OrderStatus,
   formatCurrencyUZS,
@@ -254,7 +255,7 @@ export default function DashboardPage() {
                 <div key={order.id} className="rounded-xl border border-gray-100 p-4 dark:border-gray-800">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <div className="font-semibold text-gray-900 dark:text-white">#{order.id.slice(0, 8).toUpperCase()}</div>
+                      <div className="font-semibold text-gray-900 dark:text-white">{formatOrderCode(order.id)}</div>
                       <div className="text-sm text-gray-500 dark:text-gray-400">{order.customerName || 'Unknown customer'}</div>
                     </div>
                     <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-bold text-brand-700 dark:bg-brand-500/10 dark:text-brand-400">
@@ -278,7 +279,7 @@ export default function DashboardPage() {
                 <div key={order.id} className="rounded-xl border border-error-100 bg-error-50/50 p-4 dark:border-error-500/20 dark:bg-error-500/10">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <div className="font-semibold text-gray-900 dark:text-white">#{order.id.slice(0, 8).toUpperCase()}</div>
+                      <div className="font-semibold text-gray-900 dark:text-white">{formatOrderCode(order.id)}</div>
                       <div className="text-sm text-gray-500 dark:text-gray-400">
                         {order.createdAt ? new Date(getCreatedMillis(order.createdAt)).toLocaleString() : 'No timestamp'}
                       </div>

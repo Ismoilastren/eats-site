@@ -37,6 +37,7 @@ function toMarketplaceRestaurant(restaurant: Restaurant): MarketplaceRestaurant 
     etaMin: Number(restaurant.avgDeliveryTime || 30),
     etaMax: Number(restaurant.avgDeliveryTime || 45),
     deliveryFee: Number(restaurant.deliveryFee || 0),
+    serviceFee: Number((restaurant as Restaurant & { serviceFee?: number }).serviceFee || 3000),
     minOrder: Number(restaurant.minOrderAmount || 0),
     isOpen: restaurant.isActive !== false,
     supportsPickup: true,

@@ -6,21 +6,48 @@ import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { AtSign, Clock3, MapPin, Search, ShoppingBag, Store, Truck, UserRound, X } from 'lucide-react';
 import { useMarketplace } from '@/context/MarketplaceContext';
 import { AddressMapPicker } from './AddressMapPicker';
+import {
+  buildTimeSlots,
+  formatDeliveryTimeLabel,
+  restaurantCuisineLabel,
+  type DeliveryDateKey,
+} from '@/lib/marketplaceAvailability';
 
 export function MarketplaceHeader() {
   const router = useRouter();
-  const { address, setAddress, cartCount, user, deliveryMode, setDeliveryMode, restaurants, dataLoading } = useMarketplace();
+  const {
+    address,
+    setAddress,
+    cartCount,
+    user,
+    deliveryMode,
+    setDeliveryMode,
+    deliveryTime,
+    setDeliveryTime,
+    restaurants,
+    dataLoading,
+  } = useMarketplace();
   const [addressOpen, setAddressOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchActive, setSearchActive] = useState(false);
   const [timeOpen, setTimeOpen] = useState(false);
-  const [deliveryTime, setDeliveryTime] = useState('Now');
+  const [timeDay, setTimeDay] = useState<DeliveryDateKey>(deliveryTime.day);
 
   useEffect(() => {
     const openAuth = () => router.push('/auth/login');
     window.addEventListener('marketplace:open-auth', openAuth);
     return () => window.removeEventListener('marketplace:open-auth', openAuth);
   }, [router]);
+
+  useEffect(() => {
+    if (!searchActive) return undefined;
+    const closeSearch = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest('[data-marketplace-search]')) setSearchActive(false);
+    };
+    document.addEventListener('mousedown', closeSearch);
+    return () => document.removeEventListener('mousedown', closeSearch);
+  }, [searchActive]);
 
   const dispatchSearch = (value: string) => {
     window.dispatchEvent(new CustomEvent('marketplace:search', { detail: value.trim() }));
@@ -51,7 +78,7 @@ export function MarketplaceHeader() {
     if (!query) return restaurants.slice(0, 5).map((restaurant) => ({
       id: restaurant.id,
       title: restaurant.name,
-      subtitle: `${restaurant.etaMin}-${restaurant.etaMax} min · ${restaurant.cuisine.slice(0, 2).join(', ')}`,
+      subtitle: `${restaurant.etaMin}-${restaurant.etaMax} min · ${restaurantCuisineLabel(restaurant)}`,
       href: `/restaurant/${restaurant.slug}`,
     }));
     const matches = restaurants.flatMap((restaurant) => {
@@ -73,7 +100,7 @@ export function MarketplaceHeader() {
         ...(restaurantMatch ? [{
           id: restaurant.id,
           title: restaurant.name,
-          subtitle: `${restaurant.etaMin}-${restaurant.etaMax} min · ${restaurant.cuisine.slice(0, 2).join(', ')}`,
+          subtitle: `${restaurant.etaMin}-${restaurant.etaMax} min · ${restaurantCuisineLabel(restaurant)}`,
           href: `/restaurant/${restaurant.slug}`,
         }] : []),
         ...dishMatches,
@@ -122,11 +149,11 @@ export function MarketplaceHeader() {
             </div>
           </div>
 
-          <div className="relative order-3 min-w-0 flex-[1_1_100%] sm:order-none sm:flex-[1_1_320px] lg:max-w-xl">
+          <div data-marketplace-search className="relative order-3 min-w-0 flex-[1_1_100%] sm:order-none sm:flex-[1_1_320px] lg:max-w-xl">
             <form
               role="search"
               onSubmit={submitSearch}
-              className="flex h-11 items-center gap-3 rounded-full bg-[#2b2a29] px-4 text-[#777570] focus-within:bg-[#353432] focus-within:ring-2 focus-within:ring-[#fce000]"
+              className="flex h-11 items-center gap-3 rounded-full bg-[#2b2a29] px-4 text-[#777570] transition-colors focus-within:bg-[#343331] focus-within:ring-1 focus-within:ring-white/10"
             >
               <Search size={20} className="shrink-0" />
               <input
@@ -192,10 +219,13 @@ export function MarketplaceHeader() {
 
             <button
               type="button"
-              onClick={() => setTimeOpen(true)}
+              onClick={() => {
+                setTimeDay(deliveryTime.day);
+                setTimeOpen(true);
+              }}
               className="hidden h-11 items-center gap-2 rounded-full px-3 text-sm font-semibold text-white hover:bg-[#2b2a29] lg:flex"
             >
-              <Clock3 size={17} className="text-[#aaa8a0]" /> {deliveryTime}
+              <Clock3 size={17} className="text-[#aaa8a0]" /> {formatDeliveryTimeLabel(deliveryTime)}
             </button>
 
             <Link
@@ -250,27 +280,55 @@ export function MarketplaceHeader() {
         />
       )}
       {timeOpen && (
-        <div className="fixed inset-0 z-[85] flex items-end justify-center bg-black/60 p-4 sm:items-center" role="dialog" aria-modal="true" aria-label="Delivery time">
+        <div className="fixed inset-0 z-[85] bg-black/55" role="dialog" aria-modal="true" aria-label="Delivery time">
           <button type="button" aria-label="Close delivery time" className="absolute inset-0" onClick={() => setTimeOpen(false)} />
-          <div className="relative w-full max-w-sm rounded-[28px] bg-[#2b2a29] p-5 text-white shadow-2xl">
-            <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-black">Delivery time</h2>
-              <button type="button" aria-label="Close" onClick={() => setTimeOpen(false)} className="rounded-full bg-[#3a3937] p-2"><X size={18} /></button>
+          <div className="absolute left-1/2 top-[82px] w-[calc(100vw-32px)] max-w-[420px] -translate-x-1/2 rounded-[28px] bg-[#42413f] p-4 text-white shadow-[0_22px_70px_rgba(0,0,0,.55)] ring-1 ring-white/10 lg:left-auto lg:right-[220px] lg:translate-x-0">
+            <div className="flex items-center justify-between gap-3">
+              <div className="grid flex-1 grid-cols-2 rounded-full bg-[#2b2a29] p-1">
+                {(['today', 'tomorrow'] as DeliveryDateKey[]).map((day) => (
+                  <button
+                    key={day}
+                    type="button"
+                    onClick={() => setTimeDay(day)}
+                    className={`rounded-full px-4 py-3 text-sm font-black ${timeDay === day ? 'bg-white text-black' : 'text-[#ddd9cf]'}`}
+                  >
+                    {day === 'today' ? 'Today' : 'Tomorrow'}
+                  </button>
+                ))}
+              </div>
+              <button type="button" aria-label="Close" onClick={() => setTimeOpen(false)} className="rounded-full bg-[#53514d] p-2"><X size={18} /></button>
             </div>
-            <div className="mt-4 space-y-2">
-              {['Now', 'In 30 minutes', 'In 1 hour', 'Tonight 19:00'].map((label) => (
+            <div className="mt-4 max-h-[440px] space-y-1 overflow-y-auto pr-1">
+              {timeDay === 'today' && (
                 <button
-                  key={label}
                   type="button"
                   onClick={() => {
-                    setDeliveryTime(label);
+                    setDeliveryTime({ mode: 'now', day: 'today', label: 'Now' });
                     setTimeOpen(false);
                   }}
-                  className={`w-full rounded-[18px] px-4 py-4 text-left font-black ${deliveryTime === label ? 'bg-[#fce000] text-black' : 'bg-[#3a3937] hover:bg-[#454440]'}`}
+                  className={`flex w-full items-center justify-between rounded-[16px] px-4 py-4 text-left text-lg font-semibold ${deliveryTime.mode === 'now' ? 'bg-[#fce000] text-black' : 'hover:bg-[#33322f]'}`}
                 >
-                  {label}
+                  <span>Now</span>
+                  {deliveryTime.mode === 'now' && <span className="text-xl">✓</span>}
                 </button>
-              ))}
+              )}
+              {buildTimeSlots().map((slot) => {
+                const selected = deliveryTime.mode === 'scheduled' && deliveryTime.day === timeDay && deliveryTime.time === slot;
+                return (
+                  <button
+                    key={`${timeDay}-${slot}`}
+                    type="button"
+                    onClick={() => {
+                      setDeliveryTime({ mode: 'scheduled', day: timeDay, time: slot, label: `${timeDay === 'tomorrow' ? 'Tomorrow' : 'Today'} ${slot}` });
+                      setTimeOpen(false);
+                    }}
+                    className={`flex w-full items-center justify-between rounded-[16px] px-4 py-4 text-left text-lg font-semibold ${selected ? 'bg-[#fce000] text-black' : 'hover:bg-[#33322f]'}`}
+                  >
+                    <span>{slot}</span>
+                    {selected && <span className="text-xl">✓</span>}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>

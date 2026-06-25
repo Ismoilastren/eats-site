@@ -57,9 +57,6 @@ function CartContents() {
     );
   }
 
-  const minOrder = cart[0].restaurantMinOrder;
-  const belowMinimum = subtotal < minOrder;
-
   return (
     <aside className="rounded-[24px] bg-[var(--surface)] p-5 text-[var(--text)] shadow-[var(--shadow)] ring-1 ring-[var(--line)]">
       <div className="flex items-center justify-between">
@@ -97,8 +94,7 @@ function CartContents() {
         {discount > 0 && <Row label="Promo discount" value={`-${formatCurrencyUZS(discount)}`} />}
         <Row label="Total" value={formatCurrencyUZS(total)} strong />
       </div>
-      {belowMinimum && <p className="mt-4 rounded-[14px] bg-[#fff6b8] px-4 py-3 text-sm font-black text-[#5e5200] dark:bg-[#3d3512] dark:text-[var(--accent)]">Minimum order: {formatCurrencyUZS(minOrder)}</p>}
-      <Link href="/cart" className={`mt-5 block rounded-[15px] px-4 py-4 text-center font-black ${belowMinimum ? 'pointer-events-none bg-[var(--surface-strong)] text-[var(--muted)]' : 'bg-[var(--accent)] text-[var(--accent-text)] hover:bg-[var(--accent-hover)]'}`}>
+      <Link href="/cart" className="mt-5 block rounded-[15px] bg-[var(--accent)] px-4 py-4 text-center font-black text-[var(--accent-text)] hover:bg-[var(--accent-hover)]">
         Go to checkout
       </Link>
       {confirmClearOpen && (

@@ -11,6 +11,7 @@ import {
   OrderStatus,
   User,
   formatCurrencyUZS,
+  formatOrderCode,
   hasAssignedCourier,
   normalizeOrderStatus,
 } from '@repo/shared-types';
@@ -714,7 +715,7 @@ export default function OrdersPage() {
                           onClick={() => router.push(`/orders/${order.id}`)}
                           className="font-mono text-sm font-black text-brand-600 hover:underline dark:text-brand-400"
                         >
-                          #{order.id.slice(0, 6).toUpperCase()}
+                          {formatOrderCode(order.id)}
                         </button>
                         <p className="text-xs text-gray-500">{(order as any).posOrderId || (order as any).externalOrderId || 'No POS ID'}</p>
                       </td>

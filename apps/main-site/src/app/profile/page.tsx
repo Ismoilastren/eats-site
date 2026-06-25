@@ -22,6 +22,7 @@ import {
   isValidRecentOrderTotal,
 } from '@/lib/orderDisplay';
 import { geocodeAddress, reverseGeocode } from '@/lib/yandexGeocoder';
+import { formatOrderCode } from '@repo/shared-types';
 import {
   createCustomerRecordId,
   getCardBrand,
@@ -784,7 +785,7 @@ export default function ProfilePage() {
                       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="text-lg font-black text-gray-950">Order #{order.id.substring(0, 8).toUpperCase()}</h3>
+                            <h3 className="text-lg font-black text-gray-950">Order {formatOrderCode(order.id)}</h3>
                             <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-bold ${orderStatus.className}`}>
                               {orderStatus.label}
                             </span>

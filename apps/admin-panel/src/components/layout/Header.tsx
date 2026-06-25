@@ -7,7 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { db, collection, getDocs, limit, onSnapshot, orderBy, query } from '@repo/firebase-config';
-import { COLLECTIONS, normalizeOrderStatus } from '@repo/shared-types';
+import { COLLECTIONS, formatOrderCode, normalizeOrderStatus } from '@repo/shared-types';
 import {
   getCourierName,
   getCourierPhone,
@@ -71,10 +71,9 @@ export function Header() {
       (snapshot) => {
         setNotifications(snapshot.docs.map((item) => {
           const data = item.data() as Record<string, any>;
-          const shortId = String(item.id).slice(0, 6).toUpperCase();
           return {
             id: item.id,
-            title: `Order #${shortId}`,
+            title: `Order ${formatOrderCode(item.id)}`,
             desc: `${normalizeOrderStatus(data.status || 'pending')} · ${data.customerName || 'Customer'} · ${data.restaurantName || data.branchName || 'Branch'}`,
             href: `/orders/${item.id}`,
           };
@@ -116,7 +115,7 @@ export function Header() {
           if (!matches(item.id, data.customerName, data.customerPhone, data.restaurantName, data.branchName, data.status)) return;
           results.push({
             id: `order-${item.id}`,
-            label: `#${item.id.slice(0, 6).toUpperCase()} · ${data.customerName || 'Customer'}`,
+            label: `${formatOrderCode(item.id)} · ${data.customerName || 'Customer'}`,
             detail: `${data.restaurantName || data.branchName || 'Branch'} · ${normalizeOrderStatus(data.status || 'pending')}`,
             href: `/orders/${item.id}`,
             type: 'Order',

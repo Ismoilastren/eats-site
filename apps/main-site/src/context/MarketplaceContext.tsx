@@ -15,6 +15,7 @@ import {
 } from '@/services/marketplace';
 import { readStoredCustomerProfile } from '@/services/customerProfile';
 import { TASHKENT_CENTER } from '@/lib/yandexMaps';
+import { DEFAULT_DELIVERY_TIME, type DeliveryTimeSelection } from '@/lib/marketplaceAvailability';
 import { isReadableAddress, isValidCoordinates, type AppAddress } from '@repo/shared-types';
 import type { CoordinateLike } from '@repo/shared-types';
 import { findMatchingGeozone } from '@/services/marketplace/geozones';
@@ -29,6 +30,7 @@ export type CartLine = Dish & {
   branchName?: string;
   restaurantMinOrder: number;
   restaurantDeliveryFee: number;
+  restaurantServiceFee: number;
 };
 
 export type MockUser = { name: string; phone: string; email?: string };
@@ -98,6 +100,7 @@ type MarketplaceContextValue = {
   promo: Promo | null;
   marketplacePromos: Promo[];
   deliveryMode: DeliveryMode;
+  deliveryTime: DeliveryTimeSelection;
   storageHydrated: boolean;
   dataLoading: boolean;
   dataError: string | null;
@@ -112,6 +115,7 @@ type MarketplaceContextValue = {
   applyPromo: (code: string) => boolean;
   removePromo: () => void;
   setDeliveryMode: (mode: DeliveryMode) => void;
+  setDeliveryTime: (selection: DeliveryTimeSelection) => void;
   reloadOrders: () => Promise<void>;
   placeOrder: (payload: { name: string; phone: string; address: string; paymentMethod?: 'cash' | 'card'; comment?: string }) => Promise<LocalOrder>;
   subtotal: number;
@@ -151,6 +155,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   const [promo, setPromo] = useState<Promo | null>(null);
   const [marketplacePromos, setMarketplacePromos] = useState<Promo[]>([]);
   const [deliveryMode, setDeliveryModeState] = useState<DeliveryMode>('delivery');
+  const [deliveryTime, setDeliveryTimeState] = useState<DeliveryTimeSelection>(DEFAULT_DELIVERY_TIME);
   const [dataLoading, setDataLoading] = useState(true);
   const [dataError, setDataError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -176,6 +181,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     }
     setPromo(readStorage<Promo | null>('marketplace_promo', null));
     setDeliveryModeState(readStorage<DeliveryMode>('marketplace_delivery_mode', 'delivery'));
+    setDeliveryTimeState(readStorage<DeliveryTimeSelection>('marketplace_delivery_time', DEFAULT_DELIVERY_TIME));
     setLoaded(true);
   }, []);
 
@@ -253,7 +259,8 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     }
     localStorage.setItem('marketplace_promo', JSON.stringify(promo));
     localStorage.setItem('marketplace_delivery_mode', JSON.stringify(deliveryMode));
-  }, [address, cart, deliveryMode, favorites, loaded, orders, promo, user]);
+    localStorage.setItem('marketplace_delivery_time', JSON.stringify(deliveryTime));
+  }, [address, cart, deliveryMode, deliveryTime, favorites, loaded, orders, promo, user]);
 
   const addDish = (restaurant: Restaurant, dish: Dish, quantity = 1) => {
     setCart((current) => {
@@ -270,6 +277,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
           branchName: restaurant.branchName,
           restaurantMinOrder: restaurant.minOrder,
           restaurantDeliveryFee: restaurant.deliveryFee,
+          restaurantServiceFee: restaurant.serviceFee,
         }];
       }
       const existing = current.find((item) => item.id === dish.id);
@@ -287,6 +295,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
         branchName: restaurant.branchName,
         restaurantMinOrder: restaurant.minOrder,
         restaurantDeliveryFee: restaurant.deliveryFee,
+        restaurantServiceFee: restaurant.serviceFee,
       }];
     });
   };
@@ -318,10 +327,11 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
   const login = (name: string, phone: string, email?: string) => setUser({ name, phone, email });
   const logout = () => setUser(null);
   const setDeliveryMode = (mode: DeliveryMode) => setDeliveryModeState(mode);
+  const setDeliveryTime = (selection: DeliveryTimeSelection) => setDeliveryTimeState(selection);
 
   const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const deliveryFee = cart.length === 0 || deliveryMode === 'pickup' || promo?.type === 'freeDelivery' ? 0 : cart[0].restaurantDeliveryFee;
-  const serviceFee = subtotal > 0 ? 3000 : 0;
+  const serviceFee = cart.length === 0 || deliveryMode === 'pickup' ? 0 : Number(cart[0].restaurantServiceFee || 0);
   const discount = promo?.type === 'percent' ? Math.round(subtotal * (promo.value / 100)) : 0;
   const total = Math.max(0, subtotal + deliveryFee + serviceFee - discount);
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
@@ -395,6 +405,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     promo,
     marketplacePromos,
     deliveryMode,
+    deliveryTime,
     storageHydrated: loaded,
     dataLoading,
     dataError,
@@ -409,6 +420,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     applyPromo,
     removePromo,
     setDeliveryMode,
+    setDeliveryTime,
     reloadOrders,
     placeOrder,
     subtotal,
@@ -417,7 +429,7 @@ export function MarketplaceProvider({ children }: { children: React.ReactNode })
     discount,
     total,
     cartCount,
-  }), [address, cart, cartCount, dataError, dataLoading, deliveryFee, deliveryMode, discount, favorites, loaded, marketplacePromos, orders, placeOrder, promo, reloadOrders, restaurants, serviceFee, subtotal, total, user]);
+  }), [address, cart, cartCount, dataError, dataLoading, deliveryFee, deliveryMode, deliveryTime, discount, favorites, loaded, marketplacePromos, orders, placeOrder, promo, reloadOrders, restaurants, serviceFee, subtotal, total, user]);
 
   return <MarketplaceContext.Provider value={value}>{children}</MarketplaceContext.Provider>;
 }

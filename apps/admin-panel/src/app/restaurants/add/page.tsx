@@ -38,6 +38,7 @@ export default function AddRestaurantPage() {
     workingHours: '09:00-23:00',
     deliveryTime: '30',
     deliveryFee: '0',
+    serviceFee: '0',
     minOrder: '0',
     isActive: true,
   });
@@ -124,6 +125,7 @@ export default function AddRestaurantPage() {
         workingHours: formData.workingHours.trim(),
         deliveryTime: Number(formData.deliveryTime || 30),
         deliveryFee: Number(formData.deliveryFee || 0),
+        serviceFee: Number(formData.serviceFee || 0),
         minOrder: Number(formData.minOrder || 0),
         isActive: formData.isActive,
         location: {
@@ -209,6 +211,17 @@ export default function AddRestaurantPage() {
                   onChange={(event) => setFormData({ ...formData, deliveryFee: event.target.value })}
                   className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm font-semibold outline-none focus:border-orange-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
                 />
+              </div>
+              <div className="col-span-2">
+                <label className="mb-1 block text-xs font-bold uppercase tracking-wide text-gray-500">Service fee</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={formData.serviceFee}
+                  onChange={(event) => setFormData({ ...formData, serviceFee: event.target.value })}
+                  className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm font-semibold outline-none focus:border-orange-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white"
+                />
+                <p className="mt-1 text-xs text-gray-500">Applied only to delivery orders. Pickup has no delivery or service fee.</p>
               </div>
             </div>
           </div>

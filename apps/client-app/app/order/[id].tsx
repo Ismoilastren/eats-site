@@ -17,6 +17,7 @@ import {
   canClientCancelOrder,
   COLLECTIONS,
   formatCurrencyUZS,
+  formatOrderCode,
   getCourierVehicleType,
   getVehicleLabel,
   normalizeCoordinate,
@@ -239,7 +240,7 @@ function PostDeliveryReview({ order, onDone }: { order: Order; onDone: () => voi
         </View>
         <View style={{ flex: 1 }}>
           <Text style={pdr.bannerTitle}>Order Delivered!</Text>
-          <Text style={pdr.bannerSub}>#{order.id.slice(0, 6).toUpperCase()} • {order.restaurantName}</Text>
+          <Text style={pdr.bannerSub}>{formatOrderCode(order.id)} • {order.restaurantName}</Text>
         </View>
       </View>
 
@@ -599,7 +600,7 @@ export default function NativeOrderTrackingScreen() {
         {/* Header */}
         <View style={ts.header}>
           <Text style={ts.headerLabel}>LIVE TRACKING</Text>
-          <Text style={ts.headerTitle}>Order #{order.id.slice(0, 6).toUpperCase()}</Text>
+          <Text style={ts.headerTitle}>Order {formatOrderCode(order.id)}</Text>
           <Text style={ts.headerSub}>{order.restaurantName}</Text>
         </View>
 

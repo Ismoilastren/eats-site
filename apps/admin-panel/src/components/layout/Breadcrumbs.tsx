@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { formatOrderCode } from '@repo/shared-types';
 
 const ROUTE_LABELS: Record<string, string> = {
   '/': 'Dashboard',
@@ -48,7 +49,7 @@ function buildLabel(path: string, segment: string) {
 
   const parts = path.split('/').filter(Boolean);
   if (parts[0] === 'orders' && parts.length === 2) {
-    return `Order #${decodeURIComponent(segment).slice(0, 6).toUpperCase()}`;
+    return `Order ${formatOrderCode(decodeURIComponent(segment))}`;
   }
   if (parts[0] === 'restaurants' && parts[1] === 'edit') {
     return parts.length === 2 ? 'Edit branch' : humanizeSegment(segment);

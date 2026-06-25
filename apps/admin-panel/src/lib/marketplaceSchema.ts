@@ -59,6 +59,7 @@ export function buildRestaurantPayload(input: {
   workingHours?: string;
   deliveryTime?: number;
   deliveryFee?: number;
+  serviceFee?: number;
   minOrder?: number;
   isActive?: boolean;
   location?: {
@@ -130,6 +131,8 @@ export function buildRestaurantPayload(input: {
       } : {}),
     },
     deliveryFee: Number(input.deliveryFee || 0),
+    serviceFee: Number(input.serviceFee || 0),
+    platformFee: Number(input.serviceFee || 0),
     minOrder: Number(input.minOrder || 0),
     minOrderAmount: Number(input.minOrder || 0),
     etaMin: Math.max(5, Number(input.deliveryTime || 30) - 5),
